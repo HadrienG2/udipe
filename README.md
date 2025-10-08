@@ -1,7 +1,7 @@
-# `udipe`: Solving the riddle of high-throughput UDP
+# `udipe`: Solving the riddle of high-throughput UDP[^credits]
 
 ![UDiPus is facing the sphinx except the sphinx is lots of UDP traffic and all
-the dead people have done it horribly wrong](doc/src/udipe.jpg)[^credits]
+the dead people have done it horribly wrong](doc/src/udipe.jpg)
 
 This is `udipe`, a toolchain for building high-throughput UDP networking systems
 on Linux. It is composed of two components that share a common configuration:
@@ -34,6 +34,6 @@ from the `libudipe` source code under MPLv2.
 
 [^credits]: Illustration from ["Myths and Legends of All Nations; Famous Stories
             from the Greek, German, English, Spanish, Scandinavian, Danish,
-            French, Russian, Bohemian, Italian and other sources", translated
-            and edited by Logan Marshall
-            (1914)](https://www.gutenberg.org/files/20740/20740-h/20740-h.htm).
+            French, Russian, Bohemian, Italian and other
+            sources"](https://www.gutenberg.org/files/20740/20740-h/20740-h.htm),
+            trans./ed. Logan Marshall (1914)
