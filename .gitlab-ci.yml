@@ -7,5 +7,5 @@ Render and upload:
   image:
     name: "ghcr.io/peaceiris/mdbook:latest"
     entrypoint: [""]
-  script: mdbook build doc -d public
+  script: mdbook build doc -d $(pwd)/public
   pages: true
