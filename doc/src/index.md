@@ -1,4 +1,4 @@
-# Introduction
+# Overview
 
 ## Motivation
 
@@ -35,7 +35,7 @@ to make this easier, at least for some categories of applications.
 
 ## Target audience
 
-As mentioned above, `udipe` is not a general-purpose I/O library. It only
+As mentioned above, `udipe` is not a general-purpose networking library. It only
 supports UDP datagram exchanges, and many of its design choices are biased
 towards the needs of physics data acquisition systems. In those systems...
 
@@ -98,14 +98,15 @@ resource-constrained project, `udipe` opts to provide multiple tiers of support:
    than on the production platform. On these distributions `udipe` may not yet
    leverage all the latest kernel and library network performance features.
 3. The minimal support tier is systems that provide the basic POSIX UDP
-   interface (`socket()`, `bind()`, `connect()`, `send()`/`sendto()`/`sendmsg()`
-   and `recv()`/`recvfrom()`/`recvmsg()`), which are supported as they are often
-   used for quick local tests. The goal here is that it should be possible to
-   build and run `libudipe`-based applications on these systems, but...
-    - It does not have not be easy i.e. toolchain and library upgrades may be
-      required.
-    - The resulting application may not perform optimally fast as old network
+   interface (`socket()` + `bind()` + `connect()` +
+   `send()`/`sendto()`/`sendmsg()` + `recv()`/`recvfrom()`/`recvmsg()`). The
+   goal here is that it should be possible to build and run `libudipe`-based
+   applications on these systems and they should behave correctly, but...
+    - No effort is made to keep the build process easy, so e.g. toolchain and
+      library upgrades may be required.
+    - The resulting application may not perform optimally because old network
       performance optimizations that have been superseded by newer ones (e.g.
-      `sendmmsg()`/`recvmmsg()` which has largely been superseded by `io_uring`)
-      may not be supported.
-    - The `udipe-setup` system administration tooling may not be usable.
+      `sendmmsg()`/`recvmmsg()` is mostly replaced by `io_uring`) may not be
+      supported by `udipe`.
+    - The `udipe-setup` system configurator may not be usable (especially on
+      non-Linux platforms like macOS).

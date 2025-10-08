@@ -9,3 +9,5 @@ Render and upload:
     entrypoint: [""]
   script: mdbook build doc -d $(pwd)/public
   pages: true
+
+# TODO: A lot mmore CI needed obviously
