@@ -1,0 +1,31 @@
+# `udipe`: Solving the riddle of high-throughput UDP
+
+![Oedipus facing the sphinx except the sphinx is UDP traffic and all the dead
+people have done it wrong](doc/src/udipe.jpg)
+
+This is `udipe`, a toolchain for building high-throughput UDP networking systems
+on Linux. It is composed of two components that share a common configuration:
+
+- `libudipe` is a C11 networking library. It eases the development of
+  applications that follow the best practices for high-throughput UDP on modern
+  Linux systems, by abstracting them out behind a reasonably easy-to-use
+  interface.
+- `udipe-setup` is a system administration utility that can be used to
+  automatically apply the Linux system configuration tuning that a
+  `libudipe`-based application needs. It comes with a matching
+  `udipe-setup.service` systemd service that lets you automatically reapply this
+  tuning on every system boot.
+
+Find out more in the documentation (TODO: Link to docs lol).
+
+
+## Licensing
+
+This software is subject to the terms of the [Mozilla Public License, v.
+2.0](LICENSE.md).
+
+If you are not familiar with it, the key difference with most other open-source
+licenses is that it has weak copyleft with file-based granularity: when you
+distribute software that is based on a modified version of `libudipe`, you are
+required to also redistribute your modified versions of all source code files
+from the `libudipe` source code under MPLv2.

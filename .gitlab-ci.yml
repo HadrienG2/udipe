@@ -1,0 +1,11 @@
+stages:
+  - pages
+
+Render and upload:
+  interruptible: true
+  stage: pages
+  image:
+    name: "ghcr.io/peaceiris/mdbook:latest"
+    entrypoint: [""]
+  script: mdbook build doc -d public
+  pages: true
