@@ -1,0 +1,9 @@
+include(CMakeFindDependencyMacro)
+
+# TODO: Can capture values from configure here
+# set(my-config-var @my-config-var@)
+
+# TODO: find_package goes here
+
+# Add the targets file
+include("${CMAKE_CURRENT_LIST_DIR}/UdipeTargets.cmake")
