@@ -32,8 +32,8 @@ static inline bool should_log(udipe_log_level_t level) {
     #ifndef NDEBUG
         validate_log(level);
     #endif
-    // It is fine if some logs get dropped during a MIN_LOG_LEVEL transition as
-    // those should not normally happen during the app's runtime phase.
+    // MIN_LOG_LEVEL is not used to synchronize reads and writes to other
+    // variables, so relaxed ordering is fine.
     return level >= atomic_load_explicit(&MIN_LOG_LEVEL, memory_order_relaxed);
 }
 
