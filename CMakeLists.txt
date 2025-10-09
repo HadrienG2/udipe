@@ -23,7 +23,9 @@ target_include_directories(libudipe
            $<INSTALL_INTERFACE:include>)
 set_target_properties(libudipe PROPERTIES PUBLIC_HEADER include/udipe.h)
 
-# TODO: Add unit tests doxygen CPack etc
+# TODO: Add unit tests doxygen etc
 
 install(TARGETS libudipe EXPORT UdipeTargets)
 include(cmake/StupidConfigBoilerplate.cmake)
+
+# TODO: CPack for binary and source tarballs?
