@@ -69,7 +69,7 @@ void setup_log(udipe_log_level_t level, udipe_log_callback_t callback) {
         #endif
         break;
     default:
-        fprintf(stderr, "Attempted to set up udipe invalid log level %d\n", level);
+        fprintf(stderr, "Attempted to set up udipe with invalid log level %d\n", level);
         exit(EXIT_FAILURE);
     }
 
@@ -80,10 +80,13 @@ void setup_log(udipe_log_level_t level, udipe_log_callback_t callback) {
         atomic_store_explicit(&LOG_CALLBACK, (uintptr_t)callback, memory_order_release);
     #else
         uintptr_t old_callback = atomic_exchange_explicit(&LOG_CALLBACK, (uintptr_t)callback, memory_order_release);
-        // TODO: Consider using a non-global logger instead, but this will
-        //       require each and every log function to include a context
-        //       parameter... A possible middle ground is to configure logging
-        //       using a thread-local via some log_enter()/log_exit() pair.
+        // FIXME: Consider using a non-global logger instead, but this will
+        //        require each and every log function to include a context
+        //        parameter which gets painful quickly. A possible middle ground
+        //        is to configure logging using a thread-local via some
+        //        log_enter()/log_exit() pair, that can be abstracted out using
+        //        defer-like functionality or a WITH_LOGGER(ctx, ...) variadic
+        //        macro.
         assert(("Cannot setup udipe twice", old_callback == 0));
     #endif
 }
@@ -103,7 +106,7 @@ void setup_log(udipe_log_level_t level, udipe_log_callback_t callback) {
         case UDIPE_LOG_ERROR:
             break;
         default:
-            fprintf(stderr, "Encountered invalid log statement with log level %d\n", level);
+            fprintf(stderr, "Encountereds log() call with invalid log level %d\n", level);
             exit(EXIT_FAILURE);
         };
     }
