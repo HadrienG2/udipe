@@ -6,10 +6,10 @@ default:
   image: "${CI_REGISTRY_IMAGE}:${TAG_PIPELINE_SELF}"
 
 stages:
-  - container
-  - build
-  - deploy
-  - cleanup
+  - Environment
+  - Build
+  - Deploy
+  - Cleanup
 
 # Allow both direct push and merge request, but deduplicate local MR builds
 workflow:
@@ -30,8 +30,8 @@ workflow:
 
 # === Set up a temporary container image for this pipeline ===
 
-Container setup:
-  stage: container
+Setup temporary image:
+  stage: Environment
   image:
       name: gcr.io/kaniko-project/executor:debug
       entrypoint: [""]
@@ -46,8 +46,8 @@ Container setup:
         --cleanup \
         --push-retry 1 \
         --use-new-run \
-        --context "${CI_PROJECT_DIR}" \
-        --dockerfile "${CI_PROJECT_DIR}/Dockerfile" \
+        --context "${CI_PROJECT_DIR}/CI" \
+        --dockerfile "${CI_PROJECT_DIR}/CI/Dockerfile" \
         --destination "${CI_REGISTRY_IMAGE}:${TAG_PIPELINE_SELF}"  \
         --destination "${CI_REGISTRY_IMAGE}:${TAG_PIPELINE_LATEST}"
   # HACK: IN2P3 gitlab seems to have caching issues and report image uploads as
@@ -58,7 +58,7 @@ Container setup:
 # === Build the code and docs ===
 
 .build:
-  stage: build
+  stage: Build
   interruptible: true
 
 Code and doxygen:
@@ -105,7 +105,7 @@ Packages:
 # === Publish all the artifacts (master branch only) ===
 
 .deploy:
-  stage: deploy
+  stage: Deploy
   interruptible: false
   rules:
     - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
@@ -124,14 +124,14 @@ pages:
 
 # === Delete the temporary container image ===
 
-Container cleanup:
-  stage: cleanup
+Delete temporary image:
+  stage: Cleanup
   image:
     name: gcr.io/go-containerregistry/crane:debug
     entrypoint: [""]
   interruptible: false
   when: always
-  needs: ["Container setup"]
+  needs: ["Setup temporary image"]
   before_script:
     - crane auth login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
   script:
