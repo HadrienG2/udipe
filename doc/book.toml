@@ -1,5 +1,13 @@
 [book]
+title = "High-throughput UDP with udipe"
 authors = ["Hadrien Grasland"]
 language = "en"
 src = "src"
-title = "High-throughput UDP with udipe"
+multilingual = false
+
+[output.html]
+smart-punctuation = true
+git-repository-url = "https://gitlab.in2p3.fr/grasland/udipe"
+git-repository-icon = "fa-gitlab"
+edit-url-template = "https://gitlab.in2p3.fr/grasland/udipe/-/edit/main/doc/{path}"
+
