@@ -16,9 +16,9 @@ static void default_log_callback(void* /* context */,
                           const char message[]) {
     // Timestamp log as early as possible
     clock_t timestamp = clock();
-    assert(timestamp > 0);
+    assert(timestamp >= 0);
     size_t time_secs = (size_t)(timestamp / CLOCKS_PER_SEC);
-    size_t time_fract = (size_t)(timestamp % CLOCKS_PER_SEC);
+    size_t time_fract = (size_t)(timestamp) * 1000000 / CLOCKS_PER_SEC;
 
     // Translate log level into a textual representation
     const char* level_string;
@@ -46,7 +46,7 @@ static void default_log_callback(void* /* context */,
     };
 
     // Display the log on stderr
-    fprintf(stderr, "[%5u.%06u %s %s] %s\n", time_secs, time_fract, level_string, location, message);
+    fprintf(stderr, "[%5zu.%06zu %s %s] %s\n", time_secs, time_fract, level_string, location, message);
 }
 
 

@@ -20,7 +20,8 @@ set_property(GLOBAL PROPERTY C_VISIBILITY_PRESET hidden)
 include(GNUInstallDirs)
 
 add_compile_options(-Wall -Wextra -Wconversion -Wduplicated-cond
-                    -Wduplicated-branches -Wnull-dereference -Wdouble-promotion)
+                    -Wduplicated-branches -Wnull-dereference -Wdouble-promotion
+                    -Wno-unused-value)
 
 
 ### Optional features ###
