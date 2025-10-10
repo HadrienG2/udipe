@@ -1,14 +1,18 @@
 #pragma once
 
-//! \file udipe/log.h
+//! \file
 //! \brief Logging configuration
+//!
+//! This header is the home of \ref udipe_log_config_t, the subset of \ref
+//! udipe_config_t that controls `libudipe`'s logging behavior.
+
 
 /// Log level/priority
 ///
 /// `udipe` uses the standard logging convention where logs have various
 /// priorities. In LoggerConfig, a certain minimal priority can be specified,
 /// and all logs above this priority are being logged.
-typedef enum udipe_log_level_t {
+typedef enum udipe_log_level_e {
     /// Detailed debugging logs
     ///
     /// This is used for very verbose logs that are only useful when debugging
@@ -68,10 +72,11 @@ typedef enum udipe_log_level_t {
 
     /// Default configuration placeholder for \ref udipe_log_config_t::min_level
     ///
-    /// The default is to emit logs of priority >= `INFO` in `Release` builds
-    /// and additionally emit logs of priority `DEBUG` in Debug builds.
+    /// The default is to emit logs of priority >= `INFO` in all builds, and
+    /// additionally emit logs of priority `DEBUG` in `Debug` builds.
     UDIPE_LOG_DEFAULT = 0
 } udipe_log_level_t;
+
 
 /// Logging callback
 ///
@@ -90,12 +95,17 @@ typedef void (*udipe_log_callback_t)(void* /*context */,
                                      const char[] /*location*/,
                                      const char[] /*message*/);
 
+
 /// Logging configuration
-typedef struct udipe_log_config_t {
+///
+/// This data structure controls `libudipe`'s logging behavior. Like other
+/// configuration data structures, it is designed such that zero-initializing it
+/// should result in sane defaults for many applications.
+typedef struct udipe_log_config_s {
     /// Minimal log level/priority to be reported
     ///
     /// If this is left at `DEFAULT` (`0`), `udipe` will emit logs of priority
-    /// >= `INFO` in `Release` builds and additionally emit logs of priority
+    /// >= `INFO` in all builds and additionally emit logs of priority
     /// `DEBUG` in `Debug` builds.
     udipe_log_level_t min_level;
 

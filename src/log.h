@@ -1,10 +1,10 @@
 #pragma once
 
-//! \file log.h
+//! \file
 //! \brief Message logger
 //!
-//! This is the facility used by udipe to report various events throughout the
-//! library execution lifecycle.
+//! This code module implements the logging facility used by udipe to report
+//! various events throughout the library execution lifecycle.
 
 #include <udipe/log.h>
 
@@ -17,11 +17,11 @@
 
 /// Message logger
 ///
-/// This struct is created by setup_log() and contains all information needed
-/// to perform logging using the primitives defined below.
+/// This struct is created by log_initialize() and contains all information
+/// needed to perform logging using the primitives from `src/log.h`.
 ///
 /// For now, this is just a typedef of \ref udipe_log_config_t which encodes the
-/// extra invariant that all default placeholders have been replaced with
+/// extra invariant that all zero placeholders have been replaced with
 /// corresponding default values.
 typedef udipe_log_config_t logger_t;
 
@@ -29,12 +29,12 @@ typedef udipe_log_config_t logger_t;
 ///
 /// This should be done as early as possible during the `udipe` initialization
 /// process in order to reduce the amount of code that cannot perform logging.
-logger_t setup_log(udipe_log_config_t callback);
+logger_t log_initialize(udipe_log_config_t callback);
 
 ///@}
 
 
-/// \name with_logger() macro
+/// \name with_logger() thread setup
 ///@{
 
 /// Thread-local logger (implementation detail of with_logger())
@@ -43,12 +43,12 @@ logger_t setup_log(udipe_log_config_t callback);
 /// lightweight log syntax.
 extern thread_local const logger_t* udipe_thread_logger;
 
-/// Restore old `udipe_thread_logger` (implementation detail of with_logger())
+/// Restore `udipe_thread_logger` (implementation detail of with_logger())
 ///
 /// This helper function enables with_logger() to clean up after itself through
 /// the GNU `__cleanup__` attribute.
-static inline void restore_thread_logger(const logger_t* old_logger) {
-    udipe_thread_logger = old_logger;
+static inline void restore_thread_logger(const logger_t** prev_logger) {
+    udipe_thread_logger = *prev_logger;
 }
 
 /// Set up logging within a certain code scope
@@ -61,11 +61,11 @@ static inline void restore_thread_logger(const logger_t* old_logger) {
 /// worker thread.
 #define with_logger(logger_ptr, ...)  \
     do {  \
-        const logger_t* udipe_old_logger  \
+        const logger_t* udipe_prev_logger  \
                         __attribute__((__cleanup__(restore_thread_logger)))  \
                         = udipe_thread_logger;  \
         udipe_thread_logger = (logger_ptr);  \
-        if(true) __VA_ARGS__  \
+        do __VA_ARGS__ while(false);  \
     } while(false)
 
 ///@}
@@ -113,11 +113,11 @@ static inline bool log_enabled(udipe_log_level_t level) {
 /// ahead of time whether this log level is enabled.
 #define log(level, message)  \
     do {  \
-        const LogLevel udipe_level = (level);  \
+        const udipe_log_level_t udipe_level = (level);  \
         if (log_enabled(udipe_level)) {  \
             (udipe_thread_logger->callback)(udipe_thread_logger->context,  \
                                             udipe_level,  \
-                                            "libudipe::" __func__,  \
+                                            __func__,  \
                                             (message));  \
         }  \
     } while(false)

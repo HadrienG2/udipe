@@ -1,6 +1,6 @@
 #pragma once
 
-/// \file udipe/visibility.h
+/// \file
 /// \brief Symbol visibility configuration
 ///
 /// This project uses GCC's `-fvisibility=hidden` model, i.e. all functions
@@ -16,8 +16,9 @@
 /// `udipe` internally **and** by external clients of udipe. And enforcing this
 /// visibility is the job of \ref UDIPE_PUBLIC.
 
-/// Declare a function a public
+
+/// Declare a function public
 ///
 /// This is used to annotate function declarations so that udipe can use them
-/// internally with optimal performance and external users can use them too.
+/// internally with optimal performance yet external users can use them too.
 #define UDIPE_PUBLIC __attribute__((visibility("default")))

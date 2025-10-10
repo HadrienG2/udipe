@@ -50,7 +50,7 @@ static void default_log_callback(void* /* context */,
 }
 
 
-logger_t setup_log(udipe_log_config_t config) {
+logger_t log_initialize(udipe_log_config_t config) {
     // Select and configure log level
     switch (config.min_level) {
     case UDIPE_LOG_TRACE:

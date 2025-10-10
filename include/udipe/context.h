@@ -1,0 +1,78 @@
+#pragma once
+
+//! \file
+//! \brief Core `libudipe` context
+//!
+//! This header is the home of \ref udipe_context_t, the core context object
+//! that you will need for any nontrivial interaction with the `libudipe` API.
+//!
+//! It also provides the following related tools:
+//!
+//! - udipe_initialize(), the function that builds \ref udipe_context_t, which
+//!   you must call during the initialization stage of your application
+//! - \ref udipe_config_t, the configurable parameters of udipe_initialize()
+//! - udipe_finalize(), the function that destroys \ref udipe_context_t, which
+//!   you must call during the finalization stage of your application.
+
+#include "log.h"
+#include "visibility.h"
+
+
+/// Core `libudipe` configuration
+///
+/// This data structure is used to configure the behavior of udipe_initialize().
+/// It is designed such that zero-initializing it with memset() should result in
+/// sane defaults for many applications.
+typedef struct udipe_config_s {
+    /// Logging configuration
+    ///
+    /// This member controls `libudipe`'s logging behavior. By default, status
+    /// messages are logged to `stderr` when they have priority >= \link
+    /// #UDIPE_LOG_INFO `INFO` \endlink, and in `Debug` builds messages of
+    /// priority \link #UDIPE_LOG_DEBUG `DEBUG` \endlink are logged too.
+    udipe_log_config_t log;
+} udipe_config_t;
+
+
+/// Core `libudipe` context
+///
+/// This data structure is built by udipe_initialize() and can subsequently be
+/// passed to most `libudipe` functions entry points for the purpose of
+/// performing UDP network operations.
+///
+/// Throughout its useful lifetime, you must treat this object as opaque
+/// object and not attempt to read or modify it in any way other than by passing
+/// it to `libudipe` functions.
+///
+/// Once you are done with `libudipe`, you can pass this object back to
+/// udipe_finalize() to destroy it.
+typedef struct udipe_context_s udipe_context_t;
+
+
+/// Initialize a \link #udipe_context_t `libudipe` context \endlink
+///
+/// You should normally only need to call this function once at the start of
+/// your application. It is configured using a \ref udipe_config_t data
+/// structure, which is designed to be zero-initialization safe, and it produces
+/// the opaque \link #udipe_context_t `udipe_context_t*` \endlink pointer that
+/// you will need to use most other functions from `libudipe`
+///
+/// You must not attempt to read or modify the resulting \ref udipe_context_t
+/// object in any way until you are done with `libudipe`, at which point you
+/// must pass it to udipe_finalize() to safely destroy it before the application
+/// terminates.
+UDIPE_PUBLIC udipe_context_t* udipe_initialize(udipe_config_t config);
+
+
+/// Finalize a \link #udipe_context_t `libudipe` context \endlink
+///
+/// This function cancels all unfinished `libudipe` transactions, waits for
+/// uninterruptible asynchronous work to complete, and liberates the resources
+/// formerly allocated by `udipe_initialize()`.
+///
+/// Although udipe_finalize() may take a short amount of time to complete, its
+/// pointer invalidation effect must be considered instantaneous: starting
+/// from the moment where you _start_ calling this function, you must not call
+/// any `libudipe` function with this `udipe_context_t*` parameter from any of
+/// your other application threads.
+UDIPE_PUBLIC void udipe_finalize(udipe_context_t* context);

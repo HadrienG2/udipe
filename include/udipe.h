@@ -1,6 +1,6 @@
 #pragma once
 
-//! \file udipe.h
+//! \file
 //! \brief Catch-all header for the udipe library.
 //!
 //! Consider using more focused `udipe/xyz.h` headers for clarity.
@@ -19,5 +19,6 @@
 //! document the internal components of the library within the `src/` directory
 //! of the `libudipe` source tree.
 
+#include <udipe/context.h>
 #include <udipe/log.h>
 #include <udipe/visibility.h>

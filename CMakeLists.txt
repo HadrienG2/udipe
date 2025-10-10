@@ -53,13 +53,17 @@ endif()
 
 add_library(udipe src/log.c)
 add_library(Udipe::udipe ALIAS udipe)
+set(udipe_relative_headers include/udipe.h
+                           include/udipe/context.h
+                           include/udipe/log.h
+                           include/udipe/visibility.h)
 target_sources(udipe
                PUBLIC FILE_SET HEADERS
                       BASE_DIRS include
-                      FILES include/udipe.h
-                            include/udipe/log.h
-                            include/udipe/visibility.h
-               PRIVATE src/log.c
+                      FILES ${udipe_relative_headers}
+               PRIVATE src/context.c
+                       src/context.h
+                       src/log.c
                        src/log.h)
 target_include_directories(udipe
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -79,12 +83,14 @@ if (UDIPE_BUILD_DOXYGEN)
         set(DOXYGEN_WARN_AS_ERROR)
     endif()
 
-    get_target_property(documented_source udipe HEADER_SET)
+    set(documented_source ${udipe_relative_headers})
     if (UDIPE_BUILD_DOXYGEN_INTERNAL)
         set(DOXYGEN_INTERNAL_DOCS 1)
         set(DOXYGEN_SOURCE_BROWSER 1)
         get_target_property(private_source udipe SOURCES)
         list(APPEND documented_source ${private_source})
+    else()
+        set(DOXYGEN_MAX_INITIALIZER_LINES 2)
     endif()
 
     doxygen_add_docs(doxygen ${documented_source} ALL USE_STAMP_FILE)
