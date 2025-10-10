@@ -43,7 +43,7 @@ logger_t setup_log(udipe_log_config_t callback);
 /// lightweight log syntax.
 extern thread_local const logger_t* udipe_thread_logger;
 
-/// Restore old \ref udipe_thread_logger (implementation detail of with_logger())
+/// Restore old `udipe_thread_logger` (implementation detail of with_logger())
 ///
 /// This helper function enables with_logger() to clean up after itself through
 /// the GNU `__cleanup__` attribute.
