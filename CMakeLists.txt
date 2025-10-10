@@ -19,6 +19,9 @@ set_property(GLOBAL PROPERTY C_VISIBILITY_PRESET hidden)
 
 include(GNUInstallDirs)
 
+add_compile_options(-Wall -Wextra -Wconversion -Wduplicated-cond
+                    -Wduplicated-branches -Wnull-dereference -Wdouble-promotion)
+
 
 ### Optional features ###
 
@@ -30,6 +33,11 @@ option(UDIPE_BUILD_DOXYGEN_INTERNAL
 mark_as_advanced(UDIPE_BUILD_DOXYGEN_INTERNAL)
 if(UDIPE_BUILD_DOXYGEN_INTERNAL)
     set(UDIPE_BUILD_DOXYGEN ON)
+endif()
+
+option(UDIPE_WERROR "Treat GCC and doxygen warnings as errors" OFF)
+if (UDIPE_WERROR)
+    add_compile_options(-Werror)
 endif()
 
 
@@ -66,6 +74,10 @@ if (UDIPE_BUILD_DOXYGEN)
     set(DOXYGEN_OPTIMIZE_OUTPUT_FOR_C 1)
     set(DOXYGEN_REPEAT_BRIEF 0)
     set(DOXYGEN_WARN_IF_UNDOC_ENUM_VAL 1)
+    if (UDIPE_WERROR)
+        set(DOXYGEN_WARN_AS_ERROR)
+    endif()
+
     get_target_property(documented_source udipe HEADER_SET)
     if (UDIPE_BUILD_DOXYGEN_INTERNAL)
         set(DOXYGEN_INTERNAL_DOCS 1)
@@ -73,6 +85,7 @@ if (UDIPE_BUILD_DOXYGEN)
         get_target_property(private_source udipe SOURCES)
         list(APPEND documented_source ${private_source})
     endif()
+
     doxygen_add_docs(doxygen ${documented_source} ALL USE_STAMP_FILE)
 endif()
 

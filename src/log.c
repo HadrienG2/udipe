@@ -16,8 +16,9 @@ static void default_log_callback(void* /* context */,
                           const char message[]) {
     // Timestamp log as early as possible
     clock_t timestamp = clock();
-    clock_t time_secs = timestamp / CLOCKS_PER_SEC;
-    clock_t time_fract = timestamp % CLOCKS_PER_SEC;
+    assert(timestamp > 0);
+    size_t time_secs = (size_t)(timestamp / CLOCKS_PER_SEC);
+    size_t time_fract = (size_t)(timestamp % CLOCKS_PER_SEC);
 
     // Translate log level into a textual representation
     const char* level_string;
