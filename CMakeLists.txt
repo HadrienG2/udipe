@@ -1,3 +1,5 @@
+### Basic CMake configuration ###
+
 # - Our minimal support target is the CMake version distributed by the Ubuntu
 #   LTS that we use in production, currently 24.04.
 # - Our latest tested target is the CMake version distributed by Arch Linux,
@@ -9,27 +11,36 @@ project(Udipe
         DESCRIPTION "Solving the riddle of high-throughput UDP"
         HOMEPAGE_URL https://gitlab.in2p3.fr/grasland/udipe
         LANGUAGES C)
+
 set_property(GLOBAL PROPERTY C_STANDARD 11)
 set_property(GLOBAL PROPERTY C_STANDARD_REQUIRED ON)
 set_property(GLOBAL PROPERTY C_EXTENSIONS ON)
 set_property(GLOBAL PROPERTY C_VISIBILITY_PRESET hidden)
 
 include(GNUInstallDirs)
-include(CMakeDependentOption)
+
+
+### Optional features ###
 
 option(UDIPE_BUILD_DOXYGEN "Build the Doxygen documentation" OFF)
+
 option(UDIPE_BUILD_DOXYGEN_INTERNAL
        "Allow UDIPE_BUILD_DOXYGEN to cover implementation details"
        OFF)
 mark_as_advanced(UDIPE_BUILD_DOXYGEN_INTERNAL)
-
 if(UDIPE_BUILD_DOXYGEN_INTERNAL)
     set(UDIPE_BUILD_DOXYGEN ON)
 endif()
 
+
+### Dependency management ###
+
 if(UDIPE_BUILD_DOXYGEN)
     find_package(Doxygen REQUIRED)
 endif()
+
+
+### libudipe ###
 
 add_library(udipe src/log.c)
 add_library(Udipe::udipe ALIAS udipe)
@@ -45,6 +56,10 @@ target_include_directories(udipe
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>)
+install(TARGETS udipe EXPORT UdipeTargets FILE_SET HEADERS)
+
+
+### Doxygen documentation ###
 
 if (UDIPE_BUILD_DOXYGEN)
     set(DOXYGEN_EXTRACT_ALL 1)
@@ -57,8 +72,11 @@ if (UDIPE_BUILD_DOXYGEN)
     doxygen_add_docs(doxygen ${documented_source} ALL USE_STAMP_FILE)
 endif()
 
+
 # TODO: Add unit tests etc
 
-install(TARGETS udipe EXPORT UdipeTargets FILE_SET HEADERS)
+
+### Packaging for downstream users ###
+
 include(cmake/StupidConfigBoilerplate.cmake)
 include(cmake/StupidCPackBoilerplate.cmake)
