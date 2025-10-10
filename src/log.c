@@ -33,7 +33,7 @@ static void default_log_callback(void* /* context */,
         level_string = "INFO";
         break;
     case UDIPE_LOG_WARNING:
-        level_string = "WARNING";
+        level_string = "WARN";
         break;
     case UDIPE_LOG_ERROR:
         level_string = "ERROR";
@@ -46,7 +46,7 @@ static void default_log_callback(void* /* context */,
     };
 
     // Display the log on stderr
-    fprintf(stderr, "[%5zu.%06zu %s %s] %s\n", time_secs, time_fract, level_string, location, message);
+    fprintf(stderr, "[%5zu.%06zu %5s %s] %s\n", time_secs, time_fract, level_string, location, message);
 }
 
 
