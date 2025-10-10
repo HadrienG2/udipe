@@ -81,6 +81,8 @@ Website:
       artifacts: true
   script:
     - mdbook build doc -d "$(pwd)/public"
+    # mdBook does not currently copy the doxygen render correctly, but it may
+    # do so in the future, so let's be cautious for now.
     - if [[ -e public/doxygen ]]; then rm -rf public/doxygen; fi
     - mv build/html public/doxygen
   artifacts:
