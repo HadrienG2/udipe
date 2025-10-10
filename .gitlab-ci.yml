@@ -74,10 +74,14 @@ Code and doxygen:
 
 # TODO: Add unit tests once CTest is operational
 
-mdBook:
+Website:
   extends: .build
+  needs:
+    - job: "Code and doxygen"
+      artifacts: true
   script:
     - mdbook build doc -d "$(pwd)/public"
+    - unlink public/doxygen >/dev/null 2>&1; mv build/html public/doxygen
   artifacts:
     expire_in: "1 week"
     paths:
@@ -109,12 +113,9 @@ Packages:
 pages:
   extends: .deploy
   needs:
-    - job: "Code and doxygen"
-      artifacts: true
-    - job: "mdBook"
+    - job: "Website"
       artifacts: true
   script:
-    - unlink public/doxygen; mv build/html public/doxygen
     - echo "Pages can be viewed on ${CI_PAGES_URL}"
   artifacts:
     paths:
