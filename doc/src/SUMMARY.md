@@ -1,6 +1,6 @@
 # Summary
 
-- [Overview](./index.md)
+- [Overview](index.md)
 - [Installation]()
 - [Theory]()
     - [Hardware]()
@@ -10,3 +10,4 @@
     - [Configuration]()
     - [`libudipe`]()
     - [`udipe-config`]()
+- [API](doxygen/index.html)
