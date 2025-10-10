@@ -1,21 +1,19 @@
-#include "udipe_internal.h"
+#include "log.h"
 
 #include <assert.h>
-#include <limits.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
 
-atomic_int MIN_LOG_LEVEL = INT_MIN;
-
-//< Pointer to the udipe_log_callback_t that should be used for logging
-atomic_uintptr_t LOG_CALLBACK = 0;
-
-
-//< Default logging logic when the user does not override it
-void default_log_callback(udipe_log_level_t level, const char* location, const char* message) {
+/// Default log callback
+///
+/// This is the \ref udipe_log_config_t::callback that is used when the user
+/// does not specify one. It logs to `stderr` with basic formatting.
+static void default_log_callback(void* /* context */,
+                          udipe_log_level_t level,
+                          const char location[],
+                          const char message[]) {
     // Timestamp log as early as possible
     clock_t timestamp = clock();
     clock_t time_secs = timestamp / CLOCKS_PER_SEC;
@@ -51,53 +49,39 @@ void default_log_callback(udipe_log_level_t level, const char* location, const c
 }
 
 
-void setup_log(udipe_log_level_t level, udipe_log_callback_t callback) {
-    // Select and configure log level, memory ordering is enforced below
-    switch (level) {
+logger_t setup_log(udipe_log_config_t config) {
+    // Select and configure log level
+    switch (config.min_level) {
     case UDIPE_LOG_TRACE:
     case UDIPE_LOG_DEBUG:
     case UDIPE_LOG_INFO:
     case UDIPE_LOG_WARNING:
     case UDIPE_LOG_ERROR:
-        atomic_store_explicit(&MIN_LOG_LEVEL, level, memory_order_relaxed);
         break;
     case UDIPE_LOG_DEFAULT:
         #ifdef NDEBUG
-            atomic_store_explicit(&MIN_LOG_LEVEL, UDIPE_LOG_INFO, memory_order_relaxed);
+            config.min_level = UDIPE_LOG_INFO;
         #else
-            atomic_store_explicit(&MIN_LOG_LEVEL, UDIPE_LOG_DEBUG, memory_order_relaxed);
+            config.min_level = UDIPE_LOG_DEBUG;
         #endif
         break;
     default:
-        fprintf(stderr, "Attempted to set up udipe with invalid log level %d\n", level);
+        fprintf(stderr, "Attempted to configure udipe logging with invalid min_level %d\n", config.min_level);
         exit(EXIT_FAILURE);
     }
 
-    // Configure logging callback + make sure any thread which sees the logging
-    // callback also sees all previous logging setup steps via release ordering
-    if (!callback) callback = default_log_callback;
-    #ifdef NDEBUG
-        atomic_store_explicit(&LOG_CALLBACK, (uintptr_t)callback, memory_order_release);
-    #else
-        uintptr_t old_callback = atomic_exchange_explicit(&LOG_CALLBACK, (uintptr_t)callback, memory_order_release);
-        // FIXME: Consider using a non-global logger instead, but this will
-        //        require each and every log function to include a context
-        //        parameter which gets painful quickly. A possible middle ground
-        //        is to configure logging using a thread-local via some
-        //        log_enter()/log_exit() pair, that can be abstracted out using
-        //        defer-like functionality or a WITH_LOGGER(ctx, ...) variadic
-        //        macro.
-        assert(("Cannot setup udipe twice", old_callback == 0));
-    #endif
+    // Configure logging callback
+    if (!config.callback) config.callback = default_log_callback;
+    return config;
 }
+
+
+thread_local const logger_t* udipe_thread_logger = NULL;
 
 
 #ifndef NDEBUG
     void validate_log(udipe_log_level_t level) {
-        // Debug assertions cannot enforce meaningful memory ordering as they
-        // are not present in all builds
-        uintptr_t callback = atomic_load_explicit(&LOG_CALLBACK, memory_order_relaxed);
-        assert(("No logging allowed before setup_log() is called", callback));
+        assert(("No logging allowed outside of with_log()", udipe_thread_logger));
         switch (level) {
         case UDIPE_LOG_TRACE:
         case UDIPE_LOG_DEBUG:
@@ -106,17 +90,8 @@ void setup_log(udipe_log_level_t level, udipe_log_callback_t callback) {
         case UDIPE_LOG_ERROR:
             break;
         default:
-            fprintf(stderr, "Encountereds log() call with invalid log level %d\n", level);
+            fprintf(stderr, "Encountered log() call with invalid log level %d\n", level);
             exit(EXIT_FAILURE);
         };
     }
 #endif
-
-
-void do_log(udipe_log_level_t level, const char* location, const char* message) {
-    // Acquire ordering to ensure that if log callback is visible, logger state
-    // is visible too from the perspective of the current thread
-    udipe_log_callback_t callback = (udipe_log_callback_t)atomic_load_explicit(&LOG_CALLBACK, memory_order_acquire);
-    assert(("No logging allowed before setup_log() is called", callback));
-    callback(level, location, message);
-}

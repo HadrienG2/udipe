@@ -3,29 +3,62 @@
 # - Our latest tested target is the CMake version distributed by Arch Linux,
 #   4.1.2 at the time of writing. (TODO: Update regularly)
 cmake_minimum_required(VERSION 3.28.3..4.1.2)
-include(GNUInstallDirs)
 
 project(Udipe
         VERSION 1.0
         DESCRIPTION "Solving the riddle of high-throughput UDP"
+        HOMEPAGE_URL https://gitlab.in2p3.fr/grasland/udipe
         LANGUAGES C)
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS OFF)
+set_property(GLOBAL PROPERTY C_STANDARD 11)
+set_property(GLOBAL PROPERTY C_STANDARD_REQUIRED ON)
+set_property(GLOBAL PROPERTY C_EXTENSIONS ON)
+set_property(GLOBAL PROPERTY C_VISIBILITY_PRESET hidden)
 
-# TODO: Options, find_package() etc
+include(GNUInstallDirs)
+include(CMakeDependentOption)
 
-add_library(libudipe src/log.c)
-add_library(Udipe::libudipe ALIAS libudipe)
-target_include_directories(libudipe
-    PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+option(UDIPE_BUILD_DOXYGEN "Build the Doxygen documentation" OFF)
+option(UDIPE_BUILD_DOXYGEN_INTERNAL
+       "Allow UDIPE_BUILD_DOXYGEN to cover implementation details"
+       OFF)
+mark_as_advanced(UDIPE_BUILD_DOXYGEN_INTERNAL)
+
+if(UDIPE_BUILD_DOXYGEN_INTERNAL)
+    set(UDIPE_BUILD_DOXYGEN ON)
+endif()
+
+if(UDIPE_BUILD_DOXYGEN)
+    find_package(Doxygen REQUIRED)
+endif()
+
+add_library(udipe src/log.c)
+add_library(Udipe::udipe ALIAS udipe)
+target_sources(udipe
+               PUBLIC FILE_SET HEADERS
+                      BASE_DIRS include
+                      FILES include/udipe.h
+                            include/udipe/log.h
+                            include/udipe/visibility.h
+               PRIVATE src/log.c
+                       src/log.h)
+target_include_directories(udipe
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-           $<INSTALL_INTERFACE:include>)
-set_target_properties(libudipe PROPERTIES PUBLIC_HEADER include/udipe.h)
+           $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>)
 
-# TODO: Add unit tests doxygen etc
+if (UDIPE_BUILD_DOXYGEN)
+    set(DOXYGEN_EXTRACT_ALL 1)
+    set(DOXYGEN_EXTRACT_STATIC 1)
+    get_target_property(documented_source udipe HEADER_SET)
+    if (UDIPE_BUILD_DOXYGEN_INTERNAL)
+        get_target_property(private_source udipe SOURCES)
+        list(APPEND documented_source ${private_source})
+    endif()
+    doxygen_add_docs(doxygen ${documented_source} ALL USE_STAMP_FILE)
+endif()
 
-install(TARGETS libudipe EXPORT UdipeTargets)
+# TODO: Add unit tests etc
+
+install(TARGETS udipe EXPORT UdipeTargets FILE_SET HEADERS)
 include(cmake/StupidConfigBoilerplate.cmake)
-
-# TODO: CPack for binary and source tarballs?
+include(cmake/StupidCPackBoilerplate.cmake)
