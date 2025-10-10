@@ -81,7 +81,8 @@ Website:
       artifacts: true
   script:
     - mdbook build doc -d "$(pwd)/public"
-    - unlink public/doxygen >/dev/null 2>&1; mv build/html public/doxygen
+    - if [[ -e public/doxygen ]]; then rm -rf public/doxygen; fi
+    - mv build/html public/doxygen
   artifacts:
     expire_in: "1 week"
     paths:
