@@ -1,13 +1,138 @@
+variables:
+  TAG_PIPELINE_SELF: "pipeline-${CI_PIPELINE_IID}"
+  TAG_PIPELINE_LATEST: "pipeline-latest"
+
+default:
+  image: "${CI_REGISTRY_IMAGE}:${TAG_PIPELINE_SELF}"
+
 stages:
-  - pages
+  - container
+  - build
+  - deploy
+  - cleanup
 
-Render and upload:
-  interruptible: true
-  stage: pages
+# Allow both direct push and merge request, but deduplicate local MR builds
+workflow:
+  rules:
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"
+      when: never
+    - when: always
+
+# Recipe for messing with container images using crane
+.crane:
   image:
-    name: "ghcr.io/peaceiris/mdbook:latest"
+    name: gcr.io/go-containerregistry/crane:debug
     entrypoint: [""]
-  script: mdbook build doc -d $(pwd)/public
-  pages: true
+  interruptible: false
+  before_script:
+    - crane auth login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
 
-# TODO: A lot mmore CI needed obviously
+
+# === Set up a temporary container image for this pipeline ===
+
+Container setup:
+  stage: container
+  image:
+      name: gcr.io/kaniko-project/executor:debug
+      entrypoint: [""]
+  interruptible: false
+  script:
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+    - |
+      /kaniko/executor \
+        --cache \
+        --cache-ttl 48h \
+        --cleanup \
+        --push-retry 1 \
+        --use-new-run \
+        --context "${CI_PROJECT_DIR}" \
+        --dockerfile "${CI_PROJECT_DIR}/Dockerfile" \
+        --destination "${CI_REGISTRY_IMAGE}:${TAG_PIPELINE_SELF}"  \
+        --destination "${CI_REGISTRY_IMAGE}:${TAG_PIPELINE_LATEST}"
+  # HACK: IN2P3 gitlab seems to have caching issues and report image uploads as
+  #       completed when they are actually not yet world-visible. Hack it away.
+  after_script: sleep 30
+
+
+# === Build the code and docs ===
+
+.build:
+  stage: build
+  interruptible: true
+
+Code and doxygen:
+  extends: .build
+  script:
+    - mkdir build && cd build
+    - cmake -DUDIPE_BUILD_DOXYGEN=ON ..
+    - cmake --build .
+  artifacts:
+    expire_in: "1 week"
+    paths:
+      - build
+
+# TODO: Add unit tests once CTest is operational
+
+Website:
+  extends: .build
+  needs:
+    - job: "Code and doxygen"
+      artifacts: true
+  script:
+    - mdbook build doc -d "$(pwd)/public"
+    - mv build/html public/doxygen
+  artifacts:
+    expire_in: "1 week"
+    paths:
+      - public
+
+Packages:
+  extends: .build
+  needs:
+    - job: "Code and doxygen"
+      artifacts: true
+  script:
+    - cd build
+    - make package package_source
+  artifacts:
+    expire_in: "1 week"
+    paths:
+      - build/*.tar.gz
+
+
+
+# === Publish all the artifacts (master branch only) ===
+
+.deploy:
+  stage: deploy
+  interruptible: false
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+
+pages:
+  extends: .deploy
+  needs:
+    - job: "Website"
+      artifacts: true
+  script:
+    - echo "Pages can be viewed on ${CI_PAGES_URL}"
+  artifacts:
+    paths:
+      - public
+
+
+# === Delete the temporary container image ===
+
+Container cleanup:
+  stage: cleanup
+  image:
+    name: gcr.io/go-containerregistry/crane:debug
+    entrypoint: [""]
+  interruptible: false
+  when: always
+  needs: ["Container setup"]
+  before_script:
+    - crane auth login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - crane delete "${CI_REGISTRY_IMAGE}:${TAG_PIPELINE_SELF}"
