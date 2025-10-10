@@ -66,7 +66,7 @@ typedef enum udipe_log_level_t {
     /// is emitted to explain why exactly it failed.
     UDIPE_LOG_ERROR,
 
-    /// Default configuration placeholder for LogConfig::min_level
+    /// Default configuration placeholder for \ref udipe_log_config_t::min_level
     ///
     /// The default is to emit logs of priority >= `INFO` in `Release` builds
     /// and additionally emit logs of priority `DEBUG` in Debug builds.
@@ -75,12 +75,12 @@ typedef enum udipe_log_level_t {
 
 /// Logging callback
 ///
-/// This callback will only be called for logs above the LogConfig::min_level
-/// threshold. It takes the following arguments:
+/// This callback will only be called for logs above the \ref
+/// udipe_log_config_t::min_level threshold. It takes the following arguments:
 ///
-/// - User-defined context object (can be NULL if unused)
-/// - Log level
-/// - Location in the udipe source code where something happened
+/// - \link #udipe_log_config_t::context User-defined context \endlink
+/// - \link #udipe_log_level_t Level/priority \endlink of the incoming log
+/// - Location within the udipe source code where something happened
 /// - A textual description of what happened
 ///
 /// The logging callback will be called concurrently by `udipe` worker threads
