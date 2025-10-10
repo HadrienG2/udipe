@@ -16,7 +16,7 @@
 //!
 //! If you are working on `libudipe` itself, you may want to turn on the
 //! `-DUDIPE_BUILD_DOXYGEN_INTERNAL=1` build option, in order to additionally
-//! document the internal structure of the library within the `src/` directory
+//! document the internal components of the library within the `src/` directory
 //! of the `libudipe` source tree.
 
 #include <udipe/log.h>

@@ -4,18 +4,17 @@
 /// \brief Symbol visibility configuration
 ///
 /// This project uses GCC's `-fvisibility=hidden` model, i.e. all functions
-/// which are not marked as public are not exported from the library. This
-/// improves linker and library performance, and improves hiding of
-/// implementation details.
+/// which are not marked as public are not exported from the library, which
+/// improves linker and library performance.
 ///
-/// Functions which are marked as `extern` are excluded from this mechanism, on
-/// the other hand they MUST go through the ELF PLT to allow linker overriding,
-/// which means that internal calls from `udipe` are pessimized to take the same
-/// path as external calls from outside `udipe`.
+/// Functions which are marked as `extern` are excluded from this mechanism, but
+/// hey MUST go through the ELF PLT to allow linker overriding, which means that
+/// internal calls from `udipe` are pessimized to take the same path as external
+/// calls from outside `udipe`.
 ///
 /// Therefore, a third visibility mode is needed for functions which are used by
-/// `udipe` internally **and** by external clients of udipe. That's the job of
-/// \ref UDIPE_PUBLIC.
+/// `udipe` internally **and** by external clients of udipe. And enforcing this
+/// visibility is the job of \ref UDIPE_PUBLIC.
 
 /// Declare a function a public
 ///
