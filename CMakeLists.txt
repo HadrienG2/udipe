@@ -36,6 +36,14 @@ if(UDIPE_BUILD_DOXYGEN_INTERNAL)
     set(UDIPE_BUILD_DOXYGEN ON)
 endif()
 
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    include(CTest)
+    option(UDIPE_BUILD_TESTS "Build the tests" OFF)
+    if(UDIPE_BUILD_TESTS)
+        set(BUILD_TESTING ON)
+    endif()
+endif()
+
 option(UDIPE_WERROR "Treat GCC and doxygen warnings as errors" OFF)
 if (UDIPE_WERROR)
     add_compile_options(-Werror)
@@ -51,7 +59,7 @@ endif()
 
 ### libudipe ###
 
-add_library(udipe src/log.c)
+add_library(udipe)
 add_library(Udipe::udipe ALIAS udipe)
 set(udipe_relative_headers include/udipe.h
                            include/udipe/context.h
@@ -97,7 +105,14 @@ if (UDIPE_BUILD_DOXYGEN)
 endif()
 
 
-# TODO: Add unit tests etc
+### Unit tests ###
+
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
+
+
+# TODO: Add benchmarks etc
 
 
 ### Packaging for downstream users ###

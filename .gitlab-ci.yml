@@ -65,14 +65,21 @@ Code and doxygen:
   extends: .build
   script:
     - mkdir build && cd build
-    - cmake -DUDIPE_BUILD_DOXYGEN=ON ..
+    - cmake -DUDIPE_BUILD_DOXYGEN=ON -DUDIPE_BUILD_TESTS=ON -DUDIPE_WERROR=ON ..
     - cmake --build .
   artifacts:
     expire_in: "1 week"
     paths:
       - build
 
-# TODO: Add unit tests once CTest is operational
+Tests:
+  extends: .build
+  needs:
+    - job: "Code and doxygen"
+      artifacts: true
+  script:
+    - cd build
+    - ctest -j$(nproc)
 
 Website:
   extends: .build
