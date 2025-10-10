@@ -2,7 +2,7 @@ FROM docker.io/ubuntu:24.04
 
 ENV MDBOOK_VERSION=0.4.52
 
-RUN DEBIAN_FRONTEND=noninteractive  \
+RUN export DEBIAN_FRONTEND=noninteractive  \
     && apt update  \
     && apt install --no-install-recommends -y ca-certificates cmake curl doxygen gcc libc6-dev make  \
     && rm -rf /var/lib/apt/lists/*
