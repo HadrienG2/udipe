@@ -10,4 +10,4 @@
     - [Configuration]()
     - [`libudipe`]()
     - [`udipe-config`]()
-- [API](doxygen/index.html)
+- [API reference](reference.md)
