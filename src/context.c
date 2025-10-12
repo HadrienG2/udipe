@@ -2,21 +2,24 @@
 
 #include "log.h"
 
+#include <errno.h>
 #include <stdlib.h>
 
 
 UDIPE_PUBLIC udipe_context_t* udipe_initialize(udipe_config_t config) {
     // Set up logging
     logger_t logger = log_initialize(config.log);
-    udipe_context_t* context;
+    udipe_context_t* context = NULL;
     with_logger(&logger, {
         info("Logger initialized, initializing the rest of the context...");
 
         // Allocate context struct and put logger in it
         context = malloc(sizeof(udipe_context_t));
         if(!context) {
+            int prev_errno = errno;
             error("Failed to allocate udipe_context_t struct");
-            exit(EXIT_FAILURE);
+            errno = prev_errno;
+            return NULL;
         }
         context->logger = logger;
 
