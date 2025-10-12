@@ -1,4 +1,4 @@
-# Overview
+# Scope
 
 ## Motivation
 
@@ -17,10 +17,11 @@ to help with this challenge. But making the most of these features requires...
   locality concerns...)
 - Explicit software support, i.e. a simple POSIX server that does just a
   `socket()` + `bind()` + `recv()` loop will either not make the most of these
-  features or not benefit from them at all. For optimal performance, use of
-  special API (like `io_uring` on Linux) and special configuration (like the
-  many `setsockopt()` tunables from `man 7 socket`, `man 7 ip` and `man 7 udp`)
-  is often required.
+  features or not benefit at all. For optimal performance, use of special APIs
+  (like `io_uring` on Linux) and configuration (like the many `setsockopt()`
+  tunables from `man 7 socket`, `man 7 ip` and `man 7 udp`) is often required.
+- Willingness to either cut off support for older OS/hardware or add complexity
+  in the form of fallback code paths that handle the absence of newer features.
 
 Finally, the associated knowledge is not neatly collected in a nice centralized
 place, like a One True Networking book that every expert should read and keep at
@@ -35,9 +36,10 @@ to make this easier, at least for some categories of applications.
 
 ## Target audience
 
-As mentioned above, `udipe` is not a general-purpose networking library. It only
-supports UDP datagram exchanges, and many of its design choices are biased
-towards the needs of physics data acquisition systems. In those systems...
+As mentioned above, `udipe` is not a general-purpose networking library. It is
+focused on UDP communication[^udp-only], and many of its design choices are
+biased towards the needs of physics data acquisition systems. In those
+systems...
 
 - UDP is mainly used for the purpose of sending data out of electronics cards
   because TCP is too costly to implement on FPGAs. Therefore acquisition
@@ -64,15 +66,18 @@ towards the needs of physics data acquisition systems. In those systems...
     - Reserving a large amount of system resources (e.g. several network
       interfaces, many CPU cores...) for the nearly exclusive use of a
       particular application is fair game.
+    - Supporting Windows or macOS is not a strong requirement, merely a
+      nice-to-have convenience for local testing on developer machines.
 - The developer audience presents a relatively high willingness to use unusual
   network APIs in the pursuit of optimal performance.
 
 To the developers and maintainers of such systems, the `udipe` project wants to
 provides two things:
 
-- A C11 library called `libudipe` that, given some configuration (from sane
-  defaults to very detailed manual tweaking for a specific workload), sets up a
-  high-performance UDP network pipeline in your application.
+- A C11[^gnu-extensions] library called `libudipe` that, given some
+  configuration (from sane defaults to very detailed manual tweaking for a
+  specific workload), sets up a high-performance UDP network pipeline in your
+  application.
 - A Linux system administration tool called `udipe-setup` that ingests the same
   configuration as `libudipe` and automatically configures the underlying system
   optimally for the intended network workload. This tool is supplemented by a
@@ -102,11 +107,25 @@ resource-constrained project, `udipe` opts to provide multiple tiers of support:
    `send()`/`sendto()`/`sendmsg()` + `recv()`/`recvfrom()`/`recvmsg()`). The
    goal here is that it should be possible to build and run `libudipe`-based
    applications on these systems and they should behave correctly, but...
-    - No effort is made to keep the build process easy, so e.g. toolchain and
-      library upgrades may be required.
+    - No effort is made to keep the build process easy, so e.g. some toolchain
+      and library upgrades may be required.
     - The resulting application may not perform optimally because old network
       performance optimizations that have been superseded by newer ones (e.g.
-      `sendmmsg()`/`recvmmsg()` is mostly replaced by `io_uring`) may not be
-      supported by `udipe`.
-    - The `udipe-setup` system configurator may not be usable (especially on
-      non-Linux platforms like macOS).
+      `sendmmsg()`/`recvmmsg()` which is mostly replaced by `io_uring`) may not
+      be supported by `udipe`.
+    - The `udipe-setup` system configuration assistant may not be usable
+      (especially on non-Linux platforms like macOS).
+
+
+[^gnu-extensions]: ...with occasional use of GNU extensions supported by GCC and
+                   clang in situations where standard C cannot express the
+                   desired semantics.
+
+[^udp-only]: Non-UDP primitive, e.g. filesystem I/O or signal handling helpers,
+             may be provided to expose OS features like
+             [`sendfile()`](https://www.man7.org/linux/man-pages/man2/sendfile.2.html)
+             or
+             [`ppoll()`](https://www.man7.org/linux/man-pages/man2/ppoll.2.html)
+             that cannot be used without a hook into the low-level OS I/O 
+             primitives that `udipe` abstract away. But these operations are not
+             the core focus of `udipe`.

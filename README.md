@@ -6,10 +6,10 @@ the dead people have done it horribly wrong](doc/src/udipe.jpg)
 This is `udipe`, a toolchain for building high-throughput UDP networking systems
 on Linux. It is composed of two components that share a common configuration:
 
-- `libudipe` is a C11 networking library. It eases the development of
-  applications that follow the best practices for high-throughput UDP on modern
-  Linux systems, by abstracting these out behind a reasonably easy-to-use
-  interface.
+- `libudipe` is a C11[^gnu-extensions] networking library. It eases the
+  development of applications that follow the best practices for high-throughput
+  UDP on modern Linux systems, by abstracting these out behind a reasonably
+  easy-to-use interface.
 - `udipe-setup` is a system administration utility that can be used to
   automatically apply the system configuration tuning that a `libudipe`-based
   application needs for optimal performance. It comes with a matching
@@ -38,3 +38,7 @@ from the `libudipe` source code under MPLv2.
             French, Russian, Bohemian, Italian and other
             sources"](https://www.gutenberg.org/files/20740/20740-h/20740-h.htm),
             trans./ed. Logan Marshall (1914)
+
+[^gnu-extensions]: ...with occasional use of GNU extensions supported by GCC and
+                   clang in situations where standard C cannot express the
+                   desired semantics.
