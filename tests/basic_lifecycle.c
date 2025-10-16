@@ -13,7 +13,7 @@ int main() {
     // Cross-check that initialization never fails
     assert(context);
 
-    // Liberate the libudipe context once your're done with it
+    // Liberate the libudipe context once you're done with it
     udipe_finalize(context);
     return 0;
 }
