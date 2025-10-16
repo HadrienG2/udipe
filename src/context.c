@@ -18,7 +18,7 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
         context = malloc(sizeof(udipe_context_t));
         if(!context) {
             warn_on_errno();
-            error("Failed to allocate output udipe_context_t");
+            error("Failed to allocate libudipe context");
             exit(EXIT_FAILURE);
         }
         context->logger = logger;
@@ -33,7 +33,7 @@ UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 void udipe_finalize(udipe_context_t* context) {
     with_logger(&context->logger, {
-        // TODO: Rest of the context finalization, log new configuration
+        // TODO: Rest of the context teardown
     });
     free(context);
 }
