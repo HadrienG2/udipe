@@ -9,20 +9,29 @@
 
 /// Log level/priority
 ///
-/// `udipe` uses the standard logging convention where logs have various
-/// priorities. In LoggerConfig, a certain minimal priority can be specified,
-/// and all logs above this priority are being logged.
+/// `libudipe` uses the standard logging convention where logs have various
+/// priorities. In \ref udipe_log_config_t, a certain minimal priority can be
+/// specified. Logs above this priority are recorded, and logs below this
+/// priority are not processed.
 typedef enum udipe_log_level_e {
     /// Detailed debugging logs
     ///
     /// This is used for very verbose logs that are only useful when debugging
     /// complicated problems, and should only be enabled on very simplified
-    /// error repoducers as they will spill out an unmanageable flow of
+    /// error reproducers as they will spill out an unmanageable flow of
     /// information on unmodified production applications.
     ///
     /// Examples include decomposition of complex user requests into simpler
-    /// operations, e.g. logging information about the successful processing of
-    /// every single incoming packet processed by an input data stream.
+    /// operations, e.g. logs about every single packet that is successfully
+    /// processed by a particular input/output data stream.
+    ///
+    /// \internal
+    ///
+    /// If you are unsure whether a particular event should be logged at `TRACE`
+    /// level or not logged at all, ask yourself whether this log is needed to
+    /// understand the control flow path that was taken within `libudipe`. A
+    /// core goal of `TRACE` logs is to reduce the amount of debugging scenarios
+    /// for which a dedicated debugger is needed.
     UDIPE_LOG_TRACE = 1,
 
     /// Basic debugging logs
@@ -34,7 +43,8 @@ typedef enum udipe_log_level_e {
     ///
     /// Examples include lifecycle tracing of individual one-shot send/receive
     /// requests as they pass through the various components of `udipe`, or
-    /// detailed info about each lost packet (which will make the loss worse).
+    /// detailed info about each and every lost packet (note that the
+    /// performance impact of such logging will make packet loss worse).
     UDIPE_LOG_DEBUG,
 
     /// "For your information" logs
@@ -74,6 +84,11 @@ typedef enum udipe_log_level_e {
     ///
     /// The default is to emit logs of priority >= `INFO` in all builds, and
     /// additionally emit logs of priority `DEBUG` in `Debug` builds.
+    ///
+    /// \internal
+    ///
+    /// This log level must not be applied to actual logs from the libudipe
+    /// implementation. It is only a user-facing configuration helper.
     UDIPE_LOG_DEFAULT = 0
 } udipe_log_level_t;
 
@@ -83,10 +98,10 @@ typedef enum udipe_log_level_e {
 /// This callback will only be called for logs above the \ref
 /// udipe_log_config_t::min_level threshold. It takes the following arguments:
 ///
-/// - \link #udipe_log_config_t::context User-defined context \endlink
+/// - User-defined \link #udipe_log_config_t::context context \endlink
 /// - \link #udipe_log_level_t Level/priority \endlink of the incoming log
-/// - Location within the udipe source code where something happened
-/// - A textual description of what happened
+/// - Udipe source code location that the code originates from
+/// - Textual description of what happened
 ///
 /// The logging callback will be called concurrently by `udipe` worker threads
 /// and must therefore be thread-safe.
@@ -114,15 +129,26 @@ typedef struct udipe_log_config_s {
     /// This is where you can plug `udipe` logs into your pre-existing logging
     /// infrastructure like syslog etc. If this is left unconfigured (`NULL`),
     /// `udipe` will print log messages on `stderr`.
+    ///
+    /// If this pointer is not NULL, then you must ensure that it is valid to
+    /// call the associated callback at any time, including from multiple
+    /// threads, until the \ref udipe_context_t is destroyed by
+    /// udipe_finalize(). And for this entire duration, the associated \link
+    /// #udipe_log_config_t::context context \endlink, if any, must be valid to
+    /// use too.
     udipe_log_callback_t callback;
 
     /// User logging callback context
     ///
-    /// This allows you to implement more sophisticated logging without using
-    /// global variables. For example, if your log callback is a Rust or C++
-    /// lambda, that's where is where its self/this pointer should go.
+    /// This pointer is not used by the `udipe` implementation, but merely
+    /// passed down as the first argument to each call to your \link
+    /// #udipe_log_config_t::callback callback \endlink.
     ///
-    /// This configuration is only used when \ref udipe_log_config_t::callback
-    /// is also specified. Leave it at `NULL` if you don't need it.
+    /// You can use it to implement more sophisticated logging that requires
+    /// some kind of external state. For example, if your log callback is a Rust
+    /// or C++ lambda, this is where is where its self/this pointer should go.
+    ///
+    /// If you do not specify a callback or if your callback does not need any
+    /// supplementary state, you should leave this at `NULL` for clarity.
     void* context;
 } udipe_log_config_t;
