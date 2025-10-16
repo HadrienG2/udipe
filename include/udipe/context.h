@@ -15,6 +15,7 @@
 //!   you must call during the finalization stage of your application.
 
 #include "log.h"
+#include "pointer.h"
 #include "visibility.h"
 
 
@@ -36,13 +37,13 @@ typedef struct udipe_config_s {
 
 /// Core `libudipe` context
 ///
-/// This data structure is built by udipe_initialize() and can subsequently be
-/// passed to most `libudipe` functions entry points for the purpose of
-/// performing UDP network operations.
+/// This opaque data structure is built by udipe_initialize() and can
+/// subsequently be passed to most `libudipe` functions entry points for the
+/// purpose of performing UDP network operations.
 ///
-/// Throughout its useful lifetime, you must treat this object as opaque
-/// object and not attempt to read or modify it in any way other than by passing
-/// it to `libudipe` functions.
+/// Throughout its useful lifetime, you must treat this object as opaque and not
+/// attempt to read or modify it in any way other than by passing it to
+/// `libudipe` functions.
 ///
 /// Once you are done with `libudipe`, you can pass this object back to
 /// udipe_finalize() to destroy it.
@@ -61,7 +62,13 @@ typedef struct udipe_context_s udipe_context_t;
 /// object in any way until you are done with `libudipe`, at which point you
 /// must pass it to udipe_finalize() to safely destroy it before the application
 /// terminates.
-UDIPE_PUBLIC udipe_context_t* udipe_initialize(udipe_config_t config);
+///
+/// This function currently only has fatal error cases, which it handles using
+/// `exit(EXIT_FAILURE)`. It is therefore guaranteed to return a non-null
+/// pointer if it returns at all.
+UDIPE_PUBLIC
+UDIPE_NON_NULL_RESULT
+udipe_context_t* udipe_initialize(udipe_config_t config);
 
 
 /// Finalize a \link #udipe_context_t `libudipe` context \endlink
@@ -71,8 +78,10 @@ UDIPE_PUBLIC udipe_context_t* udipe_initialize(udipe_config_t config);
 /// formerly allocated by `udipe_initialize()`.
 ///
 /// Although udipe_finalize() may take a short amount of time to complete, its
-/// pointer invalidation effect must be considered instantaneous: starting
+/// pointer invalidation effect should be considered instantaneous: starting
 /// from the moment where you _start_ calling this function, you must not call
 /// any `libudipe` function with this `udipe_context_t*` parameter from any of
-/// your other application threads.
-UDIPE_PUBLIC void udipe_finalize(udipe_context_t* context);
+/// your application threads.
+UDIPE_PUBLIC
+UDIPE_NON_NULL_ARGS
+void udipe_finalize(udipe_context_t* context);

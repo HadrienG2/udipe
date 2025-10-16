@@ -119,8 +119,9 @@ Aside from this strong stance on fatal errors and the role of logging,
 `libudipe` otherwise tries to follow traditional C library design conventions,
 and its logging system features the usual log levels (`TRACE`, `DEBUG`, `INFO`,
 `WARNING` and `ERROR`) along with a way to redirect log messages to a sink of
-your choosing. When this is not done, log messages go to `stderr` by default,
-per Unix convention.
+your choosing. When this is not done, or when the user-defined log sink is not
+available (e.g. during logger initialization), log messages go to `stderr` per
+Unix convention.
 
 
 ## Input validation policy

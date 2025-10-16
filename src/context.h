@@ -18,7 +18,7 @@
 struct udipe_context_s {
     /// Message logger
     ///
-    /// Any udipe method or network thread should begin by using the
+    /// Any public `libudipe` method or network thread should begin by using the
     /// with_logger() macro to set up a logging scope with this logger. This
     /// allows logging methods to subsequently be used in order to report normal
     /// and suspicious events throughout the application lifecycle for the sake

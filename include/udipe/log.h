@@ -68,6 +68,10 @@ typedef enum udipe_log_level_e {
     /// from a performance point of view, or low-frequency reporting of
     /// packet loss (once every N seconds where N is chosen to have no
     /// significant performance impact in production).
+    ///
+    /// Because the value of `errno` is unreliable, as you never know which
+    /// function set or overwrote it, `errno`-related logs are also displayed at
+    /// the `WARNING` log level.
     UDIPE_LOG_WARNING,
 
     /// Error logs

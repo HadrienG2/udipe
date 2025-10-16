@@ -71,6 +71,8 @@ target_sources(udipe
                       FILES ${udipe_relative_headers}
                PRIVATE src/context.c
                        src/context.h
+                       src/error.c
+                       src/error.h
                        src/log.c
                        src/log.h)
 target_include_directories(udipe
