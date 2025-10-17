@@ -23,7 +23,7 @@ static udipe_thread_allocator_config_t default_config_callback(void* /* context 
 /// \returns a fair share of the smallest capacity available at the specified
 ///          layer of the cache hierarchy, excluding the use of hyperthreading.
 UDIPE_NON_NULL_ARGS
-size_t smallest_cache_capacity(hwloc_topology_t topology,
+static size_t smallest_cache_capacity(hwloc_topology_t topology,
                                hwloc_cpuset_t thread_cpuset,
                                hwloc_obj_type_t cache_type) {
     assert(hwloc_obj_type_is_dcache(cache_type));
