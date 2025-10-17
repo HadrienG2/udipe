@@ -14,6 +14,12 @@
 //! - udipe_finalize(), the function that destroys \ref udipe_context_t, which
 //!   you must call during the finalization stage of your application.
 
+//! \example context_lifecycle.c
+//!
+//! This is a minimal `libudipe` application skeleton: set up a \ref
+//! udipe_context_t using udipe_initialize() in the default configuration, then
+//! tear it down using udipe_finalize().
+
 #include "log.h"
 #include "pointer.h"
 #include "visibility.h"

@@ -6,6 +6,14 @@
 //! This header is the home of \ref udipe_log_config_t, the subset of \ref
 //! udipe_config_t that controls `libudipe`'s logging behavior.
 
+//! \example log_to_tempfile.c
+//!
+//! This example demonstrates a non-default \ref udipe_log_config_t setup that
+//! enables `TRACE` logging and leverages a user-defined \ref
+//! udipe_log_callback_t to write logs to a temporary file instead of stderr.
+
+#include "visibility.h"
+
 
 /// Log level/priority
 ///
@@ -95,6 +103,19 @@ typedef enum udipe_log_level_e {
     /// implementation. It is only a user-facing configuration helper.
     UDIPE_LOG_DEFAULT = 0
 } udipe_log_level_t;
+
+
+/// Get the textual name of a certain log level
+///
+/// For example, given the UDIPE_LOG_ERROR input, this function returns "ERROR".
+///
+/// As this function is meant to be used inside of logger implementations, it
+/// will exceptionally log invalid parameter errors to stderr as opposed to the
+/// user-specified logger.
+///
+/// \returns The textual name of the log level, as a static string.
+UDIPE_PUBLIC
+const char* udipe_log_level_name(udipe_log_level_t level);
 
 
 /// Logging callback

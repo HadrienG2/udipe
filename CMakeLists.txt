@@ -28,25 +28,34 @@ add_compile_options(-Wall -Wextra -Wconversion -Wduplicated-cond
 
 option(UDIPE_BUILD_DOXYGEN "Build the Doxygen documentation" OFF)
 
-option(UDIPE_BUILD_DOXYGEN_INTERNAL
-       "Allow UDIPE_BUILD_DOXYGEN to cover implementation details"
-       OFF)
-mark_as_advanced(UDIPE_BUILD_DOXYGEN_INTERNAL)
-if(UDIPE_BUILD_DOXYGEN_INTERNAL)
-    set(UDIPE_BUILD_DOXYGEN ON)
-endif()
-
-if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-    include(CTest)
-    option(UDIPE_BUILD_TESTS "Build the tests" OFF)
-    if(UDIPE_BUILD_TESTS)
-        set(BUILD_TESTING ON)
-    endif()
-endif()
-
 option(UDIPE_WERROR "Treat GCC and doxygen warnings as errors" OFF)
 if (UDIPE_WERROR)
     add_compile_options(-Werror)
+endif()
+
+# These options are only available in standalone builds, not vendored ones
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    option(UDIPE_BUILD_DOXYGEN_INTERNAL
+           "Allow UDIPE_BUILD_DOXYGEN to cover implementation details"
+           OFF)
+    mark_as_advanced(UDIPE_BUILD_DOXYGEN_INTERNAL)
+    if(UDIPE_BUILD_DOXYGEN_INTERNAL)
+        set(UDIPE_BUILD_DOXYGEN ON)
+    endif()
+
+    option(UDIPE_BUILD_EXAMPLES
+           "Build the code examples"
+           ON)
+
+    include(CTest)
+    option(UDIPE_BUILD_TESTS "Build the tests" OFF)
+    if(BUILD_TESTING)
+        set(UDIPE_BUILD_TESTS ON)
+    endif()
+    if(UDIPE_BUILD_TESTS)
+        # Some code examples act as doctests
+        set(UDIPE_BUILD_EXAMPLES ON)
+    endif()
 endif()
 
 
@@ -102,14 +111,22 @@ if (UDIPE_BUILD_DOXYGEN)
     else()
         set(DOXYGEN_MAX_INITIALIZER_LINES 2)
     endif()
+    set(DOXYGEN_EXAMPLE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/examples)
 
     doxygen_add_docs(doxygen ${documented_source} ALL USE_STAMP_FILE)
 endif()
 
 
+### Code examples ###
+
+if(UDIPE_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
+
+
 ### Unit tests ###
 
-if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
+if(UDIPE_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 

@@ -170,6 +170,7 @@ static inline void restore_thread_logger(const logger_t** prev_logger) {
 
 ///@}
 
+
 // Implementation of log_enabled (see above for docs)
 static inline bool log_enabled(udipe_log_level_t level) {
     validate_log(level);

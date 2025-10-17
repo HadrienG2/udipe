@@ -10,10 +10,10 @@ int main() {
     memset(&config, 0, sizeof(udipe_config_t));
     udipe_context_t* context = udipe_initialize(config);
 
-    // Cross-check that initialization never fails
+    // This is guaranteed to always hold as initialization failure is fatal
     assert(context);
 
-    // Liberate the libudipe context once you're done with it
+    // Remember to finalize the libudipe context once you're done with it
     udipe_finalize(context);
     return 0;
 }
