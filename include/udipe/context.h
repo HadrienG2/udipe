@@ -20,6 +20,7 @@
 //! udipe_context_t using udipe_initialize() in the default configuration, then
 //! tear it down using udipe_finalize().
 
+#include "allocator.h"
 #include "log.h"
 #include "pointer.h"
 #include "visibility.h"
@@ -38,6 +39,15 @@ typedef struct udipe_config_s {
     /// #UDIPE_LOG_INFO `INFO` \endlink, and in `Debug` builds messages of
     /// priority \link #UDIPE_LOG_DEBUG `DEBUG` \endlink are logged too.
     udipe_log_config_t log;
+
+    /// Memory management configuration
+    ///
+    /// This member controls `libudipe`'s memory management behavior. By
+    /// default, worker threads attempt to achieve good cache locality while
+    /// handling a fair amount of concurrent requests by dedicating an L1-sized
+    /// cache budget to each request and an L2-sized cache budget to the set of
+    /// all concurrently handled requests.
+    udipe_allocator_config_t allocator;
 } udipe_config_t;
 
 

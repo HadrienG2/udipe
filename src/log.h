@@ -25,7 +25,7 @@
 /// corresponding default values.
 typedef udipe_log_config_t logger_t;
 
-/// Setup logging
+/// Set up logging
 ///
 /// This should be done as early as possible during the `libudipe`
 /// initialization process in order to reduce the amount of code that cannot

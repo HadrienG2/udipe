@@ -76,6 +76,7 @@ endif()
 add_library(udipe)
 add_library(Udipe::udipe ALIAS udipe)
 set(udipe_relative_headers include/udipe.h
+                           include/udipe/allocator.h
                            include/udipe/context.h
                            include/udipe/log.h
                            include/udipe/pointer.h
@@ -84,7 +85,9 @@ target_sources(udipe
                PUBLIC FILE_SET HEADERS
                       BASE_DIRS include
                       FILES ${udipe_relative_headers}
-               PRIVATE src/context.c
+               PRIVATE src/allocator.c
+                       src/allocator.h
+                       src/context.c
                        src/context.h
                        src/error.c
                        src/error.h
