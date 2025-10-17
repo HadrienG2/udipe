@@ -166,7 +166,7 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
     exit_on_negative(mlock(allocator.memory_pool, pool_size),
                      "Failed to lock memory pages into RAM");
 
-    debug("Initializing the availability bitmap");
+    debug("Initializing the availability bitmap...");
     for (size_t buf = 0; buf < allocator.config.buffer_count; ++buf) {
         allocator.buffer_availability[buf / UDIPE_BUFFERS_PER_USAGE_WORD]
             |= (1 << (buf % UDIPE_BUFFERS_PER_USAGE_WORD));
