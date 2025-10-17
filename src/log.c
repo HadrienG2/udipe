@@ -28,7 +28,7 @@ static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
             if (allow_default) return "DEFAULT";
             __attribute__ ((fallthrough));
         default:
-            fprintf(stderr, "Invalid log level %d\n", level);
+            fprintf(stderr, "libudipe: Called log_level_name() with invalid level %d\n", level);
             exit(EXIT_FAILURE);
     }
 }
@@ -78,7 +78,7 @@ logger_t log_initialize(udipe_log_config_t config) {
         #endif
         break;
     default:
-        fprintf(stderr, "Attempted to configure udipe logging with invalid min_level %d\n", config.min_level);
+        fprintf(stderr, "libudipe: Called log_initialize() with invalid min_level %d\n", config.min_level);
         exit(EXIT_FAILURE);
     }
 
@@ -102,7 +102,7 @@ thread_local const logger_t* udipe_thread_logger = NULL;
         case UDIPE_LOG_ERROR:
             break;
         default:
-            fprintf(stderr, "Encountered log() call with invalid log level %d\n", level);
+            fprintf(stderr, "libudipe: Called validate_log() with invalid level %d\n", level);
             exit(EXIT_FAILURE);
         };
     }

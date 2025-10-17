@@ -19,7 +19,7 @@ void warn_on_errno() {
     //
     // Must be statically allocated because warn_on_errno() may be called to
     // describe errors from malloc() and friends, in which case attempting to
-    // heap-allocate a string to hold the error description is a bad move...
+    // allocate a string to hold the error description is a bad move...
     static thread_local char output[255] = "";
 
     // Get the symbolic name of this errno value i.e. "EPERM" if it's EPERM.
@@ -49,22 +49,24 @@ void warn_on_errno() {
     size_t full_output_size = min_output_size + strlen(separator) + strlen(description);
 
     // Pick the description that fits in the output buffer
+    int result;
     if (sizeof(output) >= full_output_size) {
         // Ideally everything...
-        snprintf(output,
-                 sizeof(output),
-                 "%s%s%s%s",
-                 header, name, separator, description);
+        result = snprintf(output,
+                          sizeof(output),
+                          "%s%s%s%s",
+                          header, name, separator, description);
     } else {
         // ...but if there's not enough room, just the basics. Do warn about it.
         warning("Internal output buffer is too small for a full errno description, must enlarge it");
         assert(("Buffer should be large enough to hold an errorname",
                 sizeof(output) >= min_output_size));
-        snprintf(output,
-                 sizeof(output),
-                 "%s%s",
-                 header, name);
+        result = snprintf(output,
+                          sizeof(output),
+                          "%s%s",
+                          header, name);
     }
+    assert(("snprintf should never fail", result > 0));
     warning(output);
     errno = 0;
 }
