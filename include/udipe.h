@@ -24,4 +24,5 @@
 
 #include <udipe/context.h>
 #include <udipe/log.h>
+#include <udipe/pointer.h>
 #include <udipe/visibility.h>
