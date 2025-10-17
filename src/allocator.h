@@ -75,7 +75,11 @@ typedef struct allocator_s {
 ///
 /// This function must be called within the scope of with_logger().
 ///
-/// \param config is the
+/// \param config indicates how the user wants the allocator to be configured.
+///
+/// \param topology is an hwloc topology used for the default allocator
+///                 configuration, which is optimized for L1/L2 cache locality.
+UDIPE_NON_NULL_ARGS
 allocator_t allocator_initialize(udipe_allocator_config_t config,
                                  hwloc_topology_t topology);
 
@@ -115,8 +119,8 @@ void liberate(allocator_t* allocator, void* buffer);
     ///
     /// Unfortunately, on this particular hardware architecture we do not know,
     /// so we stick with the minimum alignment guaranteed by malloc() i.e. large
-    /// enough to hold any standard type.
-    #define MIN_PAGE_ALIGNMENT sizeof(long long)
+    /// enough to align any standard type.
+    #define MIN_PAGE_ALIGNMENT alignof(max_align_t)
 #endif
 
 

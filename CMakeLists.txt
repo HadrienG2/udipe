@@ -21,7 +21,7 @@ include(GNUInstallDirs)
 
 add_compile_options(-Wall -Wextra -Wconversion -Wduplicated-cond
                     -Wduplicated-branches -Wnull-dereference -Wdouble-promotion
-                    -Wno-unused-value)
+                    -Wno-sign-conversion -Wno-unused-value)
 
 
 ### Optional features ###
