@@ -59,8 +59,13 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 endif()
 
 
-### Dependency management ###
+### Dependencies ###
 
+# Need hwloc, and pkg-config to find hwloc
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(hwloc REQUIRED IMPORTED_TARGET hwloc>=2.0)
+
+# Need doxygen to build the API reference documentation
 if(UDIPE_BUILD_DOXYGEN)
     find_package(Doxygen REQUIRED)
 endif()
@@ -89,6 +94,7 @@ target_include_directories(udipe
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>)
+target_link_libraries(udipe PRIVATE PkgConfig::hwloc)
 install(TARGETS udipe EXPORT UdipeTargets FILE_SET HEADERS)
 
 

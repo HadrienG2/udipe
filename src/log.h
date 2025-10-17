@@ -129,7 +129,7 @@ extern thread_local const logger_t* udipe_thread_logger;
 /// This helper function enables with_logger() to clean up after itself through
 /// the GNU `__cleanup__` attribute.
 static inline void restore_thread_logger(const logger_t** prev_logger) {
-    trace("End of with_logger() scope");
+    trace("End of a with_logger() scope");
     udipe_thread_logger = *prev_logger;
 }
 
@@ -151,7 +151,7 @@ static inline void restore_thread_logger(const logger_t** prev_logger) {
                         __attribute__((__cleanup__(restore_thread_logger)))  \
                         = udipe_thread_logger;  \
         udipe_thread_logger = (logger_ptr);  \
-        trace("Start of with_logger() scope");  \
+        trace("Start of a with_logger() scope");  \
         do __VA_ARGS__ while(false);  \
     } while(false)
 

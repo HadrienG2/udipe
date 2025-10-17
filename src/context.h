@@ -9,9 +9,10 @@
 //! core `libudipe` state like the message logger, the network thread pool, etc.
 
 #include <udipe/context.h>
-#include <udipe/visibility.h>
 
 #include "log.h"
+
+#include <hwloc.h>
 
 
 /// \copydoc udipe_context_t
@@ -24,4 +25,10 @@ struct udipe_context_s {
     /// and suspicious events throughout the application lifecycle for the sake
     /// of easier application and `libudipe` debugging.
     logger_t logger;
+
+    /// hwloc topology
+    ///
+    /// Used to query the CPU topology (cache sizes, NUMA etc) and pin threads
+    /// to CPU cores.
+    hwloc_topology_t topology;
 };

@@ -1,8 +1,10 @@
 #include "log.h"
 
 #include <assert.h>
+#include <linux/prctl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/prctl.h>
 #include <time.h>
 
 
@@ -14,22 +16,22 @@
 /// differentiate between these two cases using the allow_default parameter.
 static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
     switch(level) {
-        case UDIPE_LOG_TRACE:
-            return "TRACE";
-        case UDIPE_LOG_DEBUG:
-            return "DEBUG";
-        case UDIPE_LOG_INFO:
-            return "INFO";
-        case UDIPE_LOG_WARNING:
-            return "WARN";
-        case UDIPE_LOG_ERROR:
-            return "ERROR";
-        case UDIPE_LOG_DEFAULT:
-            if (allow_default) return "DEFAULT";
-            __attribute__ ((fallthrough));
-        default:
-            fprintf(stderr, "libudipe: Called log_level_name() with invalid level %d\n", level);
-            exit(EXIT_FAILURE);
+    case UDIPE_LOG_TRACE:
+        return "TRACE";
+    case UDIPE_LOG_DEBUG:
+        return "DEBUG";
+    case UDIPE_LOG_INFO:
+        return "INFO";
+    case UDIPE_LOG_WARNING:
+        return "WARN";
+    case UDIPE_LOG_ERROR:
+        return "ERROR";
+    case UDIPE_LOG_DEFAULT:
+        if (allow_default) return "DEFAULT";
+        __attribute__ ((fallthrough));
+    default:
+        fprintf(stderr, "libudipe: Called log_level_name() with invalid level %d\n", level);
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -39,20 +41,27 @@ static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
 /// This is the \ref udipe_log_config_t::callback that is used when the user
 /// does not specify one. It logs to `stderr` with basic formatting.
 static void default_log_callback(void* /* context */,
-                          udipe_log_level_t level,
-                          const char location[],
-                          const char message[]) {
+                                 udipe_log_level_t level,
+                                 const char location[],
+                                 const char message[]) {
     // Compute log timestamp and its display representation
     clock_t timestamp = clock();
     assert(timestamp >= 0);
-    size_t time_secs = (size_t)(timestamp / CLOCKS_PER_SEC);
-    size_t time_fract = (size_t)(timestamp) * 1000000 / CLOCKS_PER_SEC;
+    size_t secs = (size_t)(timestamp / CLOCKS_PER_SEC);
+    size_t microsecs = (size_t)(timestamp) * 1000000 / CLOCKS_PER_SEC;
 
     // Translate log level into a textual representation
     const char* level_string = log_level_name(level, false);
 
+    // Query the current thread's name
+    char thread_name[16];
+    int result = prctl(PR_GET_NAME, thread_name);
+    assert(("Should never fail with a valid buffer", result == 0));
+
     // Display the log on stderr
-    fprintf(stderr, "[%5zu.%06zu %5s %s] %s\n", time_secs, time_fract, level_string, location, message);
+    fprintf(stderr,
+            "[%5zu.%06zu %5s %16s/%s] %s\n",
+            secs, microsecs, level_string, thread_name, location, message);
 }
 
 
