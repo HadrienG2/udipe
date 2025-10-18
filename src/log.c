@@ -1,7 +1,10 @@
 #include "log.h"
 
+#include "error.h"
+
 #include <assert.h>
 #include <linux/prctl.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/prctl.h>
@@ -51,7 +54,31 @@ static void default_log_callback(void* /* context */,
     size_t microsecs = (size_t)(timestamp) * 1000000 / CLOCKS_PER_SEC;
 
     // Translate log level into a textual representation
-    const char* level_string = log_level_name(level, false);
+    const char* level_name = log_level_name(level, false);
+
+    // Give each log a color
+    const char* level_color;
+    switch(level) {
+    case UDIPE_LOG_TRACE:
+        level_color = "\033[36m";
+        break;
+    case UDIPE_LOG_DEBUG:
+        level_color = "\033[34m";
+        break;
+    case UDIPE_LOG_INFO:
+        level_color = "\033[32m";
+        break;
+    case UDIPE_LOG_WARNING:
+        level_color = "\033[33;1m";
+        break;
+    case UDIPE_LOG_ERROR:
+        level_color = "\033[31;1m";
+        break;
+    case UDIPE_LOG_DEFAULT:
+    default:
+        fprintf(stderr, "libudipe: Called default_log_callback() with invalid level %d\n", level);
+        exit(EXIT_FAILURE);
+    }
 
     // Query the current thread's name
     char thread_name[16];
@@ -59,9 +86,10 @@ static void default_log_callback(void* /* context */,
     assert(("Should never fail with a valid buffer", result == 0));
 
     // Display the log on stderr
+    // TODO: Disable ANSI colors when not connected to a TTY.
     fprintf(stderr,
-            "[%5zu.%06zu %5s %16s/%s] %s\n",
-            secs, microsecs, level_string, thread_name, location, message);
+            "[\033[2m%5zu.%06zu\033[0m %s%5s \033[0;35m%16s/%s\033[0m] %s\n",
+            secs, microsecs, level_color, level_name, thread_name, location, message);
 }
 
 
@@ -94,6 +122,41 @@ logger_t log_initialize(udipe_log_config_t config) {
     // Configure logging callback
     if (!config.callback) config.callback = default_log_callback;
     return config;
+}
+
+
+LOGF_IMPL_ATTRIBUTES
+void logf_impl(udipe_log_level_t level,
+               const char* location,
+               const char* format,
+               ...) {
+    // Get two copies of the variadic arguments
+    va_list args1, args2;
+    va_start(args1, format);
+    va_copy(args2, args1);
+
+    // Determine the message size
+    int result = vsnprintf(NULL, 0, format, args1);
+    va_end(args1);
+    // This will log a static string on error, but that's fine as static string
+    // logging does not go through the formatted string code path.
+    exit_on_negative(result, "Failed to evaluate message size");
+    size_t message_size = 1 + (size_t)result;
+
+    // Allocate the message buffer
+    char* message = alloca(message_size);
+    exit_on_null(message, "Failed to allocate message buffer");
+
+    // Generate the log string
+    result = vsnprintf(message, message_size, format, args2);
+    va_end(args2);
+    exit_on_negative(result, "Failed to generate message");
+
+    // Emit the log
+    (udipe_thread_logger->callback)(udipe_thread_logger->context,
+                                    level,
+                                    location,
+                                    message);
 }
 
 

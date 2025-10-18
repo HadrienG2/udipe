@@ -28,6 +28,7 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
                          "Failed to build the hwloc hopology");
 
         // FIXME: Remove this + allocator.h include once done debugging
+        error("HACK: Initializing an allocator to check allocator setup code...");
         allocator_initialize(config.allocator, context->topology);
     });
     return context;

@@ -10,6 +10,10 @@
 #include <string.h>
 
 
+// Important note: This function is used on the error path of the formatted
+//                 logging macros. It must therefore not use said macros, only
+//                 the basic macros that log a pre-existing message string.
+//                 Which is why it does all the formatting itself.
 void warn_on_errno() {
     // No errno, no output
     if (errno == 0) return;
@@ -28,9 +32,9 @@ void warn_on_errno() {
         // If this fails, just use the integer value + highlight the failure
         int out_chars = snprintf(output,
                                  sizeof(output),
-                                 "Got invalid errno value %d",
+                                 "Got invalid errno value %d.",
                                  initial_errno);
-        assert(("snprintf should never fail", out_chars > 0));
+        assert(("integer snprintf should never fail", out_chars > 0));
         assert(("Output buffer should be large enough to hold an integer",
                 (unsigned)out_chars < sizeof(output)));
         warning(output);
@@ -40,7 +44,8 @@ void warn_on_errno() {
 
     // Basic description that includes the symbolic name only
     const char header[] = "Got errno value ";
-    size_t min_output_size = strlen(header) + strlen(name) + 1;
+    const char trailer[] = ".";
+    size_t min_output_size = strlen(header) + strlen(name) + strlen(trailer) + 1;
 
     // Full description that includes the human-readable description too
     const char separator[] = ": ";
@@ -54,19 +59,19 @@ void warn_on_errno() {
         // Ideally everything...
         result = snprintf(output,
                           sizeof(output),
-                          "%s%s%s%s",
-                          header, name, separator, description);
+                          "%s%s%s%s%s",
+                          header, name, separator, description, trailer);
     } else {
         // ...but if there's not enough room, just the basics. Do warn about it.
-        warning("Internal output buffer is too small for a full errno description, must enlarge it");
+        warning("Internal output buffer is too small for a full errno description, should be enlarged!");
         assert(("Buffer should be large enough to hold an errorname",
                 sizeof(output) >= min_output_size));
         result = snprintf(output,
                           sizeof(output),
-                          "%s%s",
-                          header, name);
+                          "%s%s%s",
+                          header, name, trailer);
     }
-    assert(("snprintf should never fail", result > 0));
+    assert(("string snprintf should never fail", result > 0));
     warning(output);
     errno = 0;
 }
