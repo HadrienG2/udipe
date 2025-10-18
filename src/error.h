@@ -54,10 +54,7 @@ void warn_on_errno();
 #define exit_on_negative(result, error_message)  \
     do {  \
         int udipe_result = (result);  \
-        if (udipe_result < 0) {  \
-            assert(udipe_result == -1);  \
-            exit_after_c_error(error_message);  \
-        }  \
+        if (udipe_result < 0) exit_after_c_error(error_message);  \
     } while(false)
 
 
