@@ -87,7 +87,7 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
     long page_size_l = sysconf(_SC_PAGE_SIZE);
     if (page_size_l < 1) exit_after_c_error("Failed to query system page size");
     size_t page_size = (size_t)page_size_l;
-    debugf("System page size is 0x%zx (%zu) bytes.", page_size, page_size);
+    debugf("System page size is %1$zu (%1$#zx) bytes.", page_size);
 
     hwloc_cpuset_t thread_cpuset = NULL;
     if ((config->buffer_size == 0) || (config->buffer_count == 0)) {
@@ -115,8 +115,8 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
         config->buffer_size = smallest_cache_capacity(topology,
                                                       thread_cpuset,
                                                       HWLOC_OBJ_L1CACHE);
-        debugf("Optimal buffer size for L1 locality is 0x%zx (%zu) bytes.",
-               config->buffer_size, config->buffer_size);
+        debugf("Optimal buffer size for L1 locality is %1$zu (%1$#zx) bytes.",
+               config->buffer_size);
     }
 
     debug("Rounding up buffer size to a multiple of the page size...");
@@ -124,16 +124,16 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
     if (page_remainder != 0) {
         config->buffer_size += page_size - page_remainder;
     }
-    debugf("Selected a buffer size of 0x%zx (%zu) bytes.",
-           config->buffer_size, config->buffer_size);
+    debugf("Selected a buffer size of %1$zu (%1$#zx) bytes.",
+           config->buffer_size);
 
     if (config->buffer_count == 0) {
         debug("Auto-tuning buffer count for L2 locality...");
         size_t pool_size = smallest_cache_capacity(topology,
                                                    thread_cpuset,
                                                    HWLOC_OBJ_L2CACHE);
-        debugf("Optimal memory pool size for L2 locality is 0x%zx (%zu) bytes.",
-               pool_size, pool_size);
+        debugf("Optimal memory pool size for L2 locality is %1$zu (%1$#zx) bytes.",
+               pool_size);
         config->buffer_count = pool_size / config->buffer_size;
         if ((pool_size % config->buffer_size) != 0) {
             config->buffer_count += 1;

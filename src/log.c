@@ -3,12 +3,15 @@
 #include "error.h"
 
 #include <assert.h>
+#include <errno.h>
 #include <linux/prctl.h>
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/prctl.h>
 #include <time.h>
+#include <unistd.h>
 
 
 /// Name of a certain log level
@@ -39,6 +42,13 @@ static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
 }
 
 
+/// Truth that stderr is connected to a TTY
+///
+/// Set upon default_log_callback() initialization. Used to decide whether
+/// stderr logs should use ANSI color highlighting.
+static atomic_bool stderr_is_tty;
+
+
 /// Default log callback
 ///
 /// This is the \ref udipe_log_config_t::callback that is used when the user
@@ -58,26 +68,29 @@ static void default_log_callback(void* /* context */,
 
     // Give each log a color
     const char* level_color;
-    switch(level) {
-    case UDIPE_LOG_TRACE:
-        level_color = "\033[36m";
-        break;
-    case UDIPE_LOG_DEBUG:
-        level_color = "\033[34m";
-        break;
-    case UDIPE_LOG_INFO:
-        level_color = "\033[32m";
-        break;
-    case UDIPE_LOG_WARNING:
-        level_color = "\033[33;1m";
-        break;
-    case UDIPE_LOG_ERROR:
-        level_color = "\033[31;1m";
-        break;
-    case UDIPE_LOG_DEFAULT:
-    default:
-        fprintf(stderr, "libudipe: Called default_log_callback() with invalid level %d\n", level);
-        exit(EXIT_FAILURE);
+    const bool use_colors = atomic_load_explicit(&stderr_is_tty, memory_order_relaxed);
+    if (use_colors) {
+        switch(level) {
+        case UDIPE_LOG_TRACE:
+            level_color = "\033[36m";
+            break;
+        case UDIPE_LOG_DEBUG:
+            level_color = "\033[34m";
+            break;
+        case UDIPE_LOG_INFO:
+            level_color = "\033[0m";
+            break;
+        case UDIPE_LOG_WARNING:
+            level_color = "\033[93;1m";
+            break;
+        case UDIPE_LOG_ERROR:
+            level_color = "\033[91;1m";
+            break;
+        case UDIPE_LOG_DEFAULT:
+        default:
+            fprintf(stderr, "libudipe: Called default_log_callback() with invalid level %d\n", level);
+            exit(EXIT_FAILURE);
+        }
     }
 
     // Query the current thread's name
@@ -86,10 +99,15 @@ static void default_log_callback(void* /* context */,
     assert(("Should never fail with a valid buffer", result == 0));
 
     // Display the log on stderr
-    // TODO: Disable ANSI colors when not connected to a TTY.
-    fprintf(stderr,
-            "[\033[2m%5zu.%06zu\033[0m %s%5s \033[0;35m%16s/%s\033[0m] %s\n",
-            secs, microsecs, level_color, level_name, thread_name, location, message);
+    if (use_colors) {
+        fprintf(stderr,
+                "[%1$5zu.%2$06zu %7$s%3$5s\033[0m] \033[33m%4$15s %5$s: %7$s%6$s\033[0m\n",
+                secs, microsecs, level_name, thread_name, location, message, level_color);
+    } else {
+        fprintf(stderr,
+                "[%1$5zu.%2$06zu %3$5s] %4$15s %5$s: %6$s\n",
+                secs, microsecs, level_name, thread_name, location, message);
+    }
 }
 
 
@@ -120,7 +138,17 @@ logger_t log_initialize(udipe_log_config_t config) {
     }
 
     // Configure logging callback
-    if (!config.callback) config.callback = default_log_callback;
+    if (!config.callback) {
+        config.callback = default_log_callback;
+        int result = isatty(STDERR_FILENO);
+        if (result == 1) {
+            atomic_store_explicit(&stderr_is_tty, true, memory_order_relaxed);
+        } else {
+            assert(("No other return value expected", result == 0));
+            assert(("No other error expected for stderr", errno == ENOTTY));
+            atomic_store_explicit(&stderr_is_tty, false, memory_order_relaxed);
+        }
+    }
     return config;
 }
 
