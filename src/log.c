@@ -78,7 +78,7 @@ static void default_log_callback(void* /* context */,
             level_color = "\033[34m";
             break;
         case UDIPE_LOG_INFO:
-            level_color = "\033[0m";
+            level_color = "\033[32m";
             break;
         case UDIPE_LOG_WARNING:
             level_color = "\033[93;1m";
