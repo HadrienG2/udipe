@@ -24,11 +24,11 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
     hwloc_bitmap_foreach_begin(os_cpu, thread_cpuset)
         tracef("Finding the PU object associated with CPU %d...", os_cpu);
         hwloc_obj_t pu = hwloc_get_pu_obj_by_os_index(topology, os_cpu);
-        exit_on_null(pu, "Failed to find PU from thread cpuset");
+        exit_on_null(pu, "Failed to find PU from thread cpuset!");
 
         trace("Finding the cache capacity of this PU...");
         hwloc_obj_t cache = hwloc_get_ancestor_obj_by_type(topology, cache_type, pu);
-        exit_on_null(cache, "Failed to find cache from thread PU");
+        exit_on_null(cache, "Failed to find cache from thread PU!");
         assert(("Caches should have attributes", cache->attr));
         assert(cache->attr->cache.size < (uint64_t)SIZE_MAX);
         size_t cache_size = (size_t)cache->attr->cache.size;
@@ -37,12 +37,12 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
         trace("Determining cache cpuset...");
         assert(("Caches should have a cpuset", cache->cpuset));
         hwloc_cpuset_t cache_cpuset = hwloc_bitmap_dup(cache->cpuset);
-        exit_on_null(cache_cpuset, "Failed to duplicate cache cpuset");
+        exit_on_null(cache_cpuset, "Failed to duplicate cache cpuset!");
         if (log_enabled(UDIPE_LOG_TRACE)) {
             char* cpuset_str;
             exit_on_negative(hwloc_bitmap_list_asprintf(&cpuset_str, cache_cpuset),
-                             "Failed to display cache cpuset");
-            tracef("Cache is bound to CPU(s) %s.", cpuset_str);
+                             "Failed to display cache cpuset!");
+            tracef("Cache is attached to CPU(s) %s.", cpuset_str);
             free(cpuset_str);
         }
 
@@ -57,12 +57,12 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
             free(cpuset_str);
         }
 
-        trace("Computing fair share of cache across CPU cores...");
+        trace("Computing fair share of cache across attached CPU(s)...");
         int weight = hwloc_bitmap_weight(cache_cpuset);
         assert(weight >= 1);
         cache_size /= (size_t)weight;
         hwloc_bitmap_free(cache_cpuset);
-        tracef("Each core can safely use %zu bytes from this cache.", cache_size);
+        tracef("Each CPU can safely use %zu bytes from this cache.", cache_size);
 
         trace("Updating minimum cache capacity...");
         if (cache_size < min_size) min_size = cache_size;
@@ -85,7 +85,7 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
                                  hwloc_topology_t topology) {
     debug("Querying system page size...");
     long page_size_l = sysconf(_SC_PAGE_SIZE);
-    if (page_size_l < 1) exit_after_c_error("Failed to query system page size");
+    if (page_size_l < 1) exit_after_c_error("Failed to query system page size!");
     size_t page_size = (size_t)page_size_l;
     debugf("System page size is %1$zu (%1$#zx) bytes.", page_size);
 
@@ -93,18 +93,18 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
     if ((config->buffer_size == 0) || (config->buffer_count == 0)) {
         debug("Allocating thread cpuset...");
         thread_cpuset = hwloc_bitmap_alloc();
-        exit_on_null(thread_cpuset, "Failed to allocate thread cpuset");
+        exit_on_null(thread_cpuset, "Failed to allocate thread cpuset!");
 
         debug("Querying thread CPU binding...");
         exit_on_negative(hwloc_get_cpubind(topology,
                                            thread_cpuset,
                                            HWLOC_CPUBIND_THREAD),
-                         "Failed to query thread CPU binding");
+                         "Failed to query thread CPU binding!");
 
         if (log_enabled(UDIPE_LOG_DEBUG)) {
             char* cpuset_str;
             exit_on_negative(hwloc_bitmap_list_asprintf(&cpuset_str, thread_cpuset),
-                             "Failed to display thread CPU binding");
+                             "Failed to display thread CPU binding!");
             debugf("Thread is bound to CPU(s) %s.", cpuset_str);
             free(cpuset_str);
         }
@@ -159,7 +159,7 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
         debug("No user callback specified, will use default configuration.");
         if (global_config.context) {
             exit_with_error("Cannot set udipe_allocator_config_t::context \
-                             without setting udipe_allocator_config_t::callback");
+                             without setting udipe_allocator_config_t::callback!");
         }
         memset(&allocator.config, 0, sizeof(udipe_thread_allocator_config_t));
     }
@@ -175,11 +175,11 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
                                  MAP_PRIVATE | MAP_ANONYMOUS,
                                  -1,
                                  0);
-    exit_on_null(allocator.memory_pool, "Failed to allocate memory pool");
+    exit_on_null(allocator.memory_pool, "Failed to allocate memory pool!");
 
     debug("Locking memory pages into RAM...");
     exit_on_negative(mlock(allocator.memory_pool, pool_size),
-                     "Failed to lock memory pages into RAM");
+                     "Failed to lock memory pages into RAM!");
 
     debug("Initializing the availability bitmap...");
     for (size_t buf = 0; buf < allocator.config.buffer_count; ++buf) {

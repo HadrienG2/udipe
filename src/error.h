@@ -21,7 +21,7 @@ void warn_on_errno();
 /// Exit with an error message
 ///
 /// This macro must be used within the scope of with_logger(), but outside of
-/// the udipe logger implementation (so logging calls are okay).
+/// the udipe static string logger implementation (since it emits logs).
 #define exit_with_error(error_message)  \
     do {  \
         error(error_message);  \
@@ -31,7 +31,7 @@ void warn_on_errno();
 
 /// Exit following the failure of a C function
 ///
-/// This handles situations where all of the following is true:
+/// This macro handles situations where all of the following is true:
 ///
 /// - A C function is known to have previously failed.
 /// - `errno` may or may not be set to further explain what error occured.

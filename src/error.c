@@ -32,9 +32,9 @@ void warn_on_errno() {
         // If this fails, just use the integer value + highlight the failure
         int out_chars = snprintf(output,
                                  sizeof(output),
-                                 "Got invalid errno value %d.",
+                                 "Got invalid errno value %d!",
                                  initial_errno);
-        assert(("integer snprintf should never fail", out_chars > 0));
+        assert(("Integer snprintf should never fail", out_chars > 0));
         assert(("Output buffer should be large enough to hold an integer",
                 (unsigned)out_chars < sizeof(output)));
         warning(output);
@@ -50,7 +50,7 @@ void warn_on_errno() {
     // Full description that includes the human-readable description too
     const char separator[] = ": ";
     const char* description = strerrordesc_np(initial_errno);
-    assert(("errorname and errordesc should agree on errno validation", description));
+    assert(("strerrorname_np() and strerrordesc_np() should agree on errno validation", description));
     size_t full_output_size = min_output_size + strlen(separator) + strlen(description);
 
     // Pick the description that fits in the output buffer
@@ -71,7 +71,7 @@ void warn_on_errno() {
                           "%s%s%s",
                           header, name, trailer);
     }
-    assert(("string snprintf should never fail", result > 0));
+    assert(("String snprintf should never fail!", result > 0));
     warning(output);
     errno = 0;
 }

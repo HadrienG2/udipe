@@ -70,8 +70,10 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// where you want to dynamically adjust the log level at runtime.
 ///
 /// If generating a message requires expensive processing that should not be
-/// performed when the target log level is disabled, you should use
-/// log_enabled() to test ahead of time whether this log level is enabled.
+/// performed when the target log level is disabled, then you should use
+/// log_enabled() to test ahead of time whether this log level is enabled. For
+/// the common case where the expensive process is generation of a formatted
+/// text, we directly provide logf() and log level specific cousins thereof.
 ///
 /// See also warn_on_errno() for cases where you need to report a failure from
 /// system calls and third-party C libraries.
@@ -117,17 +119,17 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// \name Formatted logging macros
 /// \{
 
-
 /// GNU attributes of logf_impl()
 ///
 /// This allows GCC to validate correct usage of this printf()-style function.
-#define LOGF_IMPL_ATTRIBUTES __attribute__ ((format (printf, 3, 4)))
-
+/// Extracting it into a macro deduplicates definition/declaration and works
+/// around a bug in the doxygen parser.
+#define LOGF_IMPL_ATTRIBUTES __attribute__((format(printf, 3, 4)))
 
 /// Implementation of logf()
 ///
 /// This function is not meant to be used directly, it is an implementation
-/// detail of the logf() macro which you should be using instead.
+/// detail of the logf() macro.
 LOGF_IMPL_ATTRIBUTES
 void logf_impl(udipe_log_level_t level,
                const char* location,
@@ -146,8 +148,7 @@ void logf_impl(udipe_log_level_t level,
 ///
 /// All other comments from log() remain valid, including the need to call it
 /// inside the scope of with_logger(). See also errorf(), warningf(), infof(),
-/// debugf() and tracef() for formatted versions of the level-specific logging
-/// macros.
+/// debugf() and tracef() for level-specific formatted logging macros.
 #define logf(level, format, ...)  \
     do {  \
         const udipe_log_level_t udipe_level = (level);  \
@@ -211,9 +212,8 @@ static inline void restore_thread_logger(const logger_t** prev_logger) {
 /// Call as `with_logger(&logger, { ... })` to be able to use log() and related
 /// macros inside of the ... inner code scope.
 ///
-/// This macro is meant to be called at the start of every public `libudipe`
-/// entry point and also early in the main function of every udipe worker
-/// thread.
+/// This macro must be called at the start of every public `libudipe` entry
+/// point and early on inside the main function of every udipe worker thread.
 ///
 /// \param logger_ptr must point to a `logger_t` that was previously initialized
 ///        by log_initialize(), and that is valid to use until the end of the
