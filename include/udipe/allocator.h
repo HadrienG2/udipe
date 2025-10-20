@@ -10,28 +10,6 @@
 #include <stddef.h>
 
 
-/// \internal
-///
-/// \brief Maximum number of buffer availability tracking words in \ref
-/// allocator_t::buffer_availability
-///
-/// This indirectly dictates the maximum amount of buffers that \ref allocator_t
-/// can manage, see also UDIPE_MAX_BUFFER_COUNT.
-///
-/// This can be tuned up whenever a real-world use case emerges where a larger
-/// value would be useful. But overall, the current algorithm only performs well
-/// for small values of this parameter. If it ever needs to get large, the
-/// allocator algorithm most likely also needs to change.
-#define UDIPE_MAX_USAGE_WORDS 1
-
-
-/// \internal
-///
-/// \brief Number of buffers that a word can track in \ref
-/// allocator_t::buffer_availability
-#define UDIPE_BUFFERS_PER_USAGE_WORD (sizeof(size_t) * 8)
-
-
 /// Maximum number of buffers that a worker thread can manage
 ///
 /// Any attempt to set up a worker thread that manages more than this amount
@@ -39,8 +17,8 @@
 ///
 /// If automatic configuration logic determines that the optimal amount of
 /// buffers is above this limit, then it will log a warning and proceed with
-/// UDIPE_MAX_BUFFER_COUNT buffers instead.
-#define UDIPE_MAX_BUFFER_COUNT (UDIPE_MAX_USAGE_WORDS * UDIPE_BUFFERS_PER_USAGE_WORD)
+/// UDIPE_MAX_BUFFERS buffers instead.
+#define UDIPE_MAX_BUFFERS 64
 
 
 /// Tunable memory management parameters for one worker thread
@@ -71,7 +49,7 @@ typedef struct udipe_thread_allocator_config_s {
     ///
     /// This indirectly controls the number of concurrent I/O requests that a
     /// worker thread can start before being forced to wait for pending requests
-    /// to complete. It cannot be larger than MAX_BUFFER_COUNT.
+    /// to complete. It cannot be larger than MAX_BUFFERS.
     ///
     /// A value of 0 requests the default buffer count, which is adjusted such
     /// that there is at least one buffer and the buffers collectively fit...

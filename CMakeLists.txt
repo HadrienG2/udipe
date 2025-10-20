@@ -87,6 +87,7 @@ target_sources(udipe
                       FILES ${udipe_relative_headers}
                PRIVATE src/allocator.c
                        src/allocator.h
+                       src/bitmap.h
                        src/context.c
                        src/context.h
                        src/error.c

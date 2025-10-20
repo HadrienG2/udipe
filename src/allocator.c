@@ -52,7 +52,7 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
         if (log_enabled(UDIPE_LOG_TRACE)) {
             char* cpuset_str;
             exit_on_negative(hwloc_bitmap_list_asprintf(&cpuset_str, cache_cpuset),
-                             "Failed to display cache cpuset");
+                             "Failed to display cache cpuset!");
             tracef("That leaves CPU(s) %s.", cpuset_str);
             free(cpuset_str);
         }
@@ -138,7 +138,17 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
         if ((pool_size % config->buffer_size) != 0) {
             config->buffer_count += 1;
         }
-        debugf("Will allocate a pool of %zu buffers.", config->buffer_count);
+        if (config->buffer_count <= UDIPE_MAX_BUFFERS) {
+            debugf("Will allocate a pool of %zu buffers.", config->buffer_count);
+        } else {
+            warnf("Auto-configuration suggests a pool of %zu buffers, but \
+                   implementation only supports %zu. UDIPE_MAX_BUFFERS \
+                   should be raised. Will stick with the maximum for now...",
+                   config->buffer_count, UDIPE_MAX_BUFFERS);
+            config->buffer_count = UDIPE_MAX_BUFFERS;
+        }
+    } else if (config->buffer_count > UDIPE_MAX_BUFFERS) {
+        exit_with_error("Cannot have more than UDIPE_MAX_BUFFERS buffers!");
     }
 
     if (thread_cpuset) hwloc_bitmap_free(thread_cpuset);
@@ -183,10 +193,24 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
 
     debug("Initializing the availability bitmap...");
     for (size_t buf = 0; buf < allocator.config.buffer_count; ++buf) {
-        allocator.buffer_availability[buf / UDIPE_BUFFERS_PER_USAGE_WORD]
-            |= (1 << (buf % UDIPE_BUFFERS_PER_USAGE_WORD));
+        bit b = get_bit(buf);
+        allocator.buffer_availability[b.word_idx] |= b.mask;
     }
     return allocator;
+}
+
+
+void allocator_finalize(allocator_t allocator) {
+    #ifndef NDEBUG
+        for (size_t buf = 0; buf < allocator.config.buffer_count; ++buf) {
+            bit b = get_bit(buf);
+            assert((
+                "Attempted to finalize allocator while some allocations were still active",
+                (allocator.buffer_availability[b.word_idx] & b.mask) != 0
+            ));
+        }
+    #endif
+    munmap(allocator.memory_pool, allocator.config.buffer_size * allocator.config.buffer_count);
 }
 
 // TODO: Implement remaining functions

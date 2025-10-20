@@ -9,6 +9,8 @@
 #include <udipe/allocator.h>
 #include <udipe/pointer.h>
 
+#include "bitmap.h"
+
 #include <hwloc.h>
 #include <stddef.h>
 
@@ -60,12 +62,12 @@ typedef struct allocator_s {
 
     /// Bitmap of buffer availability within the memory pool
     ///
-    /// The N-th within this bitmap tracks whether the N-th buffer (where N is
-    /// between 0 and \link #udipe_thread_allocator_config_t::buffer_count
+    /// The N-th bit within this bitmap tracks whether the N-th buffer (where N
+    /// is between 0 and \link #udipe_thread_allocator_config_t::buffer_count
     /// config.buffer_count \endlink) is currently available for use.
     ///
     /// A set bit means that a buffer is available for use
-    size_t buffer_availability[UDIPE_MAX_USAGE_WORDS];
+    INLINE_BITMAP(buffer_availability, UDIPE_MAX_BUFFERS);
 } allocator_t;
 
 
@@ -86,7 +88,8 @@ allocator_t allocator_initialize(udipe_allocator_config_t config,
 
 /// Finalize a \link #allocator_t memory allocator \endlink.
 ///
-/// The memory allocator cannot be used again after this is done.
+/// All former allocations should have been liberated before calling this
+/// function, and the memory allocator cannot be used again after this is done.
 ///
 /// This function must be called within the scope of with_logger().
 void allocator_finalize(allocator_t allocator);
