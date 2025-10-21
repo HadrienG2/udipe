@@ -193,6 +193,18 @@ static inline void bitmap_set(word_t bitmap[],
 }
 
 
+/// Count the number of trailing zeros in the input integer
+///
+/// \param x must be a machine word
+#define count_trailing_zeros(x)  \
+    _Generic(  \
+        (x),  \
+        unsigned int: __builtin_ctz(x),  \
+        unsigned long: __builtin_ctzl(x),  \
+        unsigned long long: __builtin_ctzll(x)  \
+    )
+
+
 /// Find the first bit that has a certain value within a bitmap
 ///
 /// \param bitmap must be a valid bitmap of length `capacity`
@@ -230,7 +242,7 @@ static inline bit_pos_t bitmap_find_first(word_t bitmap[],
     }
 
     // At this point, we know there is a first set bit, so locate it
-    const size_t offset = __builtin_ctzg(target_word);
+    const size_t offset = count_trailing_zeros(target_word);
     return (bit_pos_t) {
         .word = word,
         .offset = offset,
@@ -288,7 +300,7 @@ static inline bit_pos_t bitmap_find_next(word_t bitmap[],
 
         // If there is a next set bit, return its position
         if (previous_remainder != 0) {
-            const size_t extra_offset = __builtin_ctzg(previous_remainder);
+            const size_t extra_offset = count_trailing_zeros(previous_remainder);
             return (bit_pos_t) {
                 .word = previous.word,
                 .offset = dropped_bits + extra_offset,
