@@ -6,6 +6,7 @@
 //! `libudipe` internally uses bitmaps in various circumstances.
 
 #include <assert.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
