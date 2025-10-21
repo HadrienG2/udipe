@@ -193,16 +193,12 @@ static inline void bitmap_set(word_t bitmap[],
 }
 
 
-/// Count the number of trailing zeros in the input integer
+/// Count the number of trailing zeros in a word of the bitmap
 ///
-/// \param x must be a machine word
-#define count_trailing_zeros(x)  \
-    _Generic(  \
-        (x),  \
-        unsigned int: __builtin_ctz(x),  \
-        unsigned long: __builtin_ctzl(x),  \
-        unsigned long long: __builtin_ctzll(x)  \
-    )
+/// \param x must not be zero
+inline size_t count_trailing_zeros(word_t x) {
+    return __builtin_ctzll(x);
+}
 
 
 /// Find the first bit that has a certain value within a bitmap
