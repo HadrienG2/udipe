@@ -109,7 +109,7 @@ static inline bool bitmap_all(const word_t bitmap[],
 
     if (remaining_bits == 0) return true;
     const word_t last_word = bitmap[num_full_words];
-    const word_t remainder_mask = (1 << remaining_bits) - 1;
+    const word_t remainder_mask = ((word_t)1 << remaining_bits) - 1;
     return ((last_word ^ full_word) & remainder_mask) == 0;
 }
 
@@ -168,7 +168,7 @@ static inline bool bitmap_get(word_t bitmap[],
                               size_t capacity,
                               bit_pos_t bit) {
     assert(bit_pos_to_index(bit) < capacity);
-    return (bitmap[bit.word] & (1 << bit.offset)) != 0;
+    return (bitmap[bit.word] & ((word_t)1 << bit.offset)) != 0;
 }
 
 
@@ -186,9 +186,9 @@ static inline void bitmap_set(word_t bitmap[],
                               bool value) {
     assert(bit_pos_to_index(bit) < capacity);
     if (value) {
-        bitmap[bit.word] |= (1 << bit.offset);
+        bitmap[bit.word] |= ((word_t)1 << bit.offset);
     } else {
-        bitmap[bit.word] &= ~(1 << bit.offset);
+        bitmap[bit.word] &= ~((word_t)1 << bit.offset);
     }
 }
 
@@ -233,7 +233,7 @@ static inline bit_pos_t bitmap_find_first(word_t bitmap[],
     // Handle false positives related to padding bits being set to the target
     // value by clearing the padding bits (since we're now looking for set bits)
     if ((word == num_full_words) && (remaining_bits != 0)) {
-        target_word &= (1 << remaining_bits) - 1;
+        target_word &= ((word_t)1 << remaining_bits) - 1;
         if (target_word == 0) return NO_BIT_POS;
     }
 
@@ -288,7 +288,7 @@ static inline bit_pos_t bitmap_find_next(word_t bitmap[],
 
         // If this was the last word of an incomplete bitmap, mask out its
         // padding bits so they do not result in search false positives
-        if (previous_is_incomplete) previous_remainder &= (1 << remaining_bits) - 1;
+        if (previous_is_incomplete) previous_remainder &= ((word_t)1 << remaining_bits) - 1;
 
         // Eliminate bits which we have previously looked at
         const size_t dropped_bits = previous.offset + 1;
@@ -324,7 +324,7 @@ static inline bit_pos_t bitmap_find_next(word_t bitmap[],
 
     // Otherwise, look into the bits before the previous search result, if any
     return bitmap_find_first(bitmap,
-                             bit_pos_to_index(previous),
+                             bit_pos_to_index(previous) + 1,
                              value);
 }
 
