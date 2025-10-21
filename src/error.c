@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -45,13 +46,15 @@ void warn_on_errno() {
     // Basic description that includes the symbolic name only
     const char header[] = "Got errno value ";
     const char trailer[] = ".";
-    size_t min_output_size = strlen(header) + strlen(name) + strlen(trailer) + 1;
+    const size_t min_output_size = strlen(header) + strlen(name) + strlen(trailer) + 1;
 
     // Full description that includes the human-readable description too
     const char separator[] = ": ";
     const char* description = strerrordesc_np(initial_errno);
-    assert(("strerrorname_np() and strerrordesc_np() should agree on errno validation", description));
-    size_t full_output_size = min_output_size + strlen(separator) + strlen(description);
+    assert(("strerrorname_np() and strerrordesc_np() "
+            "should agree on errno validation",
+            description));
+    const size_t full_output_size = min_output_size + strlen(separator) + strlen(description);
 
     // Pick the description that fits in the output buffer
     int result;
@@ -63,7 +66,8 @@ void warn_on_errno() {
                           header, name, separator, description, trailer);
     } else {
         // ...but if there's not enough room, just the basics. Do warn about it.
-        warning("Internal output buffer is too small for a full errno description, should be enlarged!");
+        warning("Internal output buffer is too small for a full errno "
+                "description and should be enlarged!");
         assert(("Buffer should be large enough to hold an errorname",
                 sizeof(output) >= min_output_size));
         result = snprintf(output,
@@ -74,4 +78,29 @@ void warn_on_errno() {
     assert(("String snprintf should never fail!", result > 0));
     warning(output);
     errno = 0;
+}
+
+
+void ensure_eq_failure(const char* format_template,
+                       const char* x_format,
+                       const char* y_format,
+                       ...) {
+    // Determine the format string size
+    int result = snprintf(NULL, 0, format_template, x_format, y_format);
+    exit_on_negative(result, "Failed to evaluate format string size!");
+    size_t format_size = 1 + (size_t)result;
+
+    // Allocate the format string buffer
+    char* format = alloca(format_size);
+    exit_on_null(format, "Failed to allocate format string!");
+
+    // Generate the format string
+    result = snprintf(format, format_size, format_template, x_format, y_format);
+    exit_on_negative(result, "Failed to generate format string!");
+
+    // Display the error and die
+    va_list args;
+    va_start(args, y_format);
+    vfprintf(stderr, format, args);
+    exit(EXIT_FAILURE);
 }

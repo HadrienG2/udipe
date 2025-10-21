@@ -18,7 +18,7 @@
 /// If automatic configuration logic determines that the optimal amount of
 /// buffers is above this limit, then it will log a warning and proceed with
 /// UDIPE_MAX_BUFFERS buffers instead.
-#define UDIPE_MAX_BUFFERS 64
+#define UDIPE_MAX_BUFFERS ((size_t)64)
 
 
 /// Tunable memory management parameters for one worker thread

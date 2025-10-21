@@ -36,7 +36,9 @@ static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
         if (allow_default) return "DEFAULT";
         __attribute__ ((fallthrough));
     default:
-        fprintf(stderr, "libudipe: Called log_level_name() with invalid level %d!\n", level);
+        fprintf(stderr,
+                "libudipe: Called log_level_name() with invalid level %d!\n",
+                level);
         exit(EXIT_FAILURE);
     }
 }
@@ -88,7 +90,10 @@ static void default_log_callback(void* /* context */,
             break;
         case UDIPE_LOG_DEFAULT:
         default:
-            fprintf(stderr, "libudipe: Called default_log_callback() with invalid level %d!\n", level);
+            fprintf(stderr,
+                    "libudipe: Called default_log_callback() "
+                    "with invalid level %d!\n",
+                    level);
             exit(EXIT_FAILURE);
         }
     }
@@ -101,11 +106,11 @@ static void default_log_callback(void* /* context */,
     // Display the log on stderr
     if (use_colors) {
         fprintf(stderr,
-                "[%1$5zu.%2$06zu %7$s%3$5s\033[0m] \033[33m%4$15s %5$s: %7$s%6$s\033[0m\n",
+                "[%1$5zu.%2$06zu %7$s%3$5s\033[0m] \033[33m%4$s %5$s: %7$s%6$s\033[0m\n",
                 secs, microsecs, level_name, thread_name, location, message, level_color);
     } else {
         fprintf(stderr,
-                "[%1$5zu.%2$06zu %3$5s] %4$15s %5$s: %6$s\n",
+                "[%1$5zu.%2$06zu %3$5s] %4$s %5$s: %6$s\n",
                 secs, microsecs, level_name, thread_name, location, message);
     }
 }
@@ -133,7 +138,9 @@ logger_t log_initialize(udipe_log_config_t config) {
         #endif
         break;
     default:
-        fprintf(stderr, "libudipe: Called log_initialize() with invalid min_level %d!\n", config.min_level);
+        fprintf(stderr,
+                "libudipe: Called log_initialize() with invalid min_level %d!\n",
+                config.min_level);
         exit(EXIT_FAILURE);
     }
 
@@ -193,7 +200,9 @@ thread_local const logger_t* udipe_thread_logger = NULL;
 
 #ifndef NDEBUG
     void validate_log(udipe_log_level_t level) {
-        assert(("Should not make logging calls outside a with_logger() scope", udipe_thread_logger));
+        assert(("Should not make logging calls "
+                "outside a with_logger() scope",
+                udipe_thread_logger));
         switch (level) {
         case UDIPE_LOG_TRACE:
         case UDIPE_LOG_DEBUG:
@@ -202,7 +211,9 @@ thread_local const logger_t* udipe_thread_logger = NULL;
         case UDIPE_LOG_ERROR:
             break;
         default:
-            fprintf(stderr, "libudipe: Called validate_log() with invalid level %d!\n", level);
+            fprintf(stderr,
+                    "libudipe: Called validate_log() with invalid level %d!\n",
+                    level);
             exit(EXIT_FAILURE);
         };
     }

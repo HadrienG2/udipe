@@ -1,6 +1,7 @@
 #include "allocator.h"
 
 #include "error.h"
+#include "log.h"
 
 #include <stdint.h>
 #include <sys/mman.h>
@@ -69,7 +70,8 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
     hwloc_bitmap_foreach_end();
     assert(("Thread cpuset should contain at least one PU", min_size < SIZE_MAX));
 
-    debugf("Minimal cache capacity is %zu, will apply an 80%% safety factor on top of that...",
+    debugf("Minimal cache capacity is %zu, "
+           "will apply an 80%% safety factor on top of that...",
            min_size);
     return (8 * min_size) / 10;
 }
@@ -141,10 +143,10 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
         if (config->buffer_count <= UDIPE_MAX_BUFFERS) {
             debugf("Will allocate a pool of %zu buffers.", config->buffer_count);
         } else {
-            warnf("Auto-configuration suggests a pool of %zu buffers, but \
-                   implementation only supports %zu. UDIPE_MAX_BUFFERS \
-                   should be raised. Will stick with the maximum for now...",
-                   config->buffer_count, UDIPE_MAX_BUFFERS);
+            warningf("Auto-configuration suggests a pool of %zu buffers, but "
+                     "implementation only supports %zu. UDIPE_MAX_BUFFERS "
+                     "should be raised. Will stick with the maximum for now...",
+                     config->buffer_count, UDIPE_MAX_BUFFERS);
             config->buffer_count = UDIPE_MAX_BUFFERS;
         }
     } else if (config->buffer_count > UDIPE_MAX_BUFFERS) {
@@ -162,14 +164,15 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
     if (global_config.callback) {
         debug("Obtaining configuration from user callback...");
         allocator.config = (global_config.callback)(global_config.context);
-        debugf("User requested buffer_size %zu and buffer_count %zu (0 = default)",
+        debugf("User requested buffer_size %zu "
+               "and buffer_count %zu (0 = default)",
                allocator.config.buffer_size,
                allocator.config.buffer_count);
     } else {
         debug("No user callback specified, will use default configuration.");
         if (global_config.context) {
-            exit_with_error("Cannot set udipe_allocator_config_t::context \
-                             without setting udipe_allocator_config_t::callback!");
+            exit_with_error("Cannot set udipe_allocator_config_t::context "
+                            "without also setting the callback field!");
         }
         memset(&allocator.config, 0, sizeof(udipe_thread_allocator_config_t));
     }
@@ -192,24 +195,13 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
                      "Failed to lock memory pages into RAM!");
 
     debug("Initializing the availability bitmap...");
-    for (size_t buf = 0; buf < allocator.config.buffer_count; ++buf) {
-        bit b = get_bit(buf);
-        allocator.buffer_availability[b.word_idx] |= b.mask;
-    }
+    bitmap_fill(allocator.buffer_availability, UDIPE_MAX_BUFFERS, true);
     return allocator;
 }
 
 
 void allocator_finalize(allocator_t allocator) {
-    #ifndef NDEBUG
-        for (size_t buf = 0; buf < allocator.config.buffer_count; ++buf) {
-            bit b = get_bit(buf);
-            assert((
-                "Attempted to finalize allocator while some allocations were still active",
-                (allocator.buffer_availability[b.word_idx] & b.mask) != 0
-            ));
-        }
-    #endif
+    assert(bitmap_all(allocator.buffer_availability, UDIPE_MAX_BUFFERS, true));
     munmap(allocator.memory_pool, allocator.config.buffer_size * allocator.config.buffer_count);
 }
 

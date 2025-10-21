@@ -80,6 +80,7 @@ set(udipe_relative_headers include/udipe.h
                            include/udipe/context.h
                            include/udipe/log.h
                            include/udipe/pointer.h
+                           include/udipe/tests.h
                            include/udipe/visibility.h)
 target_sources(udipe
                PUBLIC FILE_SET HEADERS
@@ -88,12 +89,17 @@ target_sources(udipe
                PRIVATE src/allocator.c
                        src/allocator.h
                        src/bitmap.h
+                       src/bitmap.c
                        src/context.c
                        src/context.h
                        src/error.c
                        src/error.h
                        src/log.c
-                       src/log.h)
+                       src/log.h
+                       src/tests.c)
+if (UDIPE_BUILD_TESTS)
+    target_compile_definitions(udipe PUBLIC UDIPE_BUILD_TESTS)
+endif()
 target_include_directories(udipe
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
@@ -105,18 +111,18 @@ install(TARGETS udipe EXPORT UdipeTargets FILE_SET HEADERS)
 ### Doxygen documentation ###
 
 if (UDIPE_BUILD_DOXYGEN)
-    set(DOXYGEN_EXTRACT_STATIC 1)
-    set(DOXYGEN_OPTIMIZE_OUTPUT_FOR_C 1)
-    set(DOXYGEN_REPEAT_BRIEF 0)
-    set(DOXYGEN_WARN_IF_UNDOC_ENUM_VAL 1)
+    set(DOXYGEN_EXTRACT_STATIC YES)
+    set(DOXYGEN_OPTIMIZE_OUTPUT_FOR_C YES)
+    set(DOXYGEN_REPEAT_BRIEF NO)
+    set(DOXYGEN_WARN_IF_UNDOC_ENUM_VAL YES)
     if (UDIPE_WERROR)
-        set(DOXYGEN_WARN_AS_ERROR)
+        set(DOXYGEN_WARN_AS_ERROR YES)
     endif()
 
     set(documented_source ${udipe_relative_headers})
     if (UDIPE_BUILD_DOXYGEN_INTERNAL)
-        set(DOXYGEN_INTERNAL_DOCS 1)
-        set(DOXYGEN_SOURCE_BROWSER 1)
+        set(DOXYGEN_INTERNAL_DOCS YES)
+        set(DOXYGEN_SOURCE_BROWSER YES)
         get_target_property(private_source udipe SOURCES)
         list(APPEND documented_source ${private_source})
     else()

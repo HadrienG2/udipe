@@ -8,6 +8,8 @@
 #include "log.h"
 
 #include <assert.h>
+#include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 
@@ -26,6 +28,84 @@ void warn_on_errno();
     do {  \
         error(error_message);  \
         exit(EXIT_FAILURE);  \
+    } while(false)
+
+
+/// Make sure that a condition is true, otherwise exit with an error message
+///
+/// This is mainly useful for unit tests, but may prove to be useful for other
+/// purposes someday.
+///
+/// The use of direct fprintf to stderr is for consistency with ensure_eq(),
+/// which cannot easily be made to use the logging macros.
+#define ensure(assertion)  \
+    do {  \
+        if (!(assertion)) {  \
+            fprintf(stderr,  \
+                    "ensure() FAILED @ %s():%u -> "  \
+                    "Expected " #assertion " to be true but it isn't",  \
+                    __func__, __LINE__);  \
+            exit(EXIT_FAILURE);  \
+        }  \
+    } while(false)
+
+
+/// Proper format string for some expression (ensure_eq() implementation detail)
+///
+/// This is an implementation detail of ensure_eq() that you should never need
+/// to call into yourself.
+//
+// TODO: Expand list of supported types as needed
+#define format_for(x) _Generic((x),  \
+                                 const char*: "%s",  \
+                                 signed char: "%hhd",  \
+                                       short: "%hd",  \
+                                         int: "%d",  \
+                                        long: "%ld",  \
+                                   long long: "%lld",  \
+                               unsigned char: "%hhu",  \
+                              unsigned short: "%hu",  \
+                                    unsigned: "%u",  \
+                               unsigned long: "%lu",  \
+                          unsigned long long: "%llu",  \
+                                      double: "%f",  \
+                                 long double: "%Lf",  \
+                                       void*: "%p",  \
+                                        bool: "%u"  \
+                      )
+
+
+/// Failure branch of ensure_eq()
+///
+/// You should not call this function directly, but rather call the ensure_eq()
+/// macro, which will take care of calling it with the right parameters.
+void ensure_eq_failure(const char* format_template,
+                       const char* x_format,
+                       const char* y_format,
+                       ...);
+
+
+/// Make sure that two things are equal, otherwise exit with an error message
+///
+/// This is mainly useful for unit tests, but may prove to be useful for other
+/// purposes someday.
+///
+/// Internally, the macro works by generating a format string that is
+/// appropriate for its argument types, which is then used for the actual
+/// fprintf call before exiting.
+#define ensure_eq(x, y)  \
+    do {  \
+        typeof(x) udipe_x = (x);  \
+        typeof(y) udipe_y = (y);  \
+        if (udipe_x != udipe_y) {  \
+            ensure_eq_failure(  \
+                "ensure_eq() FAILED @ %%s():%%u -> Expected " #x " == " #y  \
+                ", but it evaluates to %s != %s",  \
+                format_for(udipe_x),  \
+                format_for(udipe_y),  \
+                __func__, __LINE__, udipe_x, udipe_y  \
+            );  \
+        }  \
     } while(false)
 
 

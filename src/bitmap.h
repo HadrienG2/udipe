@@ -5,26 +5,25 @@
 //!
 //! `libudipe` internally uses bitmaps in various circumstances.
 
+#include "log.h"
+
 #include <assert.h>
 #include <stddef.h>
+#include <stdint.h>
 
 
 /// Divide `num` and `denom`, rounding upwards
 ///
-/// \param num must be an integer value
-/// \param denom must be an integer value other than zero
-#define div_ceil(num, denom)  \
-    ({  \
-        typeof(num) udipe_num = (num);  \
-        typeof(denom) udipe_denom = (denom);  \
-        (udipe_num / udipe_denom) + ((udipe_num % udipe_denom) != 0);  \
-    })
+/// \param num must be side-effects-free integer expression
+/// \param denom must be a side-effects-free integer value which does not
+///              evaluate to zero
+#define DIV_CEIL(num, denom) ((num / denom) + ((num % denom) != 0))
 
 
 /// Unsigned machine word type used for bitmap storage
 ///
 /// A bitmap is simply an array of such words.
-typedef word_t = size_t;
+typedef size_t word_t;
 
 
 /// Maximum value of \ref word_t
@@ -41,8 +40,9 @@ typedef word_t = size_t;
 
 /// Number of \ref word_t inside a bitmap of specified capacity
 ///
-/// \param capacity must be a positive integer expression
-#define bitmap_len(capacity)  div_ceil((capacity), BITS_PER_WORD)
+/// \param capacity must be a side-effects-free integer expression which can
+///                 safely be evaluated multiple times.
+#define BITMAP_WORDS(capacity)  DIV_CEIL((capacity), BITS_PER_WORD)
 
 
 /// Declare a bitmap whose size is known at compile time
@@ -59,7 +59,7 @@ typedef word_t = size_t;
 /// \param capacity should be a compile-time constant, and dictates how many
 ///                 bits the bitmap is capable of holding. Attempting to access
 ///                 a higher-indexed bit will result in undefined behavior.
-#define INLINE_BITMAP(name, capacity)  word_t name[bitmap_len(capacity)]
+#define INLINE_BITMAP(name, capacity)  word_t name[BITMAP_WORDS(capacity)]
 
 
 
@@ -75,19 +75,26 @@ static inline word_t broadcast_bit(bool value) {
 ///
 /// Fill the bitmap `bitmap` of capacity `capacity` such that all entries with
 /// an in-bounds index get the value `value`.
+///
+/// \param bitmap must be a valid bitmap of length `capacity`
+/// \param capacity must be the length of `bitmap`
+/// \param value is the bit value that will be set everywhere in the bitmap
 static inline void bitmap_fill(word_t bitmap[],
                                size_t capacity,
                                bool value) {
     const word_t full_word = broadcast_bit(value);
-    const size_t num_words = bitmap_len(capacity);
+    const size_t num_words = BITMAP_WORDS(capacity);
     for (size_t w = 0; w < num_words; ++w) bitmap[w] = full_word;
 }
 
 
 /// Truth that a bitmap is filled with a uniform bit pattern
 ///
-/// Check if all in-bounds entries within the bitmap `bitmap` of capacity
-/// `capacity` have value `value`.
+/// Check if all in-bounds entries within `bitmap` are equal to `value`.
+///
+/// \param bitmap must be a valid bitmap of length `capacity`
+/// \param capacity must be the length of `bitmap`
+/// \param value is the bit value that is expected everywhere in the bitmap
 static inline bool bitmap_all(const word_t bitmap[],
                               size_t capacity,
                               bool value) {
@@ -95,8 +102,10 @@ static inline bool bitmap_all(const word_t bitmap[],
     const size_t remaining_bits = capacity % BITS_PER_WORD;
 
     const word_t full_word = broadcast_bit(value);
-    for (size_t w = 0; w < num_full_words; ++i) {
-        if (bitmap[w] != full_word) return false;
+    for (size_t w = 0; w < num_full_words; ++w) {
+        if (bitmap[w] != full_word) {
+            return false;
+        }
     }
 
     if (remaining_bits == 0) return true;
@@ -106,31 +115,43 @@ static inline bool bitmap_all(const word_t bitmap[],
 }
 
 
-/// Location within a bitmap
+/// Bit location within a bitmap
 ///
-/// This designates the `offset`-th bit within the `word`-th word of a
-/// particular bitmap.
-typedef struct bit_s {
-    size_t word;
-    size_t offset;
-} bit_t;
+/// This designates either the `offset`-th bit within the `word`-th word of a
+/// particular bitmap, or an invalid location (used for failed searches).
+typedef struct bit_pos_s {
+    size_t word; ///< Target word, or SIZE_MAX for an invalid position
+    size_t offset; ///< Target bit within the target word
+} bit_pos_t;
+
+
+/// First bit location inside of a bitmap
+///
+/// Mainly useful for testing
+#define FIRST_BIT_POS ((bit_pos_t) { .word = 0, .offset = 0 })
+
+
+/// Invalid bit location within a bitmap
+///
+/// Used as a return value in failed bitmap searches
+#define NO_BIT_POS ((bit_pos_t) { .word = SIZE_MAX, .offset = SIZE_MAX })
 
 
 /// Convert a bitmap location to a linear index
 ///
-/// This is used when converting the result of a bitmap query into some
-/// flat index within e.g. an array.
-static inline size_t bit_to_index(bit_t bit) {
+/// \param bit must be a valid bitmap index
+static inline size_t bit_pos_to_index(bit_pos_t bit) {
+    assert(bit.word != SIZE_MAX);
     return bit.word * BITS_PER_WORD + bit.offset;
 }
 
 
 /// Convert a linear index to a bitmap location
 ///
-/// This is used when converting some flat e.g. index into a coordinate within
-/// the underlying bitmap.
-static inline bit_t index_to_bit(size_t index) {
-    return {
+/// \param index must be a valid bitmap index
+static inline bit_pos_t index_to_bit_pos(size_t index) {
+    assert(index != SIZE_MAX);
+    return (bit_pos_t) {
         .word = index / BITS_PER_WORD,
         .offset = index % BITS_PER_WORD
     };
@@ -140,10 +161,14 @@ static inline bit_t index_to_bit(size_t index) {
 /// Get the value of the Nth bit of a bitmap
 ///
 /// This tells whether a particular bit of a bitmap is set.
+///
+/// \param bitmap must be a valid bitmap of length `capacity`
+/// \param capacity must be the length of `bitmap`
+/// \param bit must be a valid bit position inside of `bitmap`
 static inline bool bitmap_get(word_t bitmap[],
                               size_t capacity,
-                              bit_t bit) {
-    assert(bit_to_index(bit) < capacity);
+                              bit_pos_t bit) {
+    assert(bit_pos_to_index(bit) < capacity);
     return (bitmap[bit.word] & (1 << bit.offset)) != 0;
 }
 
@@ -151,11 +176,16 @@ static inline bool bitmap_get(word_t bitmap[],
 /// Set the value of the Nth bit of a bitmap
 ///
 /// This lets you adjust the value of a particular bit of a bitmap.
+///
+/// \param bitmap must be a valid bitmap of length `capacity`
+/// \param capacity must be the length of `bitmap`
+/// \param bit must be a valid bit position inside of `bitmap`
+/// \param value is the value to which this bit will be set
 static inline void bitmap_set(word_t bitmap[],
                               size_t capacity,
-                              bit_t bit,
+                              bit_pos_t bit,
                               bool value) {
-    assert(bit_to_index(bit) < capacity);
+    assert(bit_pos_to_index(bit) < capacity);
     if (value) {
         bitmap[bit.word] |= (1 << bit.offset);
     } else {
@@ -165,18 +195,135 @@ static inline void bitmap_set(word_t bitmap[],
 
 
 /// Find the first bit that has a certain value within a bitmap
-//
-// TODO: doc and impl
-bit_t bitmap_find_first(word_t bitmap[],
-                        size_t capacity,
-                        bool value);
+///
+/// \param bitmap must be a valid bitmap of length `capacity`
+/// \param capacity must be the length of `bitmap`
+/// \param value is the bit value that will be searched within the bitmap
+/// \returns The position of the first bit that has the desired value, or
+///          NO_BIT_POS to indicate absence of the desired value.
+static inline bit_pos_t bitmap_find_first(word_t bitmap[],
+                                          size_t capacity,
+                                          bool value) {
+    // Quickly skip over words where the value isn't present
+    const word_t empty_word = broadcast_bit(!value);
+    const size_t end_word = BITMAP_WORDS(capacity);
+    size_t word;
+    for (word = 0; word < end_word; ++word) {
+        if (bitmap[word] != empty_word) break;
+    }
+
+    // If we skipped all words, we know the value is absent from the bitmap
+    if (word == end_word) return NO_BIT_POS;
+
+    // Otherwise, check the word on which we ended up
+    const size_t num_full_words = capacity / BITS_PER_WORD;
+    const size_t remaining_bits = capacity % BITS_PER_WORD;
+    word_t target_word = bitmap[word];
+
+    // Normalize the problem into that of looking for the first set bit
+    if (!value) target_word = ~target_word;
+
+    // Handle false positives related to padding bits being set to the target
+    // value by clearing the padding bits (since we're now looking for set bits)
+    if ((word == num_full_words) && (remaining_bits != 0)) {
+        target_word &= (1 << remaining_bits) - 1;
+        if (target_word == 0) return NO_BIT_POS;
+    }
+
+    // At this point, we know there is a first set bit, so locate it
+    const size_t offset = __builtin_ctzg(target_word);
+    return (bit_pos_t) {
+        .word = word,
+        .offset = offset,
+    };
+}
 
 
-/// Find the next bit that has a certain value within a bitmap, wrapping around
-/// when the end of the bitmap is reached but excluding the previous position
-//
-// TODO: doc and impl
-bit_t bitmap_find_next(word_t bitmap[],
-                       size_t capacity,
-                       bool value,
-                       bit_t previous);
+/// Find the next bit that has a certain value within a bitmap
+///
+/// This is meant to be used when iterating over bits that have a certain value
+/// within a certain bitmap. It receives a \ref bit_pos_t that was typically
+/// returned by bitmap_find_first() or a previous call to bitmap_find_next(),
+/// and returns the location of the next value of interest within the bitmap.
+///
+/// \param bitmap must be a valid bitmap of length `capacity`.
+/// \param capacity must be the length of `bitmap`.
+/// \param value is the bit value that will be searched within the bitmap
+/// \param previous must be a valid bit position inside of `bitmap`. The search
+///        will begin at the last bit within the bitmap.
+/// \param wraparound indicates whether the search should wrap around to the
+///        start of the bitmap if no occurence of `value` is found. If the
+///        search does wrap around, then it will terminate unsuccessfully when
+///        `previous` is reached again.
+/// \returns The position of the first bit after `previous` + possible wrap
+///          around that has the desired value, or NO_BIT_POS to indicate
+///          absence of the desired value.
+static inline bit_pos_t bitmap_find_next(word_t bitmap[],
+                                         size_t capacity,
+                                         bool value,
+                                         bit_pos_t previous,
+                                         bool wraparound) {
+    // Check safety invariant in debug build
+    // TODO: Lots of logging
+    assert(bit_pos_to_index(previous) < capacity);
+
+    // If we were not looking at the last bit of the previous word, then
+    // continue search within this word.
+    const size_t num_full_words = capacity / BITS_PER_WORD;
+    const size_t remaining_bits = capacity % BITS_PER_WORD;
+    const bool previous_is_incomplete = previous.word == num_full_words;
+    const size_t previous_bits = previous_is_incomplete ? remaining_bits : BITS_PER_WORD;
+    if (previous.offset != (previous_bits - 1)) {
+        // Extract word and normalize into a "find set bit" problem
+        word_t previous_remainder = ~bitmap[previous.word];
+
+        // If this was the last word of an incomplete bitmap, mask out its
+        // padding bits so they do not result in search false positives
+        if (previous_is_incomplete) previous_remainder &= (1 << remaining_bits) - 1;
+
+        // Eliminate bits which we have previously looked at
+        const size_t dropped_bits = previous.offset + 1;
+        previous_remainder >>= dropped_bits;
+
+        // If there is a next set bit, return its position
+        if (previous_remainder != 0) {
+            const size_t extra_offset = __builtin_ctzg(previous_remainder);
+            return (bit_pos_t) {
+                .word = previous.word,
+                .offset = dropped_bits + extra_offset,
+            };
+        }
+    }
+
+    // Look inside the remaining words from the bitmap, if any
+    const size_t num_words = BITMAP_WORDS(capacity);
+    if (previous.word != num_words - 1) {
+        const size_t word_offset = previous.word + 1;
+        bit_pos_t pos = bitmap_find_first(
+            bitmap + word_offset,
+            capacity - word_offset * BITS_PER_WORD,
+            value
+        );
+        if (pos.word != SIZE_MAX) {
+            pos.word += word_offset;
+            return pos;
+        }
+    }
+
+    // In absence of wraparound, we are done
+    if (!wraparound) return NO_BIT_POS;
+
+    // Otherwise, look into the bits before the previous search result, if any
+    return bitmap_find_first(bitmap,
+                             bit_pos_to_index(previous),
+                             value);
+}
+
+
+#ifdef UDIPE_BUILD_TESTS
+    /// Unit tests for libudipe bitmaps
+    ///
+    /// This function runs all the unit tests for libudipe bitmaps. It must be
+    /// called within the scope of with_logger().
+    void bitmap_unit_tests();
+#endif
