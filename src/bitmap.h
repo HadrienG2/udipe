@@ -196,7 +196,7 @@ static inline void bitmap_set(word_t bitmap[],
 /// Count the number of trailing zeros in a word of the bitmap
 ///
 /// \param x must not be zero
-inline size_t count_trailing_zeros(word_t x) {
+static inline size_t count_trailing_zeros(word_t x) {
     return __builtin_ctzll(x);
 }
 
