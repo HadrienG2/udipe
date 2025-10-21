@@ -5,8 +5,6 @@
 //!
 //! `libudipe` internally uses bitmaps in various circumstances.
 
-#include "log.h"
-
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -264,7 +262,6 @@ static inline bit_pos_t bitmap_find_next(word_t bitmap[],
                                          bit_pos_t previous,
                                          bool wraparound) {
     // Check safety invariant in debug build
-    // TODO: Lots of logging
     assert(bit_pos_to_index(previous) < capacity);
 
     // If we were not looking at the last bit of the previous word, then
@@ -274,8 +271,11 @@ static inline bit_pos_t bitmap_find_next(word_t bitmap[],
     const bool previous_is_incomplete = previous.word == num_full_words;
     const size_t previous_bits = previous_is_incomplete ? remaining_bits : BITS_PER_WORD;
     if (previous.offset != (previous_bits - 1)) {
-        // Extract word and normalize into a "find set bit" problem
-        word_t previous_remainder = ~bitmap[previous.word];
+        // Extract previously processed word
+        word_t previous_remainder = bitmap[previous.word];
+
+        // Normalize into the problem of finding the first bit that is set
+        if (!value) previous_remainder = ~previous_remainder;
 
         // If this was the last word of an incomplete bitmap, mask out its
         // padding bits so they do not result in search false positives

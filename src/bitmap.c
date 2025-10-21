@@ -11,14 +11,14 @@
     static void test_homogeneous_bitmap(word_t bitmap[],
                                         size_t capacity,
                                         bool value) {
-        debugf("- Filling bitmap with %us...", value);
+        debugf("Filling bitmap with %us...", value);
         bitmap_fill(bitmap, capacity, value);
 
-        debug("- Checking result of bitmap_all()...");
+        debug("Checking result of bitmap_all()...");
         ensure(bitmap_all(bitmap, capacity, value));
         ensure(!bitmap_all(bitmap, capacity, !value));
 
-        debug("- Checking results of bitmap_get()...");
+        debug("Checking results of bitmap_get()...");
         for (size_t idx = 0; idx < capacity; ++idx) {
             ensure_eq(bitmap_get(bitmap,
                                  capacity,
@@ -26,7 +26,7 @@
                       value);
         }
 
-        debugf("- Checking results of bitmap_find_first() and _next() "
+        debugf("Checking results of bitmap_find_first() and _next() "
                "when looking for %u with no wraparound...", value);
         bit_pos_t pos = bitmap_find_first(bitmap,
                                           capacity,
@@ -34,7 +34,7 @@
         ensure_eq(pos.word, FIRST_BIT_POS.word);
         ensure_eq(pos.offset, FIRST_BIT_POS.offset);
         for (size_t idx = 1; idx < capacity; ++idx) {
-            tracef("  * At index %zu", idx);
+            tracef("At index %zu", idx);
             const bit_pos_t new_pos = bitmap_find_next(bitmap,
                                                        capacity,
                                                        value,
@@ -53,7 +53,7 @@
         ensure_eq(past_the_end.word, NO_BIT_POS.word);
         ensure_eq(past_the_end.offset, NO_BIT_POS.offset);
 
-        debug("- Checking effect of wraparound...");
+        debug("Checking effect of wraparound...");
         const bit_pos_t back_from_end = bitmap_find_next(bitmap,
                                                          capacity,
                                                          value,
@@ -63,7 +63,7 @@
         ensure_eq(back_from_end.offset, FIRST_BIT_POS.offset);
         pos = back_from_end;
         for (size_t idx = 1; idx < capacity; ++idx) {
-            tracef("  * At index %zu", idx);
+            tracef("At index %zu", idx);
             const bit_pos_t new_pos = bitmap_find_next(bitmap,
                                                        capacity,
                                                        value,
@@ -75,7 +75,7 @@
             pos = new_pos;
         }
 
-        debugf("- Checking that search for %u fails...", !value);
+        debugf("Checking that search for %u fails...", !value);
         const bit_pos_t nonexistent = bitmap_find_first(bitmap,
                                                         capacity,
                                                         !value);
@@ -95,7 +95,8 @@
         test_homogeneous_bitmap(bitmap, bitmap_capacity, false);
         test_homogeneous_bitmap(bitmap, bitmap_capacity, true);
 
-        // TODO: then proptests over random bitmaps
+        // TODO: Then bitmaps with a single bit set
+        // TODO: Then proptests over random bitmaps
     }
 
 #endif
