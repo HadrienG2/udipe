@@ -15,7 +15,7 @@
         udipe_log_config_t log_config;
         memset(&log_config, 0, sizeof(udipe_log_config_t));
 
-        const char* log_level = getenv("LOG_LEVEL");
+        const char* log_level = getenv("UDIPE_LOG");
         if (log_level) {
             if (strcasecmp(log_level, "ERROR") == 0) {
                 log_config.min_level = UDIPE_LOG_ERROR;
@@ -28,7 +28,7 @@
             } else if (strcasecmp(log_level, "TRACE") == 0) {
                 log_config.min_level = UDIPE_LOG_TRACE;
             } else {
-                fprintf(stderr, "Error: Invalid LOG_LEVEL %s\n", log_level);
+                fprintf(stderr, "Error: Invalid UDIPE_LOG %s\n", log_level);
                 exit(EXIT_FAILURE);
             }
         }
