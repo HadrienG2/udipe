@@ -206,3 +206,39 @@ void allocator_finalize(allocator_t allocator) {
 }
 
 // TODO: Implement remaining functions
+
+
+#ifdef UDIPE_BUILD_TESTS
+    void allocator_unit_tests() {
+        info("Running allocator unit tests...");
+
+        debug("Setting up an hwloc topology...");
+        hwloc_topology_t topology;
+        exit_on_negative(hwloc_topology_init(&topology),
+                         "Failed to allocate the hwloc hopology!");
+        exit_on_negative(hwloc_topology_load(topology),
+                         "Failed to build the hwloc hopology!");
+
+        debug("Configuring the allocator...");
+        // TODO: Test with non-default configurations too
+        udipe_allocator_config_t config;
+        memset(&config, 0, sizeof(udipe_thread_allocator_config_t));
+
+        debug("Initialing the allocator...");
+        allocator_t allocator = allocator_initialize(config, topology);
+
+        // TODO: Non-default configuration will be compared to the
+        //       user-requested size/count
+        debug("Checking default allocator configuration...");
+        ensure_ne(allocator.config.buffer_size, (size_t)0);
+        ensure_ne(allocator.config.buffer_count, (size_t)0);
+
+        debug("Checking initial buffer availability...");
+        ensure(bitmap_all(allocator.buffer_availability, UDIPE_MAX_BUFFERS, true));
+
+        // TODO: Exercise more operations as they get implemented
+
+        debug("Finalizing the allocator...");
+        allocator_finalize(allocator);
+    }
+#endif

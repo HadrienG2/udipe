@@ -3,6 +3,7 @@
     #include <udipe/log.h>
     #include <udipe/tests.h>
 
+    #include "allocator.h"
     #include "bitmap.h"
     #include "log.h"
 
@@ -36,6 +37,7 @@
         logger_t logger = log_initialize(log_config);
         with_logger(&logger, {
             bitmap_unit_tests();
+            allocator_unit_tests();
         });
     }
 

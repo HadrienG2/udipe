@@ -75,7 +75,7 @@ void warn_on_errno();
                       )
 
 
-/// Failure branch of ensure_eq()
+/// Failure branch of ensure_eq() and ensure_ne()
 ///
 /// You should not call this function directly, but rather call the ensure_eq()
 /// macro, which will take care of calling it with the right parameters.
@@ -101,6 +101,25 @@ void ensure_eq_failure(const char* format_template,
             ensure_eq_failure(  \
                 "ensure_eq() FAILED @ %%s():%%u -> Expected " #x " == " #y  \
                 ", but it evaluates to %s != %s",  \
+                format_for(udipe_x),  \
+                format_for(udipe_y),  \
+                __func__, __LINE__, udipe_x, udipe_y  \
+            );  \
+        }  \
+    } while(false)
+
+
+/// Make sure that two things are different, otherwise exit with an error message
+///
+/// This is basically the opposite of ensure_eq() and works similarly.
+#define ensure_ne(x, y)  \
+    do {  \
+        typeof(x) udipe_x = (x);  \
+        typeof(y) udipe_y = (y);  \
+        if (udipe_x == udipe_y) {  \
+            ensure_eq_failure(  \
+                "ensure_ne() FAILED @ %%s():%%u -> Expected " #x " != " #y  \
+                ", but it evaluates to %s == %s",  \
                 format_for(udipe_x),  \
                 format_for(udipe_y),  \
                 __func__, __LINE__, udipe_x, udipe_y  \

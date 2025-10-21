@@ -330,9 +330,9 @@ static inline bit_pos_t bitmap_find_next(word_t bitmap[],
 
 
 #ifdef UDIPE_BUILD_TESTS
-    /// Unit tests for libudipe bitmaps
+    /// Unit tests for bitmaps
     ///
-    /// This function runs all the unit tests for libudipe bitmaps. It must be
-    /// called within the scope of with_logger().
+    /// This function runs all the unit tests for bitmaps. It must be called
+    /// within the scope of with_logger().
     void bitmap_unit_tests();
 #endif

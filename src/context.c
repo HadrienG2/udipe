@@ -2,7 +2,6 @@
 
 #include <udipe/visibility.h>
 
-#include "allocator.h"
 #include "error.h"
 #include "log.h"
 
@@ -26,10 +25,6 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
                          "Failed to allocate the hwloc hopology!");
         exit_on_negative(hwloc_topology_load(context->topology),
                          "Failed to build the hwloc hopology!");
-
-        // FIXME: Remove this + allocator.h include once done debugging
-        error("HACK: Initializing an allocator to check allocator setup code...");
-        allocator_initialize(config.allocator, context->topology);
     });
     return context;
 }

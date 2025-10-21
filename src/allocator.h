@@ -159,3 +159,12 @@ void liberate(allocator_t* allocator, void* buffer);
 UDIPE_NON_NULL_ARGS
 ALLOCATE_ATTRIBUTES
 void* allocate(allocator_t* allocator);
+
+
+#ifdef UDIPE_BUILD_TESTS
+    /// Unit tests for allocators
+    ///
+    /// This function runs all the unit tests for allocators. It must be called
+    /// within the scope of with_logger().
+    void allocator_unit_tests();
+#endif
