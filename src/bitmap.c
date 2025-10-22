@@ -296,7 +296,7 @@
 
     void bitmap_unit_tests() {
         info("Running bitmap unit tests...");
-        for (size_t capacity = 0; capacity < 4 * BITS_PER_WORD; ++capacity) {
+        for (size_t capacity = 0; capacity <= 3 * BITS_PER_WORD; ++capacity) {
             if (is_interesting(capacity)) {
                 debugf("Testing with a bitmap of capacity %zu.", capacity);
                 INLINE_BITMAP(bitmap, capacity);
