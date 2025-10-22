@@ -195,14 +195,29 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
                      "Failed to lock memory pages into RAM!");
 
     debug("Initializing the availability bitmap...");
-    // TODO: Use fill_range() and all_range() everywhere including tests
-    bitmap_fill(allocator.buffer_availability, allocator.config.buffer_count, true);
+    const bit_pos_t buffers_end = index_to_bit_pos(allocator.config.buffer_count);
+    bitmap_fill(allocator.buffer_availability,
+                UDIPE_MAX_BUFFERS,
+                BITMAP_START,
+                buffers_end,
+                true);
+    bitmap_fill(allocator.buffer_availability,
+                UDIPE_MAX_BUFFERS,
+                buffers_end,
+                bitmap_end(UDIPE_MAX_BUFFERS),
+                false);
     return allocator;
 }
 
 
 void allocator_finalize(allocator_t allocator) {
-    assert(bitmap_all(allocator.buffer_availability, allocator.config.buffer_count, true));
+    assert(
+        bitmap_all(allocator.buffer_availability,
+                   UDIPE_MAX_BUFFERS,
+                   BITMAP_START,
+                   index_to_bit_pos(allocator.config.buffer_count),
+                   true)
+    );
     munmap(allocator.memory_pool, allocator.config.buffer_size * allocator.config.buffer_count);
 }
 
@@ -232,11 +247,17 @@ void allocator_finalize(allocator_t allocator) {
         // TODO: Non-default configuration will be compared to the
         //       user-requested size/count
         debug("Checking default allocator configuration...");
-        ensure_ne(allocator.config.buffer_size, (size_t)0);
-        ensure_ne(allocator.config.buffer_count, (size_t)0);
+        ensure_gt(allocator.config.buffer_size, (size_t)0);
+        ensure_gt(allocator.config.buffer_count, (size_t)0);
 
         debug("Checking initial buffer availability...");
-        ensure(bitmap_all(allocator.buffer_availability, allocator.config.buffer_count, true));
+        ensure(
+            bitmap_all(allocator.buffer_availability,
+                       UDIPE_MAX_BUFFERS,
+                       BITMAP_START,
+                       index_to_bit_pos(allocator.config.buffer_count),
+                       true)
+        );
 
         // TODO: Exercise more operations as they get implemented
 

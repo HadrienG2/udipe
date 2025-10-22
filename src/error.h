@@ -5,9 +5,9 @@
 //!
 //! This code module provides helpers for error handling.
 
+#include "format.h"
 #include "log.h"
 
-#include <stddef.h>
 #include <stdlib.h>
 
 
@@ -134,33 +134,6 @@ void warn_on_errno();
 
 /// \name Implementation details
 /// \{
-
-/// printf() format specifier for some expression
-///
-/// This is an implementation detail of ensure_comparison() that you should
-/// not call directly.
-///
-/// It takes an expression as input and generates an appropriate printf() format
-/// specifier for this expression.
-//
-// TODO: Expand list of supported types as needed
-#define format_for(x) _Generic((x),  \
-                                 const char*: "%s",  \
-                                 signed char: "%hhd",  \
-                                       short: "%hd",  \
-                                         int: "%d",  \
-                                        long: "%ld",  \
-                                   long long: "%lld",  \
-                               unsigned char: "%hhu",  \
-                              unsigned short: "%hu",  \
-                                    unsigned: "%u",  \
-                               unsigned long: "%lu",  \
-                          unsigned long long: "%llu",  \
-                                      double: "%f",  \
-                                 long double: "%Lf",  \
-                                       void*: "%p",  \
-                                        bool: "%u"  \
-                      )
 
 /// Failure branch of ensure_comparison()
 ///

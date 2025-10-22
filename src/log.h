@@ -171,6 +171,27 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// \}
 
 
+/// \name Expression logging
+/// \{
+
+/// Log an expression and its value at TRACE level, along with the code location.
+///
+/// This macro is only meant for debugging purpose and should not remain
+/// around in production code.
+//
+// TODO: Make this work with a single log statement using the same tricks as
+//       ensure_comparison().
+#define trace_expr(expr)  \
+    do {  \
+        tracef("At %s:%u.\n"  \
+               "Evaluating " #expr "...",   \
+               __FILE__, __LINE__);  \
+        tracef(format_for(expr), expr);  \
+    } while(false)
+
+/// \}
+
+
 /// \name Thread-local logger
 /// \{
 

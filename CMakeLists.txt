@@ -94,6 +94,7 @@ target_sources(udipe
                        src/context.h
                        src/error.c
                        src/error.h
+                       src/format.h
                        src/log.c
                        src/log.h
                        src/tests.c)
