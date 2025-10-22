@@ -5,8 +5,6 @@
 //!
 //! This code module provides helpers for usage of printf()-like functions.
 
-#include <stddef.h>
-
 
 /// printf() format specifier for some expression
 ///
