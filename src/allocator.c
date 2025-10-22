@@ -195,13 +195,14 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
                      "Failed to lock memory pages into RAM!");
 
     debug("Initializing the availability bitmap...");
-    bitmap_fill(allocator.buffer_availability, UDIPE_MAX_BUFFERS, true);
+    // TODO: Use fill_range() and all_range() everywhere including tests
+    bitmap_fill(allocator.buffer_availability, allocator.config.buffer_count, true);
     return allocator;
 }
 
 
 void allocator_finalize(allocator_t allocator) {
-    assert(bitmap_all(allocator.buffer_availability, UDIPE_MAX_BUFFERS, true));
+    assert(bitmap_all(allocator.buffer_availability, allocator.config.buffer_count, true));
     munmap(allocator.memory_pool, allocator.config.buffer_size * allocator.config.buffer_count);
 }
 
@@ -235,7 +236,7 @@ void allocator_finalize(allocator_t allocator) {
         ensure_ne(allocator.config.buffer_count, (size_t)0);
 
         debug("Checking initial buffer availability...");
-        ensure(bitmap_all(allocator.buffer_availability, UDIPE_MAX_BUFFERS, true));
+        ensure(bitmap_all(allocator.buffer_availability, allocator.config.buffer_count, true));
 
         // TODO: Exercise more operations as they get implemented
 

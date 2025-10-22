@@ -41,7 +41,7 @@ logger_t log_initialize(udipe_log_config_t config);
 ///@}
 
 
-/// \name Basic logging macros
+/// \name Basic logging
 /// \{
 
 /// Decide if a user log should be emitted
@@ -116,25 +116,8 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// \}
 
 
-/// \name Formatted logging macros
+/// \name Formatted logging
 /// \{
-
-/// GNU attributes of logf_impl()
-///
-/// This allows GCC to validate correct usage of this printf()-style function.
-/// Extracting it into a macro deduplicates definition/declaration and works
-/// around a bug in the doxygen parser.
-#define LOGF_IMPL_ATTRIBUTES __attribute__((format(printf, 3, 4)))
-
-/// Implementation of logf()
-///
-/// This function is not meant to be used directly, it is an implementation
-/// detail of the logf() macro.
-LOGF_IMPL_ATTRIBUTES
-void logf_impl(udipe_log_level_t level,
-               const char* location,
-               const char* format,
-               ...);
 
 /// Log a message with printf() formatting
 ///
@@ -191,22 +174,6 @@ void logf_impl(udipe_log_level_t level,
 /// \name Thread-local logger
 /// \{
 
-/// Thread-local logger (implementation detail of with_logger())
-///
-/// This thread-local variable is used by with_logger() in order to locally
-/// enable a lightweight log syntax. It should not be used by any code other
-/// than the log() and with_logger() macro.
-extern thread_local const logger_t* udipe_thread_logger;
-
-/// Restore `udipe_thread_logger` (implementation detail of with_logger())
-///
-/// This helper function enables with_logger() to clean up after itself through
-/// the GNU `__cleanup__` attribute.
-static inline void restore_thread_logger(const logger_t** prev_logger) {
-    trace("End of a with_logger() scope.");
-    udipe_thread_logger = *prev_logger;
-}
-
 /// Set up logging within a certain code scope
 ///
 /// Call as `with_logger(&logger, { ... })` to be able to use log() and related
@@ -231,7 +198,7 @@ static inline void restore_thread_logger(const logger_t** prev_logger) {
 ///@}
 
 
-/// \name Other logging utilities
+/// \name Implementation details
 /// @{
 
 /// Internal helper to validate logging call correctness in `Debug` builds
@@ -241,10 +208,43 @@ static inline void restore_thread_logger(const logger_t** prev_logger) {
     static inline void validate_log(udipe_log_level_t level) {}
 #endif
 
+/// GNU attributes of logf_impl()
+///
+/// This allows GCC to validate correct usage of this printf()-style function.
+/// Extracting it into a macro deduplicates definition/declaration and works
+/// around a bug in the doxygen parser.
+#define LOGF_IMPL_ATTRIBUTES __attribute__((format(printf, 3, 4)))
+
+/// Implementation of logf()
+///
+/// This function is not meant to be used directly, it is an implementation
+/// detail of the logf() macro.
+LOGF_IMPL_ATTRIBUTES
+void logf_impl(udipe_log_level_t level,
+               const char* location,
+               const char* format,
+               ...);
+
+/// Thread-local logger (implementation detail of with_logger())
+///
+/// This thread-local variable is used by with_logger() in order to locally
+/// enable a lightweight log syntax. It should not be used by any code other
+/// than the log() and with_logger() macro.
+extern thread_local const logger_t* udipe_thread_logger;
+
+/// Restore `udipe_thread_logger` (implementation detail of with_logger())
+///
+/// This helper function enables with_logger() to clean up after itself through
+/// the GNU `__cleanup__` attribute.
+static inline void restore_thread_logger(const logger_t** prev_logger) {
+    trace("End of a with_logger() scope.");
+    udipe_thread_logger = *prev_logger;
+}
+
 /// @}
 
 
-// Implementation of log_enabled (see above for docs)
+// Implementation of log_enabled (see docs above)
 static inline bool log_enabled(udipe_log_level_t level) {
     validate_log(level);
     return level >= udipe_thread_logger->min_level;

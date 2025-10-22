@@ -123,6 +123,10 @@ void liberate(allocator_t* allocator, void* buffer);
     /// Unfortunately, on this particular hardware architecture we do not know,
     /// so we stick with the minimum alignment guaranteed by malloc() i.e. large
     /// enough to align any standard type.
+    ///
+    /// But if you are reading this on doxygen, note that it may be an artifact
+    /// of doxygen's parser not setting the hardware architecture preprocessor
+    /// defines that normal compilers do set.
     #define MIN_PAGE_ALIGNMENT alignof(max_align_t)
 #endif
 

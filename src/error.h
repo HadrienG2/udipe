@@ -7,11 +7,12 @@
 
 #include "log.h"
 
-#include <assert.h>
 #include <stddef.h>
-#include <stdio.h>
 #include <stdlib.h>
 
+
+/// \name External error handling
+/// \{
 
 /// If `errno` is currently set to a non-zero value, log a warning that
 /// describes its current value, then clear `errno`.
@@ -19,6 +20,104 @@
 /// This function must be called within the scope of with_logger().
 void warn_on_errno();
 
+/// Exit following the failure of a C function
+///
+/// This macro handles situations where all of the following is true:
+///
+/// - A C function is known to have previously failed.
+/// - `errno` may or may not be set to further explain what error occured.
+/// - None of the possible error cases can or should be recovered from.
+/// - exit_with_error() preconditions are fulfilled.
+#define exit_after_c_error(error_message)  \
+    do {  \
+        warn_on_errno();  \
+        exit_with_error(error_message);  \
+    } while(false)
+
+/// Exit if an int-returning C functions fails
+///
+/// This handles functions where all of the following is true:
+///
+/// - The return type is `int`
+/// - Errors are signaled by returning a negative value
+/// - exit_after_c_error() preconditions are fulfilled
+#define exit_on_negative(result, error_message)  \
+    do {  \
+        int udipe_result = (result);  \
+        if (udipe_result < 0) exit_after_c_error(error_message);  \
+    } while(false)
+
+/// Exit if a pointer-returning C functions fails
+///
+/// This handles functions where all of the following is true:
+///
+/// - Errors are signaled by returning NULL
+/// - exit_after_c_error() preconditions are fulfilled
+#define exit_on_null(result, error_message)  \
+    do {  \
+        void* udipe_result = (result);  \
+        if (!udipe_result) exit_after_c_error(error_message);  \
+    } while(false)
+
+/// \}
+
+
+/// \name Test assertions
+/// \{
+
+/// Make sure that `assertion` is true, otherwise exit with an error message.
+///
+/// This macro is mainly designed for unit tests, but could in principle be used
+/// in any circumstance where an internal assertion should be checked even in
+/// `Release` builds because the impact of it being violated is too great.
+///
+/// It must be called within the scope of with_logger().
+#define ensure(assertion)  \
+    do {  \
+        if (!(assertion)) {  \
+            errorf("ensure() failed at %s:%u.\n"  \
+                   "Expected " #assertion "\n"  \
+                   "...but that is false!",  \
+                   __FILE__, __LINE__);  \
+            exit(EXIT_FAILURE);  \
+        }  \
+    } while(false)
+
+/// Make sure `x == y`, otherwise exit with an error message
+///
+/// See ensure_comparison() for preconditions and a list of other assertions.
+#define ensure_eq(x, y)  ensure_comparison("eq", (x), ==, (y))
+
+/// Make sure `x != y`, otherwise exit with an error message
+///
+/// See ensure_comparison() for preconditions and a list of other assertions.
+#define ensure_ne(x, y)  ensure_comparison("ne", (x), !=, (y))
+
+/// Make sure `x > y`, otherwise exit with an error message
+///
+/// See ensure_comparison() for preconditions and a list of other assertions.
+#define ensure_gt(x, y)  ensure_comparison("gt", (x), >, (y))
+
+/// Make sure `x < y`, otherwise exit with an error message
+///
+/// See ensure_comparison() for preconditions and a list of other assertions.
+#define ensure_lt(x, y)  ensure_comparison("lt", (x), <, (y))
+
+/// Make sure `x >= y`, otherwise exit with an error message
+///
+/// See ensure_comparison() for preconditions and a list of other assertions.
+#define ensure_ge(x, y)  ensure_comparison("ge", (x), >=, (y))
+
+/// Make sure `x <= y`, otherwise exit with an error message
+///
+/// See ensure_comparison() for preconditions and a list of other assertions.
+#define ensure_le(x, y)  ensure_comparison("le", (x), <=, (y))
+
+/// \}
+
+
+/// \name Other utilities
+/// \{
 
 /// Exit with an error message
 ///
@@ -30,30 +129,19 @@ void warn_on_errno();
         exit(EXIT_FAILURE);  \
     } while(false)
 
-
-/// Make sure that a condition is true, otherwise exit with an error message
-///
-/// This is mainly useful for unit tests, but may prove to be useful for other
-/// purposes someday.
-///
-/// The use of direct fprintf to stderr is for consistency with ensure_eq(),
-/// which cannot easily be made to use the logging macros.
-#define ensure(assertion)  \
-    do {  \
-        if (!(assertion)) {  \
-            fprintf(stderr,  \
-                    "ensure() FAILED @ %s():%u -> "  \
-                    "Expected " #assertion " to be true but it isn't",  \
-                    __func__, __LINE__);  \
-            exit(EXIT_FAILURE);  \
-        }  \
-    } while(false)
+/// \}
 
 
-/// Proper format string for some expression (ensure_eq() implementation detail)
+/// \name Implementation details
+/// \{
+
+/// printf() format specifier for some expression
 ///
-/// This is an implementation detail of ensure_eq() that you should never need
-/// to call into yourself.
+/// This is an implementation detail of ensure_comparison() that you should
+/// not call directly.
+///
+/// It takes an expression as input and generates an appropriate printf() format
+/// specifier for this expression.
 //
 // TODO: Expand list of supported types as needed
 #define format_for(x) _Generic((x),  \
@@ -74,98 +162,62 @@ void warn_on_errno();
                                         bool: "%u"  \
                       )
 
-
-/// Failure branch of ensure_eq() and ensure_ne()
+/// Failure branch of ensure_comparison()
 ///
-/// You should not call this function directly, but rather call the ensure_eq()
-/// macro, which will take care of calling it with the right parameters.
-void ensure_eq_failure(const char* format_template,
-                       const char* x_format,
-                       const char* y_format,
-                       ...);
-
-
-/// Make sure that two things are equal, otherwise exit with an error message
+/// This is an implementation detail of ensure_comparison() that you should
+/// not call directly.
 ///
-/// This is mainly useful for unit tests, but may prove to be useful for other
-/// purposes someday.
+/// See the internal section of the ensure_comparison() documentation for more
+/// information about what it does.
+void ensure_comparison_failure(const char* format_template,
+                               const char* x_format,
+                               const char* y_format,
+                               ...);
+
+/// Make sure that `x op y` returns `true`, otherwise exit wich an error
+/// message which mentions `macro_name`.
 ///
-/// Internally, the macro works by generating a format string that is
-/// appropriate for its argument types, which is then used for the actual
-/// fprintf call before exiting.
-#define ensure_eq(x, y)  \
+/// This is the implementation of higher-level comparison macros ensure_eq(),
+/// ensure_ne(), ensure_gt(), ensure_lt(), ensure_ge() and ensure_ge(), which
+/// you should prefer over calling this low-level macro directly.
+///
+/// It must be called within the scope of with_logger().
+///
+/// \internal
+///
+/// If you are trying to understand the implementation of this macro, then you
+/// need to know that in order to produce an appropriate format string for
+/// operands `x` and `y`, which may be of nearly any type, the failure path
+/// needs to be surprisingly convoluted:
+///
+/// - First we use format_for() to determine appropriate format specifiers for
+///   input expressions `x` and `y`.
+/// - Then we generate a format string that uses these format specifiers.
+///   * This is needed because the output of format_for() cannot be concatenated
+///     with the rest of the format string at compile time.
+///   * It means that arguments other than the format specifiers must be escaped
+///     with a double percent sign so that they are not used during this first
+///     formatting pass, but become valid format specifiers afterwards.
+/// - Generate an error message based on this format string.
+///   * This step is needed because the errorf() macro does not have a
+///     `verrorf()` variant that takes a `va_list`. And since this macro is the
+///     only use case for it that came up so far, it did not feel worth adding.
+/// - Log this error message then die with `exit(EXIT_FAILURE)`.
+#define ensure_comparison(op_name, x, op, y)  \
     do {  \
         typeof(x) udipe_x = (x);  \
         typeof(y) udipe_y = (y);  \
-        if (udipe_x != udipe_y) {  \
-            ensure_eq_failure(  \
-                "ensure_eq() FAILED @ %%s():%%u -> Expected " #x " == " #y  \
-                ", but it evaluates to %s != %s",  \
+        if (!(udipe_x op udipe_y)) {  \
+            ensure_comparison_failure(  \
+                "ensure_" op_name "() failed at %%s:%%u.\n"  \
+                "Expected " #x " " #op " " #y "\n"  \
+                "      => %s " #op " %s\n"  \
+                "...but that is false!",  \
                 format_for(udipe_x),  \
                 format_for(udipe_y),  \
-                __func__, __LINE__, udipe_x, udipe_y  \
+                __FILE__, __LINE__, udipe_x, udipe_y  \
             );  \
         }  \
     } while(false)
 
-
-/// Make sure that two things are different, otherwise exit with an error message
-///
-/// This is basically the opposite of ensure_eq() and works similarly.
-#define ensure_ne(x, y)  \
-    do {  \
-        typeof(x) udipe_x = (x);  \
-        typeof(y) udipe_y = (y);  \
-        if (udipe_x == udipe_y) {  \
-            ensure_eq_failure(  \
-                "ensure_ne() FAILED @ %%s():%%u -> Expected " #x " != " #y  \
-                ", but it evaluates to %s == %s",  \
-                format_for(udipe_x),  \
-                format_for(udipe_y),  \
-                __func__, __LINE__, udipe_x, udipe_y  \
-            );  \
-        }  \
-    } while(false)
-
-
-/// Exit following the failure of a C function
-///
-/// This macro handles situations where all of the following is true:
-///
-/// - A C function is known to have previously failed.
-/// - `errno` may or may not be set to further explain what error occured.
-/// - None of the possible error cases can or should be recovered from.
-/// - exit_with_error() preconditions are fulfilled.
-#define exit_after_c_error(error_message)  \
-    do {  \
-        warn_on_errno();  \
-        exit_with_error(error_message);  \
-    } while(false)
-
-
-/// Exit if an int-returning C functions fails
-///
-/// This handles functions where all of the following is true:
-///
-/// - The return type is `int`
-/// - Errors are signaled by returning a negative value
-/// - exit_after_c_error() preconditions are fulfilled
-#define exit_on_negative(result, error_message)  \
-    do {  \
-        int udipe_result = (result);  \
-        if (udipe_result < 0) exit_after_c_error(error_message);  \
-    } while(false)
-
-
-
-/// Exit if a pointer-returning C functions fails
-///
-/// This handles functions where all of the following is true:
-///
-/// - Errors are signaled by returning NULL
-/// - exit_after_c_error() preconditions are fulfilled
-#define exit_on_null(result, error_message)  \
-    do {  \
-        void* udipe_result = (result);  \
-        if (!udipe_result) exit_after_c_error(error_message);  \
-    } while(false)
+/// \}

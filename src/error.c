@@ -81,10 +81,10 @@ void warn_on_errno() {
 }
 
 
-void ensure_eq_failure(const char* format_template,
-                       const char* x_format,
-                       const char* y_format,
-                       ...) {
+void ensure_comparison_failure(const char* format_template,
+                               const char* x_format,
+                               const char* y_format,
+                               ...) {
     // Determine the format string size
     int result = snprintf(NULL, 0, format_template, x_format, y_format);
     exit_on_negative(result, "Failed to evaluate format string size!");
@@ -98,9 +98,26 @@ void ensure_eq_failure(const char* format_template,
     result = snprintf(format, format_size, format_template, x_format, y_format);
     exit_on_negative(result, "Failed to generate format string!");
 
-    // Display the error and die
-    va_list args;
-    va_start(args, y_format);
-    vfprintf(stderr, format, args);
-    exit(EXIT_FAILURE);
+    // Get two copies of the variadic arguments
+    va_list args1, args2;
+    va_start(args1, y_format);
+    va_copy(args2, args1);
+
+    // Determine the error message size
+    result = vsnprintf(NULL, 0, format, args1);
+    va_end(args1);
+    exit_on_negative(result, "Failed to evaluate error message size!");
+    size_t error_message_size = 1 + (size_t)result;
+
+    // Allocate the error message buffer
+    char* error_message = alloca(error_message_size);
+    exit_on_null(error_message, "Failed to allocate error message buffer!");
+
+    // Generate the error message
+    result = vsnprintf(error_message, error_message_size, format, args2);
+    va_end(args2);
+    exit_on_negative(result, "Failed to generate error message!");
+
+    // Finally print the error message and exit
+    exit_with_error(error_message);
 }
