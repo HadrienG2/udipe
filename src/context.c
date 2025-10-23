@@ -15,27 +15,16 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
     logger_t logger = log_initialize(config.log);
     udipe_context_t* context = NULL;
     with_logger(&logger, {
-        debug("Allocating the udipe_context_t...");
+        debug("Allocating a libudipe context...");
         context = malloc(sizeof(udipe_context_t));
-        if (!context) {
-            warn_on_errno();
-            error("Failed to allocate the libudipe context");
-            exit(EXIT_FAILURE);
-        }
+        exit_on_null(context, "Failed to allocate libudipe context!");
         context->logger = logger;
 
         debug("Setting up the hwloc topology...");
-        if (hwloc_topology_init(&context->topology) < 0) {
-            warn_on_errno();
-            error("Failed to allocate the hwloc hopology");
-            exit(EXIT_FAILURE);
-        }
-        if (hwloc_topology_load(context->topology) < 0) {
-            warn_on_errno();
-            error("Failed to build the hwloc hopology");
-            hwloc_topology_destroy(context->topology);
-            exit(EXIT_FAILURE);
-        }
+        exit_on_negative(hwloc_topology_init(&context->topology),
+                         "Failed to allocate the hwloc hopology!");
+        exit_on_negative(hwloc_topology_load(context->topology),
+                         "Failed to build the hwloc hopology!");
     });
     return context;
 }

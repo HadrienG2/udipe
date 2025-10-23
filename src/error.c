@@ -6,10 +6,15 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
 
+// Important note: This function is used on the error path of the formatted
+//                 logging macros. It must therefore not use said macros, only
+//                 the basic macros that log a pre-existing message string.
+//                 Which is why it does all the formatting itself.
 void warn_on_errno() {
     // No errno, no output
     if (errno == 0) return;
@@ -28,9 +33,9 @@ void warn_on_errno() {
         // If this fails, just use the integer value + highlight the failure
         int out_chars = snprintf(output,
                                  sizeof(output),
-                                 "Got invalid errno value %d",
+                                 "Got invalid errno value %d!",
                                  initial_errno);
-        assert(("snprintf should never fail", out_chars > 0));
+        assert(("Integer snprintf should never fail", out_chars > 0));
         assert(("Output buffer should be large enough to hold an integer",
                 (unsigned)out_chars < sizeof(output)));
         warning(output);
@@ -40,13 +45,16 @@ void warn_on_errno() {
 
     // Basic description that includes the symbolic name only
     const char header[] = "Got errno value ";
-    size_t min_output_size = strlen(header) + strlen(name) + 1;
+    const char trailer[] = ".";
+    const size_t min_output_size = strlen(header) + strlen(name) + strlen(trailer) + 1;
 
     // Full description that includes the human-readable description too
     const char separator[] = ": ";
     const char* description = strerrordesc_np(initial_errno);
-    assert(("errorname and errordesc should agree on errno validation", description));
-    size_t full_output_size = min_output_size + strlen(separator) + strlen(description);
+    assert(("strerrorname_np() and strerrordesc_np() "
+            "should agree on errno validation",
+            description));
+    const size_t full_output_size = min_output_size + strlen(separator) + strlen(description);
 
     // Pick the description that fits in the output buffer
     int result;
@@ -54,19 +62,61 @@ void warn_on_errno() {
         // Ideally everything...
         result = snprintf(output,
                           sizeof(output),
-                          "%s%s%s%s",
-                          header, name, separator, description);
+                          "%s%s%s%s%s",
+                          header, name, separator, description, trailer);
     } else {
         // ...but if there's not enough room, just the basics. Do warn about it.
-        warning("Internal output buffer is too small for a full errno description, must enlarge it");
+        warning("Internal output buffer is too small for a full errno "
+                "description and should be enlarged!");
         assert(("Buffer should be large enough to hold an errorname",
                 sizeof(output) >= min_output_size));
         result = snprintf(output,
                           sizeof(output),
-                          "%s%s",
-                          header, name);
+                          "%s%s%s",
+                          header, name, trailer);
     }
-    assert(("snprintf should never fail", result > 0));
+    assert(("String snprintf should never fail!", result > 0));
     warning(output);
     errno = 0;
+}
+
+void ensure_comparison_failure(const char* format_template,
+                               const char* x_format,
+                               const char* y_format,
+                               ...) {
+    // Determine the format string size
+    int result = snprintf(NULL, 0, format_template, x_format, y_format);
+    exit_on_negative(result, "Failed to evaluate format string size!");
+    size_t format_size = 1 + (size_t)result;
+
+    // Allocate the format string buffer
+    char* format = alloca(format_size);
+    exit_on_null(format, "Failed to allocate format string!");
+
+    // Generate the format string
+    result = snprintf(format, format_size, format_template, x_format, y_format);
+    exit_on_negative(result, "Failed to generate format string!");
+
+    // Get two copies of the variadic arguments
+    va_list args1, args2;
+    va_start(args1, y_format);
+    va_copy(args2, args1);
+
+    // Determine the error message size
+    result = vsnprintf(NULL, 0, format, args1);
+    va_end(args1);
+    exit_on_negative(result, "Failed to evaluate error message size!");
+    size_t error_message_size = 1 + (size_t)result;
+
+    // Allocate the error message buffer
+    char* error_message = alloca(error_message_size);
+    exit_on_null(error_message, "Failed to allocate error message buffer!");
+
+    // Generate the error message
+    result = vsnprintf(error_message, error_message_size, format, args2);
+    va_end(args2);
+    exit_on_negative(result, "Failed to generate error message!");
+
+    // Finally print the error message and exit
+    exit_with_error(error_message);
 }

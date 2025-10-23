@@ -12,8 +12,8 @@
 #include <threads.h>
 
 
-/// \name Initialization
-///@{
+/// \name Logger set up
+/// \{
 
 /// Message logger
 ///
@@ -25,7 +25,7 @@
 /// corresponding default values.
 typedef udipe_log_config_t logger_t;
 
-/// Setup logging
+/// Set up logging
 ///
 /// This should be done as early as possible during the `libudipe`
 /// initialization process in order to reduce the amount of code that cannot
@@ -41,8 +41,8 @@ logger_t log_initialize(udipe_log_config_t config);
 ///@}
 
 
-/// \name Logging macros
-///@{
+/// \name Basic logging
+/// \{
 
 /// Decide if a user log should be emitted
 ///
@@ -70,14 +70,16 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// where you want to dynamically adjust the log level at runtime.
 ///
 /// If generating a message requires expensive processing that should not be
-/// performed when the target log level is disabled, you should use
-/// log_enabled() to test ahead of time whether this log level is enabled.
+/// performed when the target log level is disabled, then you should use
+/// log_enabled() to test ahead of time whether this log level is enabled. For
+/// the common case where the expensive process is generation of a formatted
+/// text, we directly provide logf() and log level specific cousins thereof.
 ///
-/// See also log_with_errno() when reporting a failure from system calls and
-/// third-party C libraries..
+/// See also warn_on_errno() for cases where you need to report a failure from
+/// system calls and third-party C libraries.
 #define log(level, message)  \
     do {  \
-        const udipe_log_level_t udipe_level = (level);  \
+        const udipe_log_level_t udipe_level = thread_log_level(level);  \
         if (log_enabled(udipe_level)) {  \
             (udipe_thread_logger->callback)(udipe_thread_logger->context,  \
                                             udipe_level,  \
@@ -111,36 +113,117 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// Can only be used within the scope of with_logger(). See log() for more info.
 #define error(message)  log(UDIPE_LOG_ERROR, (message))
 
-///@}
+/// \}
+
+
+/// \name Formatted logging
+/// \{
+
+/// Log a message with printf() formatting
+///
+/// This macro works a lot like log(), but instead of logging a pre-existing
+/// string, it builds a string on the fly using a printf()-style format string
+/// and formatting arguments.
+///
+/// The price to pay for these enhanced formating capabilities is extra runtime
+/// overhead, so prefer the basic logging macros where all you need to log is a
+/// static string.
+///
+/// All other comments from log() remain valid, including the need to call it
+/// inside the scope of with_logger(). See also errorf(), warningf(), infof(),
+/// debugf() and tracef() for level-specific formatted logging macros.
+#define logf(level, format, ...)  \
+    do {  \
+        const udipe_log_level_t udipe_level = thread_log_level(level);  \
+        if (log_enabled(udipe_level)) {  \
+            logf_impl(udipe_level,  \
+                      __func__,  \
+                      (format),  \
+                      __VA_ARGS__);  \
+        }  \
+    } while(false);
+
+/// Log a \link #UDIPE_LOG_TRACE `TRACE` \endlink formatted message
+///
+/// Can only be used within the scope of with_logger(). See logf() for more info.
+#define tracef(format, ...)  logf(UDIPE_LOG_TRACE, (format), __VA_ARGS__)
+
+/// Log a \link #UDIPE_LOG_DEBUG `DEBUG` \endlink formatted message
+///
+/// Can only be used within the scope of with_logger(). See logf() for more info.
+#define debugf(format, ...)  logf(UDIPE_LOG_DEBUG, (format), __VA_ARGS__)
+
+/// Log an \link #UDIPE_LOG_INFO `INFO` \endlink formatted message
+///
+/// Can only be used within the scope of with_logger(). See logf() for more info.
+#define infof(format, ...)  logf(UDIPE_LOG_INFO, (format), __VA_ARGS__)
+
+/// Log a \link #UDIPE_LOG_WARNING `WARNING` \endlink formatted message
+///
+/// Can only be used within the scope of with_logger(). See logf() for more info.
+#define warningf(format, ...)  logf(UDIPE_LOG_WARNING, (format), __VA_ARGS__)
+
+/// Log an \link #UDIPE_LOG_ERROR `ERROR` \endlink formatted message
+///
+/// Can only be used within the scope of with_logger(). See logf() for more info.
+#define errorf(format, ...)  logf(UDIPE_LOG_ERROR, (format), __VA_ARGS__)
+
+/// \}
+
+
+/// \name Expression logging
+/// \{
+
+/// Log an expression and its value at \link #UDIPE_LOG_TRACE `TRACE` \endlink
+/// level, along with the associated code location.
+///
+/// This macro is only meant for debugging purpose and should not appear
+/// anywhere in production code.
+///
+/// It must be called within the scope of with_logger().
+///
+/// \internal
+///
+/// If you are trying to understand the implementation of this macro, then you
+/// need to know that in order to produce an appropriate format string for
+/// operand `expr`, which may be of nearly any type, there is quite a lot to do:
+///
+/// - First we use format_for() to determine an appropriate format specifier for
+///   input expressions `expr`.
+/// - Then we generate a format string that uses these format specifiers.
+///   * This is needed because the output of format_for() cannot be concatenated
+///     with the rest of the format string at compile time.
+///   * It means that arguments other than the format specifiers must be escaped
+///     with a double percent sign so that they are not used during this first
+///     formatting pass, but become valid format specifiers afterwards.
+/// - Generate an error message based on this format string.
+///   * This step is needed because the tracef() macro does not have a
+///     `vtracef()` variant that takes a `va_list`.
+/// - Log this error message at trace() level.
+#define trace_expr(expr)  \
+    do {  \
+        if (log_enabled(UDIPE_LOG_TRACE)) {  \
+            trace_expr_impl("At %%s:%%u.\n"  \
+                            "Evaluated %%s\n"  \
+                            "       => %s",   \
+                            format_for(expr),  \
+                            __FILE__, __LINE__, #expr, expr);  \
+        }  \
+    } while(false)
+
+/// \}
 
 
 /// \name Thread-local logger
-///@{
-
-/// Thread-local logger (implementation detail of with_logger())
-///
-/// This thread-local variable is used by with_logger() in order to locally
-/// enable a lightweight log syntax. It should not be used by any code other
-/// than the log() and with_logger() macro.
-extern thread_local const logger_t* udipe_thread_logger;
-
-/// Restore `udipe_thread_logger` (implementation detail of with_logger())
-///
-/// This helper function enables with_logger() to clean up after itself through
-/// the GNU `__cleanup__` attribute.
-static inline void restore_thread_logger(const logger_t** prev_logger) {
-    trace("End of a with_logger() scope");
-    udipe_thread_logger = *prev_logger;
-}
+/// \{
 
 /// Set up logging within a certain code scope
 ///
 /// Call as `with_logger(&logger, { ... })` to be able to use log() and related
-/// macros inside of the ... inner code scope.
+/// macros inside of the `{ ... }` inner code scope.
 ///
-/// This macro is meant to be called at the start of every public `libudipe`
-/// entry point and also early in the main function of every udipe worker
-/// thread.
+/// This macro must be called at the start of every public `libudipe` entry
+/// point and early on inside the main function of every udipe worker thread.
 ///
 /// \param logger_ptr must point to a `logger_t` that was previously initialized
 ///        by log_initialize(), and that is valid to use until the end of the
@@ -151,27 +234,141 @@ static inline void restore_thread_logger(const logger_t** prev_logger) {
                         __attribute__((__cleanup__(restore_thread_logger)))  \
                         = udipe_thread_logger;  \
         udipe_thread_logger = (logger_ptr);  \
-        trace("Start of a with_logger() scope");  \
+        trace("Start of a with_logger() scope.");  \
+        do __VA_ARGS__ while(false);  \
+    } while(false)
+
+/// Set up the thread-local relative log level
+///
+/// Call as `with_log_level(level, { ... })` to adjust how the \link
+/// #UDIPE_LOG_INFO `INFO`\endlink and \link #UDIPE_LOG_DEBUG `DEBUG`\endlink
+/// log levels are interpreted inside of the `{ ... }` inner code scope.
+///
+/// - If this is set to `DEBUG`, then the `INFO` log level is treated as
+///   `DEBUG` and the `DEBUG` log level is treated as `TRACE`.
+/// - If this is set to `TRACE`, then the `INFO` and `DEBUG` log levels are
+///   treated as `TRACE`.
+///
+/// Setting the relative log level to any other value is forbidden, and this
+/// functionality has no effect on the `ERROR`, `WARNING` and `TRACE` log
+/// levels.
+///
+/// This functionality is needed in situations where a particular function is
+/// called at several different layers of abstraction, and what qualifies as
+/// `INFO` logging in one situation qualities as `DEBUG` or `TRACE` logging in
+/// another situation. This most frequently comes up in unit tests.
+///
+/// \param level must be set to \ref UDIPE_LOG_DEBUG or \ref UDIPE_LOG_TRACE.
+#define with_log_level(level, ...)  \
+    do {  \
+        const udipe_log_level_t udipe_prev_log_level  \
+            __attribute__((__cleanup__(restore_thread_log_level)))  \
+                = udipe_thread_log_level;  \
+        udipe_thread_log_level = (level);  \
+        assert(udipe_thread_log_level == UDIPE_LOG_DEBUG  \
+               || udipe_thread_log_level == UDIPE_LOG_TRACE);  \
+        trace("Start of a with_log_level() scope.");  \
         do __VA_ARGS__ while(false);  \
     } while(false)
 
 ///@}
 
 
-/// \name Logging utilities
-///@{
+/// \name Implementation details
+/// @{
 
 /// Internal helper to validate logging call correctness in `Debug` builds
+///
+/// Does nothing in `Release` builds.
 #ifndef NDEBUG
     void validate_log(udipe_log_level_t level);
 #else
     static inline void validate_log(udipe_log_level_t level) {}
 #endif
 
-///@}
+/// GNU attributes of logf_impl()
+///
+/// This allows GCC to validate correct usage of this printf()-style function.
+/// Extracting it into a macro deduplicates definition/declaration and works
+/// around a bug in the doxygen parser.
+#define LOGF_IMPL_ATTRIBUTES __attribute__((format(printf, 3, 4)))
+
+/// Implementation of logf()
+///
+/// This function is not meant to be used directly, it is an implementation
+/// detail of the logf() macro.
+LOGF_IMPL_ATTRIBUTES
+void logf_impl(udipe_log_level_t level,
+               const char* location,
+               const char* format,
+               ...);
+
+/// Thread-local log level
+///
+/// This thread-local variable is used by with_log_level() in order to locally
+/// override the log level of some logging statements.
+extern thread_local udipe_log_level_t udipe_thread_log_level;
+
+/// Thread-local logger (implementation detail of with_logger())
+///
+/// This thread-local variable is used by with_logger() in order to locally
+/// enable a lightweight log syntax.
+extern thread_local const logger_t* udipe_thread_logger;
+
+/// Reinterprete the specified log level according to surrounding
+/// with_log_level() scopes
+static inline udipe_log_level_t thread_log_level(udipe_log_level_t level) {
+    validate_log(level);
+    switch (level) {
+    case UDIPE_LOG_DEBUG:
+        return (udipe_thread_log_level == UDIPE_LOG_TRACE) ? UDIPE_LOG_TRACE : UDIPE_LOG_DEBUG;
+    case UDIPE_LOG_INFO:
+        switch (udipe_thread_log_level) {
+        case UDIPE_LOG_TRACE:
+            return UDIPE_LOG_TRACE;
+        case UDIPE_LOG_DEBUG:
+            return UDIPE_LOG_DEBUG;
+        default:
+            return UDIPE_LOG_INFO;
+        }
+    default:
+        return level;
+    }
+}
+
+/// Restore `udipe_log_level` (implementation detail of with_log_level())
+///
+/// This helper function enables with_log_level() to clean up after itself
+/// through the GNU `__cleanup__` attribute.
+static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_level) {
+    trace("End of a with_log_level() scope.");
+    udipe_thread_log_level = *prev_log_level;
+}
+
+/// Restore `udipe_thread_logger`
+///
+/// This helper function enables with_logger() to clean up after itself through
+/// the GNU `__cleanup__` attribute.
+static inline void restore_thread_logger(const logger_t** prev_logger) {
+    trace("End of a with_logger() scope.");
+    udipe_thread_logger = *prev_logger;
+}
+
+/// Implementation of trace_expr()
+///
+/// This is an implementation detail of trace_expr() that you should not call
+/// directly.
+///
+/// See the internal section of the trace_expr() documentation for more
+/// information about what it does.
+void trace_expr_impl(const char* format_template,
+                     const char* expr_format,
+                     ...);
+
+/// @}
 
 
-// Implementation of log_enabled (see above for docs)
+// Implementation of log_enabled (see docs above)
 static inline bool log_enabled(udipe_log_level_t level) {
     validate_log(level);
     return level >= udipe_thread_logger->min_level;

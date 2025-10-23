@@ -22,7 +22,8 @@
 //! document the internal components of the library within the `src/` directory
 //! of the `libudipe` source tree.
 
-#include <udipe/context.h>
-#include <udipe/log.h>
-#include <udipe/pointer.h>
-#include <udipe/visibility.h>
+#include "udipe/allocator.h"
+#include "udipe/context.h"
+#include "udipe/log.h"
+#include "udipe/pointer.h"
+#include "udipe/visibility.h"
