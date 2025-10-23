@@ -294,13 +294,19 @@ void* allocate(allocator_t* allocator) {
         ensure_gt(allocator.config.buffer_count, (size_t)0);
 
         debug("Checking initial buffer availability...");
-        ensure(
-            bitmap_range_alleq(allocator.buffer_availability,
-                               UDIPE_MAX_BUFFERS,
-                               BITMAP_START,
-                               index_to_bit_pos(allocator.config.buffer_count),
-                               true)
+        const bit_pos_t buffers_end =
+            index_to_bit_pos(allocator.config.buffer_count);
+        ensure(bitmap_range_alleq(allocator.buffer_availability,
+                                  UDIPE_MAX_BUFFERS,
+                                  BITMAP_START,
+                                  buffers_end,
+                                  true)
         );
+        ensure(bitmap_range_alleq(allocator.buffer_availability,
+                                  UDIPE_MAX_BUFFERS,
+                                  buffers_end,
+                                  bitmap_end(UDIPE_MAX_BUFFERS),
+                                  false));
 
         // TODO: Exercise more operations as they get implemented
 

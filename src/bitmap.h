@@ -185,7 +185,6 @@ static inline bool bitmap_get(word_t bitmap[],
     return (bitmap[bit.word] & ((word_t)1 << bit.offset)) != 0;
 }
 
-
 /// Set the value of the Nth bit of a bitmap
 ///
 /// This lets you adjust the value of a particular bit of a bitmap.
