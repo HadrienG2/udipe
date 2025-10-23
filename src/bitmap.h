@@ -205,8 +205,6 @@ static inline void bitmap_set(word_t bitmap[],
     }
 }
 
-#include "log.h"
-
 /// Truth that a region of a bitmap is filled with a uniform bit pattern
 ///
 /// Check if all entries within `bitmap` from bit `start` (included) to bit
