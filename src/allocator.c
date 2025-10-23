@@ -24,11 +24,13 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
     unsigned os_cpu;
     hwloc_bitmap_foreach_begin(os_cpu, thread_cpuset)
         tracef("Finding the PU object associated with CPU %d...", os_cpu);
-        hwloc_obj_t pu = hwloc_get_pu_obj_by_os_index(topology, os_cpu);
+        const hwloc_obj_t pu = hwloc_get_pu_obj_by_os_index(topology, os_cpu);
         exit_on_null(pu, "Failed to find PU from thread cpuset!");
 
         trace("Finding the cache capacity of this PU...");
-        hwloc_obj_t cache = hwloc_get_ancestor_obj_by_type(topology, cache_type, pu);
+        const hwloc_obj_t cache = hwloc_get_ancestor_obj_by_type(topology,
+                                                                 cache_type,
+                                                                 pu);
         exit_on_null(cache, "Failed to find cache from thread PU!");
         assert(("Caches should have attributes", cache->attr));
         assert(cache->attr->cache.size < (uint64_t)SIZE_MAX);
@@ -37,7 +39,7 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
 
         trace("Determining cache cpuset...");
         assert(("Caches should have a cpuset", cache->cpuset));
-        hwloc_cpuset_t cache_cpuset = hwloc_bitmap_dup(cache->cpuset);
+        const hwloc_cpuset_t cache_cpuset = hwloc_bitmap_dup(cache->cpuset);
         exit_on_null(cache_cpuset, "Failed to duplicate cache cpuset!");
         if (log_enabled(UDIPE_LOG_TRACE)) {
             char* cpuset_str;
@@ -59,7 +61,7 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
         }
 
         trace("Computing fair share of cache across attached CPU(s)...");
-        int weight = hwloc_bitmap_weight(cache_cpuset);
+        const int weight = hwloc_bitmap_weight(cache_cpuset);
         assert(weight >= 1);
         cache_size /= (size_t)weight;
         hwloc_bitmap_free(cache_cpuset);
@@ -76,7 +78,6 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
     return (8 * min_size) / 10;
 }
 
-
 /// Apply defaults and page rounding to a \ref udipe_thread_allocator_config_t
 ///
 /// This prepares the config struct for use within the actual allocator by
@@ -86,9 +87,9 @@ UDIPE_NON_NULL_ARGS
 static void finish_configuration(udipe_thread_allocator_config_t* config,
                                  hwloc_topology_t topology) {
     debug("Querying system page size...");
-    long page_size_l = sysconf(_SC_PAGE_SIZE);
+    const long page_size_l = sysconf(_SC_PAGE_SIZE);
     if (page_size_l < 1) exit_after_c_error("Failed to query system page size!");
-    size_t page_size = (size_t)page_size_l;
+    const size_t page_size = (size_t)page_size_l;
     debugf("System page size is %1$zu (%1$#zx) bytes.", page_size);
 
     hwloc_cpuset_t thread_cpuset = NULL;
@@ -122,7 +123,7 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
     }
 
     debug("Rounding up buffer size to a multiple of the page size...");
-    size_t page_remainder = config->buffer_size % page_size;
+    const size_t page_remainder = config->buffer_size % page_size;
     if (page_remainder != 0) {
         config->buffer_size += page_size - page_remainder;
     }
@@ -131,9 +132,9 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
 
     if (config->buffer_count == 0) {
         debug("Auto-tuning buffer count for L2 locality...");
-        size_t pool_size = smallest_cache_capacity(topology,
-                                                   thread_cpuset,
-                                                   HWLOC_OBJ_L2CACHE);
+        const size_t pool_size = smallest_cache_capacity(topology,
+                                                         thread_cpuset,
+                                                         HWLOC_OBJ_L2CACHE);
         debugf("Optimal memory pool size for L2 locality is %1$zu (%1$#zx) bytes.",
                pool_size);
         config->buffer_count = pool_size / config->buffer_size;
@@ -155,7 +156,6 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
 
     if (thread_cpuset) hwloc_bitmap_free(thread_cpuset);
 }
-
 
 UDIPE_NON_NULL_ARGS
 allocator_t allocator_initialize(udipe_allocator_config_t global_config,
@@ -181,7 +181,8 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
     finish_configuration(&allocator.config, topology);
 
     debug("Allocating the memory pool...");
-    size_t pool_size = allocator.config.buffer_size * allocator.config.buffer_count;
+    const size_t pool_size =
+        allocator.config.buffer_size * allocator.config.buffer_count;
     allocator.memory_pool = mmap(NULL,
                                  pool_size,
                                  PROT_READ | PROT_WRITE,
@@ -209,8 +210,8 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
     return allocator;
 }
 
-
 void allocator_finalize(allocator_t allocator) {
+    debug("Finalizing the bitmap allocator");
     assert(
         bitmap_range_alleq(allocator.buffer_availability,
                            UDIPE_MAX_BUFFERS,
@@ -221,13 +222,55 @@ void allocator_finalize(allocator_t allocator) {
     munmap(allocator.memory_pool, allocator.config.buffer_size * allocator.config.buffer_count);
 }
 
+UDIPE_NON_NULL_ARGS
+void liberate(allocator_t* allocator, void* buffer) {
+    tracef("Liberating buffer with address %p...", buffer);
+    assert(buffer > allocator->memory_pool);
+    const size_t buffer_offset = (char*)buffer - (char*)allocator->memory_pool;
+    assert(buffer_offset % allocator->config.buffer_size == 0);
+    const size_t buffer_idx = buffer_offset / allocator->config.buffer_size;
+    assert(buffer_idx < allocator->config.buffer_count);
+    const bit_pos_t buffer_bit = index_to_bit_pos(buffer_idx);
+    assert(!bitmap_get(allocator->buffer_availability,
+                       UDIPE_MAX_BUFFERS,
+                       buffer_bit));
+    bitmap_set(allocator->buffer_availability,
+               UDIPE_MAX_BUFFERS,
+               buffer_bit,
+               true);
+}
 
-// TODO: Implement remaining functions
+UDIPE_NON_NULL_ARGS
+ALLOCATE_ATTRIBUTES
+void* allocate(allocator_t* allocator) {
+    trace("Starting buffer allocation...");
+    const bit_pos_t buffer_bit =
+        bitmap_find_first(allocator->buffer_availability,
+                          UDIPE_MAX_BUFFERS,
+                          true);
+
+    if (buffer_bit.word == SIZE_MAX) {
+        trace("Allocation rejected because no buffer is currently available.");
+        return NULL;
+    }
+
+    bitmap_set(allocator->buffer_availability,
+               UDIPE_MAX_BUFFERS,
+               buffer_bit,
+               false);
+    const size_t buffer_idx = bit_pos_to_index(buffer_bit);
+    const size_t buffer_offset = buffer_idx * allocator->config.buffer_size;
+    void* buffer = (void*)((char*)allocator->memory_pool + buffer_offset);
+    tracef("Allocated buffer #%zu with address %p.", buffer_idx, buffer);
+    return buffer;
+}
 
 
 #ifdef UDIPE_BUILD_TESTS
     void allocator_unit_tests() {
         info("Running allocator unit tests...");
+
+        // TODO: Flesh out these tests
 
         debug("Setting up an hwloc topology...");
         hwloc_topology_t topology;

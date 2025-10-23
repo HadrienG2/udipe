@@ -66,7 +66,8 @@ typedef struct allocator_s {
     /// is between 0 and \link #udipe_thread_allocator_config_t::buffer_count
     /// config.buffer_count \endlink) is currently available for use.
     ///
-    /// A set bit means that a buffer is available for use
+    /// A set bit means that a buffer is available for use, a cleared bit means
+    /// that it is currently allocated.
     INLINE_BITMAP(buffer_availability, UDIPE_MAX_BUFFERS);
 } allocator_t;
 
@@ -78,7 +79,6 @@ typedef struct allocator_s {
 /// This function must be called within the scope of with_logger().
 ///
 /// \param config indicates how the user wants the allocator to be configured.
-///
 /// \param topology is an hwloc topology used for the default allocator
 ///                 configuration, which is optimized for L1/L2 cache locality.
 UDIPE_NON_NULL_ARGS
@@ -92,6 +92,10 @@ allocator_t allocator_initialize(udipe_allocator_config_t config,
 /// function, and the memory allocator cannot be used again after this is done.
 ///
 /// This function must be called within the scope of with_logger().
+///
+/// \param allocator points to an allocator that has previously been set up
+///                  using allocator_initialize() and hasn't been destroyed
+///                  through allocator_finalize() yet.
 void allocator_finalize(allocator_t allocator);
 
 
@@ -104,7 +108,6 @@ void allocator_finalize(allocator_t allocator);
 /// \param allocator points to an allocator that has previously been set up
 ///                  using allocator_initialize() and hasn't been destroyed
 ///                  through allocator_finalize() yet.
-///
 /// \param buffer points to a buffer that has previously been allocated from
 ///               `allocator` using allocate() and hasn't been destroyed through
 ///               liberate().
@@ -155,7 +158,6 @@ void liberate(allocator_t* allocator, void* buffer);
 /// \param allocator points to an allocator that has previously been set up
 ///                  using allocator_initialize() and hasn't been destroyed
 ///                  through allocator_finalize() yet.
-///
 /// \returns points to a buffer of size \link
 ///          #udipe_thread_allocator_config_t::buffer_size
 ///          allocator->config.buffer_size \endlink, or `NULL` if no buffer is
