@@ -13,11 +13,11 @@
 //!   that is larger than you need and using sentinel values at the end such
 //!   that the extra elements are never considered in bit searches.
 //!   * While \ref BITS_PER_WORD is CPU architecture specific, a bitmap size
-//!     that is a multiple of 64 will work fine on all hardware at the time of
-//!     writing.
+//!     that is a multiple of 64 will work fine on all popular CPU architectures
+//!     at the time of writing.
 //! - You are encouraged to use bitmaps with a size that is known at compile
 //!   time. Failing that, you can get some performance back by storing your
-//!   dynamic side as a multiple of the \ref BITS_PER_WORD and make sure that
+//!   dynamic side as a multiple of the \ref BITS_PER_WORD and making sure that
 //!   the compiler's optimizer can see the multiplication.
 //! - All bitmap operations are inline functions, allowing the compiler to
 //!   exploit this granularity for optimization when it is present, along with
