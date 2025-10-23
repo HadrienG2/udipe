@@ -7,10 +7,10 @@
 //! that configures the memory management policy of `libudipe`, along with
 //! related type and constant definitions.
 
-//! \example custom_allocator.c
+//! \example configure_allocator.c
 //!
 //! This example demonstrates a non-default \ref udipe_allocator_config_t setup
-//! that configures worker threads to work with 42 buffers of 9216 bytes.
+//! that configures all worker threads to work with 42 buffers of 9000 bytes.
 
 #include <stddef.h>
 
@@ -81,9 +81,14 @@ typedef struct udipe_thread_allocator_config_s {
 /// The input `void*` parameter is of your choosing. It is specified via \ref
 /// udipe_allocator_config_s::context and passed in as is to each invocation of
 /// the callback. You can use it to pass any information that your callback
-/// needs to compute its memory management configuration. For example this can
-/// be used to pass in an `hwloc_topology_t` or equivalent in cache locality
-/// aware designs.
+/// needs to compute its memory management configuration. For example...
+///
+/// - When you want to configure all threads in the same manner, you can use it
+///   to pass in a \link #udipe_thread_allocator_config_t `const
+///   udipe_thread_allocator_config_t*` \endlink that points to the parameters
+///   shared by all threads.
+/// - When you want to configure threads in a cache locality aware manner, you
+///   can use it to pass in a `hwloc_topology_t` or equivalent.
 ///
 /// The intent behind this callback-based design is to let you...
 ///
