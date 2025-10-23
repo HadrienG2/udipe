@@ -14,6 +14,7 @@
 // TODO: Expand list of supported types as needed
 #define format_for(x) _Generic((x),  \
                                          const char*: "%s",  \
+                                               char*: "%s",  \
                                          signed char: "%hhd",  \
                                                short: "%hd",  \
                                                  int: "%d",  \
@@ -26,6 +27,7 @@
                                   unsigned long long: "%llu",  \
                                               double: "%f",  \
                                          long double: "%Lf",  \
+                                         const void*: "%p",  \
                                                void*: "%p",  \
                                                 bool: "%u"  \
                               )
