@@ -19,7 +19,6 @@ udipe_thread_allocator_config_t apply_shared_configuration(void* context) {
     return *config;
 }
 
-
 int main() {
     // Start from the default libudipe configuration
     udipe_config_t config;

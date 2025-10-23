@@ -434,4 +434,4 @@
         }
     }
 
-#endif
+#endif  // UDIPE_BUILD_TESTS

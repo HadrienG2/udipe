@@ -25,7 +25,6 @@ void log_to_tempfile(void* context,
     }
 }
 
-
 int main() {
     // Set up a temporary file
     char tempname[] = "/tmp/udipe-log_to_tempfile.XXXXXX";

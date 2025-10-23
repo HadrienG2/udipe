@@ -50,7 +50,6 @@ typedef struct udipe_config_s {
     udipe_allocator_config_t allocator;
 } udipe_config_t;
 
-
 /// Core `libudipe` context
 ///
 /// This opaque data structure is built by udipe_initialize() and can
@@ -64,7 +63,6 @@ typedef struct udipe_config_s {
 /// Once you are done with `libudipe`, you can pass this object back to
 /// udipe_finalize() to destroy it.
 typedef struct udipe_context_s udipe_context_t;
-
 
 /// Initialize a \link #udipe_context_t `libudipe` context \endlink
 ///
@@ -85,7 +83,6 @@ typedef struct udipe_context_s udipe_context_t;
 UDIPE_PUBLIC
 UDIPE_NON_NULL_RESULT
 udipe_context_t* udipe_initialize(udipe_config_t config);
-
 
 /// Finalize a \link #udipe_context_t `libudipe` context \endlink
 ///

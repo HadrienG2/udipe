@@ -71,7 +71,6 @@ typedef struct allocator_s {
     INLINE_BITMAP(buffer_availability, UDIPE_MAX_BUFFERS);
 } allocator_t;
 
-
 /// Initialize a \link #allocator_t memory allocator \endlink.
 ///
 /// The memory allocator must later be liberated using allocator_finalize().
@@ -85,7 +84,6 @@ UDIPE_NON_NULL_ARGS
 allocator_t allocator_initialize(udipe_allocator_config_t config,
                                  hwloc_topology_t topology);
 
-
 /// Finalize a \link #allocator_t memory allocator \endlink.
 ///
 /// All former allocations should have been liberated before calling this
@@ -97,7 +95,6 @@ allocator_t allocator_initialize(udipe_allocator_config_t config,
 ///                  using allocator_initialize() and hasn't been destroyed
 ///                  through allocator_finalize() yet.
 void allocator_finalize(allocator_t allocator);
-
 
 /// Liberate a memory buffer previously allocated via allocate()
 ///
@@ -113,7 +110,6 @@ void allocator_finalize(allocator_t allocator);
 ///               liberate() yet.
 UDIPE_NON_NULL_ARGS
 void liberate(allocator_t* allocator, void* buffer);
-
 
 #ifdef __x86_64__
     /// Minimum page alignment
@@ -133,7 +129,6 @@ void liberate(allocator_t* allocator, void* buffer);
     #define MIN_PAGE_ALIGNMENT alignof(max_align_t)
 #endif
 
-
 /// GNU attributes of the allocate() functions
 ///
 /// These attributes are used to let the compiler know that allocate() is a
@@ -145,7 +140,6 @@ void liberate(allocator_t* allocator, void* buffer);
                  , malloc  \
                  , malloc(liberate, 2)  \
                  , warn_unused_result))
-
 
 /// Attempt to allocate a memory buffer
 ///
@@ -165,7 +159,6 @@ void liberate(allocator_t* allocator, void* buffer);
 UDIPE_NON_NULL_ARGS
 ALLOCATE_ATTRIBUTES
 void* allocate(allocator_t* allocator);
-
 
 #ifdef UDIPE_BUILD_TESTS
     /// Unit tests for allocators

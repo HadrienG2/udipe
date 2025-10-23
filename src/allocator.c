@@ -443,4 +443,4 @@ void* allocate(allocator_t* allocator) {
         });
     }
 
-#endif
+#endif  // UDIPE_BUILD_TESTS

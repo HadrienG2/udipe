@@ -29,7 +29,6 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
     return context;
 }
 
-
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 void udipe_finalize(udipe_context_t* context) {

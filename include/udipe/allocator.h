@@ -25,7 +25,6 @@
 /// `UDIPE_MAX_BUFFERS` buffers.
 #define UDIPE_MAX_BUFFERS ((size_t)64)
 
-
 /// Tunable memory management parameters for one worker thread
 ///
 /// This is the value returned by the \ref udipe_allocator_callback_t for each
@@ -66,7 +65,6 @@ typedef struct udipe_thread_allocator_config_s {
     size_t buffer_count;
 } udipe_thread_allocator_config_t;
 
-
 /// Worker thread memory management configuration callback
 ///
 /// You may specify such a callback as part of \ref udipe_config_t in order to
@@ -98,7 +96,6 @@ typedef struct udipe_thread_allocator_config_s {
 /// - Adjust the tuning parameters on a per-thread basis, which can make sense
 ///   on systems with heterogeneous CPU cores.
 typedef udipe_thread_allocator_config_t (*udipe_allocator_callback_t)(void* /* context */);
-
 
 /// Memory management configuration
 ///

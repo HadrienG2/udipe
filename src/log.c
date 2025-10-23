@@ -212,7 +212,7 @@ thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_LOG_INFO;
             exit(EXIT_FAILURE);
         };
     }
-#endif
+#endif  // NDEBUG
 
 void trace_expr_impl(const char* format_template,
                      const char* expr_format,

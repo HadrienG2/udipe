@@ -105,7 +105,6 @@ typedef enum udipe_log_level_e {
     UDIPE_LOG_DEFAULT = 0
 } udipe_log_level_t;
 
-
 /// Get the textual name of a certain log level
 ///
 /// For example, given the UDIPE_LOG_ERROR input, this function returns "ERROR".
@@ -118,7 +117,6 @@ typedef enum udipe_log_level_e {
 UDIPE_PUBLIC
 UDIPE_NON_NULL_RESULT
 const char* udipe_log_level_name(udipe_log_level_t level);
-
 
 /// Logging callback
 ///
@@ -136,7 +134,6 @@ typedef void (*udipe_log_callback_t)(void* /*context */,
                                      udipe_log_level_t /*level*/,
                                      const char[] /*location*/,
                                      const char[] /*message*/);
-
 
 /// Logging configuration
 ///

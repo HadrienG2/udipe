@@ -16,4 +16,4 @@
     /// \brief Run all the libudipe unit tests
     UDIPE_PUBLIC void udipe_unit_tests();
 
-#endif
+#endif  // UDIPE_BUILD_TESTS
