@@ -78,6 +78,13 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
     return (8 * min_size) / 10;
 }
 
+/// Get the system page size
+static size_t get_page_size() {
+    const long page_size_l = sysconf(_SC_PAGE_SIZE);
+    if (page_size_l < 1) exit_after_c_error("Failed to query system page size!");
+    return (size_t)page_size_l;
+}
+
 /// Apply defaults and page rounding to a \ref udipe_thread_allocator_config_t
 ///
 /// This prepares the config struct for use within the actual allocator by
@@ -87,9 +94,7 @@ UDIPE_NON_NULL_ARGS
 static void finish_configuration(udipe_thread_allocator_config_t* config,
                                  hwloc_topology_t topology) {
     debug("Querying system page size...");
-    const long page_size_l = sysconf(_SC_PAGE_SIZE);
-    if (page_size_l < 1) exit_after_c_error("Failed to query system page size!");
-    const size_t page_size = (size_t)page_size_l;
+    const size_t page_size = get_page_size();
     debugf("System page size is %1$zu (%1$#zx) bytes.", page_size);
 
     hwloc_cpuset_t thread_cpuset = NULL;
@@ -127,7 +132,7 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
     if (page_remainder != 0) {
         config->buffer_size += page_size - page_remainder;
     }
-    debugf("Selected a buffer size of %1$zu (%1$#zx) bytes.",
+    infof("Selected a buffer size of %1$zu (%1$#zx) bytes.",
            config->buffer_size);
 
     if (config->buffer_count == 0) {
@@ -142,7 +147,7 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
             config->buffer_count += 1;
         }
         if (config->buffer_count <= UDIPE_MAX_BUFFERS) {
-            debugf("Will allocate a pool of %zu buffers.", config->buffer_count);
+            infof("Will allocate a pool of %zu buffers.", config->buffer_count);
         } else {
             warningf("Auto-configuration suggests a pool of %zu buffers, but "
                      "implementation only supports %zu. UDIPE_MAX_BUFFERS "
@@ -190,6 +195,7 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
                                  -1,
                                  0);
     exit_on_null(allocator.memory_pool, "Failed to allocate memory pool!");
+    tracef("Allocated memory pool at location %p.", allocator.memory_pool);
 
     debug("Locking memory pages into RAM...");
     exit_on_negative(mlock(allocator.memory_pool, pool_size),
@@ -225,8 +231,11 @@ void allocator_finalize(allocator_t allocator) {
 
 UDIPE_NON_NULL_ARGS
 void liberate(allocator_t* allocator, void* buffer) {
+    assert(allocator);
+    assert(buffer);
+
     tracef("Liberating buffer with address %p...", buffer);
-    assert(buffer > allocator->memory_pool);
+    assert(buffer >= allocator->memory_pool);
     const size_t buffer_offset = (char*)buffer - (char*)allocator->memory_pool;
     assert(buffer_offset % allocator->config.buffer_size == 0);
     const size_t buffer_idx = buffer_offset / allocator->config.buffer_size;
@@ -244,6 +253,8 @@ void liberate(allocator_t* allocator, void* buffer) {
 UDIPE_NON_NULL_ARGS
 ALLOCATE_ATTRIBUTES
 void* allocate(allocator_t* allocator) {
+    assert(allocator);
+
     trace("Starting buffer allocation...");
     const bit_pos_t buffer_bit =
         bitmap_find_first(allocator->buffer_availability,
@@ -269,35 +280,34 @@ void* allocate(allocator_t* allocator) {
 
 #ifdef UDIPE_BUILD_TESTS
 
-    void allocator_unit_tests() {
-        info("Running allocator unit tests...");
+    /// Make sure that an allocator, which has been configured in a certain
+    /// way, meets expected requirements. Then finalize it.
+    static void check_and_finalize(
+        allocator_t allocator,
+        udipe_thread_allocator_config_t thread_config,
+        size_t page_size
+    ) {
+        trace("Checking default allocator configuration...");
+        size_t min_size = thread_config.buffer_size;
+        // Default configuration should be able to hold any possible UDP packet,
+        // and 9216 bytes is a common MTU limit for Ethernet equipment
+        if (!min_size) min_size = 9216;
+        ensure_ge(allocator.config.buffer_size, min_size);
+        ensure_eq(allocator.config.buffer_size % page_size, (size_t)0);
+        size_t min_count = thread_config.buffer_count;
+        if (!min_count) min_count = 1;
+        ensure_ge(allocator.config.buffer_count, min_count);
 
-        // TODO: Flesh out these tests
+        trace("Backing up initial allocator configuration...");
+        const udipe_thread_allocator_config_t config = allocator.config;
+        const void* const memory_pool = allocator.memory_pool;
 
-        debug("Setting up an hwloc topology...");
-        hwloc_topology_t topology;
-        exit_on_negative(hwloc_topology_init(&topology),
-                         "Failed to allocate the hwloc hopology!");
-        exit_on_negative(hwloc_topology_load(topology),
-                         "Failed to build the hwloc hopology!");
+        trace("Checking memory pool pointer...");
+        ensure((bool)allocator.memory_pool);
+        ensure_eq((size_t)allocator.memory_pool % page_size, (size_t)0);
 
-        debug("Configuring the allocator...");
-        // TODO: Test with non-default configurations too
-        udipe_allocator_config_t config;
-        memset(&config, 0, sizeof(udipe_thread_allocator_config_t));
-
-        debug("Initialing the allocator...");
-        allocator_t allocator = allocator_initialize(config, topology);
-
-        // TODO: Non-default configuration will be compared to the
-        //       user-requested size/count
-        debug("Checking default allocator configuration...");
-        ensure_gt(allocator.config.buffer_size, (size_t)0);
-        ensure_gt(allocator.config.buffer_count, (size_t)0);
-
-        debug("Checking initial buffer availability...");
-        const bit_pos_t buffers_end =
-            index_to_bit_pos(allocator.config.buffer_count);
+        trace("Checking initial buffer availability...");
+        const bit_pos_t buffers_end = index_to_bit_pos(config.buffer_count);
         ensure(bitmap_range_alleq(allocator.buffer_availability,
                                   UDIPE_MAX_BUFFERS,
                                   BITMAP_START,
@@ -310,10 +320,127 @@ void* allocate(allocator_t* allocator) {
                                   bitmap_end(UDIPE_MAX_BUFFERS),
                                   false));
 
-        // TODO: Exercise more operations as they get implemented
+        trace("Allocating all the buffers...");
+        void* buffers[UDIPE_MAX_BUFFERS];
+        for (size_t buf = 0; buf < UDIPE_MAX_BUFFERS; ++buf) {
+            tracef("Allocating buffer #%zu...", buf);
+            buffers[buf] = allocate(&allocator);
 
-        debug("Finalizing the allocator...");
+            trace("Checking invariant fields...");
+            ensure_eq(allocator.config.buffer_size, config.buffer_size);
+            ensure_eq(allocator.config.buffer_count, config.buffer_count);
+            ensure_eq(allocator.memory_pool, memory_pool);
+
+            trace("Handling allocation failure...");
+            if (!buffers[buf]) {
+                ensure_ge(buf, config.buffer_count);
+                ensure_eq(bitmap_count(allocator.buffer_availability,
+                                       UDIPE_MAX_BUFFERS,
+                                       true),
+                          (size_t)0);
+                continue;
+            }
+
+            trace("Handling allocation success...");
+            ensure_lt(buf, config.buffer_count);
+            ensure_eq(bitmap_count(allocator.buffer_availability,
+                                   UDIPE_MAX_BUFFERS,
+                                   true),
+                      config.buffer_count - buf - 1);
+            const size_t offset = (char*)buffers[buf] - (char*)memory_pool;
+            ensure_eq(offset % config.buffer_size, (size_t)0);
+            ensure_lt(offset / config.buffer_size, config.buffer_count);
+
+            trace("Checking allocation unicity...");
+            for (size_t other = 0; other < buf; ++other) {
+                ensure_ne(buffers[buf], buffers[other]);
+            }
+        }
+
+        trace("Liberating all the buffers...");
+        for (size_t buf = 0; buf < config.buffer_count; ++buf) {
+            tracef("Liberating buffer #%zu...", buf);
+            liberate(&allocator, buffers[buf]);
+
+            trace("Checking invariant fields...");
+            ensure_eq(allocator.config.buffer_size, config.buffer_size);
+            ensure_eq(allocator.config.buffer_count, config.buffer_count);
+            ensure_eq(allocator.memory_pool, memory_pool);
+
+            trace("Checking availability bitmap...");
+            ensure_eq(bitmap_count(allocator.buffer_availability,
+                                   UDIPE_MAX_BUFFERS,
+                                   true),
+                      buf + 1);
+        }
+
+        trace("Finalizing the allocator...");
         allocator_finalize(allocator);
+    }
+
+    /// Configuration callback that applies a predefined configuration
+    /// without thread-specific adjustments
+    udipe_thread_allocator_config_t apply_shared_configuration(void* context) {
+        const udipe_thread_allocator_config_t* config =
+            (udipe_thread_allocator_config_t*)context;
+        return *config;
+    }
+
+    void allocator_unit_tests() {
+        info("Running allocator unit tests...");
+        with_log_level(UDIPE_LOG_DEBUG, {
+            debug("Setting up an hwloc topology...");
+            hwloc_topology_t topology;
+            exit_on_negative(hwloc_topology_init(&topology),
+                             "Failed to allocate the hwloc hopology!");
+            exit_on_negative(hwloc_topology_load(topology),
+                             "Failed to build the hwloc hopology!");
+
+            debug("Checking system page size...");
+            const size_t page_size = get_page_size();
+            debugf("System page size is %1$zu (%1$#zx) bytes.", page_size);
+
+            debug("Testing the default configuration...");
+            udipe_allocator_config_t config;
+            udipe_thread_allocator_config_t thread_config;
+            allocator_t allocator;
+            with_log_level(UDIPE_LOG_TRACE, {
+                memset(&config, 0, sizeof(udipe_allocator_config_t));
+                memset(&thread_config, 0, sizeof(udipe_thread_allocator_config_t));
+                allocator = allocator_initialize(config, topology);
+                check_and_finalize(allocator,
+                                   thread_config,
+                                   page_size);
+            });
+
+            debug("Preparing for manual configurations...");
+            config.callback = apply_shared_configuration;
+            config.context = (void*)&thread_config;
+
+            debug("Testing a minimal configuration (1 x 1500B)...");
+            with_log_level(UDIPE_LOG_TRACE, {
+                thread_config = (udipe_thread_allocator_config_t){
+                    .buffer_size = 1500,
+                    .buffer_count = 1
+                };
+                allocator = allocator_initialize(config, topology);
+                check_and_finalize(allocator,
+                                   thread_config,
+                                   page_size);
+            });
+
+            debug("Testing a bigger configuration (MAX x 9216B)...");
+            with_log_level(UDIPE_LOG_TRACE, {
+                thread_config = (udipe_thread_allocator_config_t){
+                    .buffer_size = 9216,
+                    .buffer_count = UDIPE_MAX_BUFFERS
+                };
+                allocator = allocator_initialize(config, topology);
+                check_and_finalize(allocator,
+                                   thread_config,
+                                   page_size);
+            });
+        });
     }
 
 #endif
