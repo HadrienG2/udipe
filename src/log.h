@@ -184,8 +184,8 @@ static inline bool log_enabled(udipe_log_level_t level);
 #define trace_expr(expr)  \
     do {  \
         tracef("At %s:%u.\n"  \
-               "Evaluating " #expr "...",   \
-               __FILE__, __LINE__);  \
+               "Evaluating %s...",   \
+               __FILE__, __LINE__, #expr);  \
         tracef(format_for(expr), expr);  \
     } while(false)
 

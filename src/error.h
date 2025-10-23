@@ -76,9 +76,9 @@ void warn_on_errno();
     do {  \
         if (!(assertion)) {  \
             errorf("ensure() failed at %s:%u.\n"  \
-                   "Expected " #assertion "\n"  \
+                   "Expected %s\n"  \
                    "...but that is false!",  \
-                   __FILE__, __LINE__);  \
+                   __FILE__, __LINE__, #assertion);  \
             exit(EXIT_FAILURE);  \
         }  \
     } while(false)
@@ -183,12 +183,12 @@ void ensure_comparison_failure(const char* format_template,
         if (!(udipe_x op udipe_y)) {  \
             ensure_comparison_failure(  \
                 "ensure_" op_name "() failed at %%s:%%u.\n"  \
-                "Expected " #x " " #op " " #y "\n"  \
-                "      => %s " #op " %s\n"  \
+                "Expected %%s %%s %%s\n"  \
+                "      => %s %%4$s %s\n"  \
                 "...but that is false!",  \
                 format_for(udipe_x),  \
                 format_for(udipe_y),  \
-                __FILE__, __LINE__, udipe_x, udipe_y  \
+                __FILE__, __LINE__, #x, #op, #y, udipe_x, udipe_y  \
             );  \
         }  \
     } while(false)
