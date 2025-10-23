@@ -21,7 +21,8 @@
 //!   the compiler's optimizer can see the multiplication.
 //! - All bitmap operations are inline functions, allowing the compiler to
 //!   exploit this granularity for optimization when it is present, along with
-//!   other useful compile-time information
+//!   other useful compile-time information like e.g. the precise bit value that
+//!   you are setting or searching.
 
 #include <assert.h>
 #include <stdbool.h>
@@ -79,6 +80,8 @@ static inline size_t count_trailing_zeros(word_t word) {
 }
 
 /// Count the number of bits that are set to 1 in a bitmap word
+///
+/// \returns the word's population count aka Hamming weight
 static inline size_t population_count(word_t word) {
     return __builtin_popcountll(word);
 }
@@ -104,7 +107,9 @@ static inline size_t population_count(word_t word) {
 ///                 should be a compile-time constant, otherwise this macro will
 ///                 generate a Variable Lenght Array (VLA), which can fail in
 ///                 some circumstances and will have a negative effect on
-///                 compiler optimizations in any case.
+///                 compiler optimizations in any case. And it must be a
+///                 side-effects free expression that tolerates multiple
+///                 evaluations.
 #define INLINE_BITMAP(name, capacity)  word_t name[BITMAP_WORDS(capacity)]
 
 /// \}
@@ -131,6 +136,8 @@ typedef struct bit_pos_s {
 ///
 /// This is typically used when using the result of a bitmap search to inform
 /// lookup into some associated array of resources.
+///
+/// \param bit must be a valid bit location
 static inline size_t bit_pos_to_index(bit_pos_t bit) {
     assert(bit.word != SIZE_MAX);
     assert(bit.offset < BITS_PER_WORD);
@@ -141,6 +148,8 @@ static inline size_t bit_pos_to_index(bit_pos_t bit) {
 ///
 /// This is typically used when mapping an entry of an array of resource into
 /// the associated entry within a bitmap.
+///
+/// \param index must be a valid linear index
 static inline bit_pos_t index_to_bit_pos(size_t index) {
     assert(index != SIZE_MAX);
     return (bit_pos_t) {
@@ -162,7 +171,7 @@ static inline bit_pos_t index_to_bit_pos(size_t index) {
 ///
 /// This marks the end of a bitmap in commands that accept a bit location range
 /// like bitmap_range_alleq(), as a right-exclusive bound, much like typical C
-/// loops over arrays are controlled by a `i < capacity` condition.
+/// loops over arrays are controlled by an `i < capacity` condition.
 ///
 /// See also \ref BITMAP_START.
 static inline bit_pos_t bitmap_end(size_t capacity) {
@@ -408,7 +417,7 @@ static inline void bitmap_range_set(word_t bitmap[],
 /// \param capacity must be the bit storage capacity of `bitmap`.
 /// \param value is the bit value that will be searched within the bitmap.
 /// \returns The position of the first bit that has the desired value, or
-///          NO_BIT_POS to indicate absence of the desired value.
+///          \ref NO_BIT_POS to indicate absence of the desired value.
 static inline bit_pos_t bitmap_find_first(word_t bitmap[],
                                           size_t capacity,
                                           bool value) {
@@ -464,9 +473,9 @@ static inline bit_pos_t bitmap_find_first(word_t bitmap[],
 ///        search does wrap around, then it will terminate unsuccessfully when
 ///        `previous` is reached again.
 /// \param value is the bit value that will be searched within the bitmap.
-/// \returns The position of the first bit after `previous` + possible wrap
-///          around that has the desired value, or NO_BIT_POS to indicate
-///          absence of the desired value.
+/// \returns The position of the first bit after `previous` (including possible
+///          search wraparound) that has the desired value, or \ref NO_BIT_POS
+///          to indicate absence of the desired value.
 static inline bit_pos_t bitmap_find_next(word_t bitmap[],
                                          size_t capacity,
                                          bit_pos_t previous,

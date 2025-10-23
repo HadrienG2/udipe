@@ -223,6 +223,8 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// @{
 
 /// Internal helper to validate logging call correctness in `Debug` builds
+///
+/// Does nothing in `Release` builds.
 #ifndef NDEBUG
     void validate_log(udipe_log_level_t level);
 #else

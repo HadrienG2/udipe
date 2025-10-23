@@ -91,7 +91,7 @@ udipe_context_t* udipe_initialize(udipe_config_t config);
 ///
 /// This function cancels all unfinished `libudipe` transactions, waits for
 /// uninterruptible asynchronous work to complete, and liberates the resources
-/// formerly allocated by `udipe_initialize()`.
+/// formerly allocated by udipe_initialize().
 ///
 /// Although udipe_finalize() may take a short amount of time to complete, its
 /// pointer invalidation effect should be considered instantaneous: starting

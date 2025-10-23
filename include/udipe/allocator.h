@@ -16,8 +16,8 @@
 /// of buffers will fail.
 ///
 /// If automatic configuration logic determines that the optimal amount of
-/// buffers is above this limit, then it will log a warning and proceed with
-/// UDIPE_MAX_BUFFERS buffers instead.
+/// buffers is above this limit, then it will log a warning and stick with
+/// `UDIPE_MAX_BUFFERS` buffers.
 #define UDIPE_MAX_BUFFERS ((size_t)64)
 
 
@@ -49,7 +49,7 @@ typedef struct udipe_thread_allocator_config_s {
     ///
     /// This indirectly controls the number of concurrent I/O requests that a
     /// worker thread can start before being forced to wait for pending requests
-    /// to complete. It cannot be larger than MAX_BUFFERS.
+    /// to complete. It cannot be larger than \ref UDIPE_MAX_BUFFERS.
     ///
     /// A value of 0 requests the default buffer count, which is adjusted such
     /// that there is at least one buffer and the buffers collectively fit...

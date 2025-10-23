@@ -56,15 +56,15 @@ typedef struct allocator_s {
     /// Configuration of this allocator
     ///
     /// This contains the final configuration after replacing placeholder zeroes
-    /// with default values and rounding up to the next multiple of the system's
-    /// page size.
+    /// with default values and rounding up the buffer size to the next multiple
+    /// of the system's page size.
     udipe_thread_allocator_config_t config;
 
     /// Bitmap of buffer availability within the memory pool
     ///
     /// The N-th bit within this bitmap tracks whether the N-th buffer (where N
     /// is between 0 and \link #udipe_thread_allocator_config_t::buffer_count
-    /// config.buffer_count \endlink) is currently available for use.
+    /// config.buffer_count\endlink) is currently available for use.
     ///
     /// A set bit means that a buffer is available for use, a cleared bit means
     /// that it is currently allocated.
@@ -110,7 +110,7 @@ void allocator_finalize(allocator_t allocator);
 ///                  through allocator_finalize() yet.
 /// \param buffer points to a buffer that has previously been allocated from
 ///               `allocator` using allocate() and hasn't been destroyed through
-///               liberate().
+///               liberate() yet.
 UDIPE_NON_NULL_ARGS
 void liberate(allocator_t* allocator, void* buffer);
 
@@ -160,7 +160,7 @@ void liberate(allocator_t* allocator, void* buffer);
 ///                  through allocator_finalize() yet.
 /// \returns points to a buffer of size \link
 ///          #udipe_thread_allocator_config_t::buffer_size
-///          allocator->config.buffer_size \endlink, or `NULL` if no buffer is
+///          allocator->config.buffer_size\endlink, or `NULL` if no buffer is
 ///          presently available for use.
 UDIPE_NON_NULL_ARGS
 ALLOCATE_ATTRIBUTES
