@@ -169,7 +169,8 @@ typedef struct command_queue_s {
     /// Ring buffer that holds commands destined for worker thread processing
     ///
     /// The first control block indicates which entries from this array can be
-    /// read, and in which order they should be read.
+    /// read by the worker thread, in which order they should be read, and where
+    /// the client thread can safely write new entries.
     command_type_t commands[COMMAND_QUEUE_LEN];
 } command_queue_t;
 
