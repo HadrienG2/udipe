@@ -196,27 +196,27 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
 
     debug("Initializing the availability bitmap...");
     const bit_pos_t buffers_end = index_to_bit_pos(allocator.config.buffer_count);
-    bitmap_fill(allocator.buffer_availability,
-                UDIPE_MAX_BUFFERS,
-                BITMAP_START,
-                buffers_end,
-                true);
-    bitmap_fill(allocator.buffer_availability,
-                UDIPE_MAX_BUFFERS,
-                buffers_end,
-                bitmap_end(UDIPE_MAX_BUFFERS),
-                false);
+    bitmap_range_set(allocator.buffer_availability,
+                     UDIPE_MAX_BUFFERS,
+                     BITMAP_START,
+                     buffers_end,
+                     true);
+    bitmap_range_set(allocator.buffer_availability,
+                     UDIPE_MAX_BUFFERS,
+                     buffers_end,
+                     bitmap_end(UDIPE_MAX_BUFFERS),
+                     false);
     return allocator;
 }
 
 
 void allocator_finalize(allocator_t allocator) {
     assert(
-        bitmap_all(allocator.buffer_availability,
-                   UDIPE_MAX_BUFFERS,
-                   BITMAP_START,
-                   index_to_bit_pos(allocator.config.buffer_count),
-                   true)
+        bitmap_range_alleq(allocator.buffer_availability,
+                           UDIPE_MAX_BUFFERS,
+                           BITMAP_START,
+                           index_to_bit_pos(allocator.config.buffer_count),
+                           true)
     );
     munmap(allocator.memory_pool, allocator.config.buffer_size * allocator.config.buffer_count);
 }
@@ -252,11 +252,11 @@ void allocator_finalize(allocator_t allocator) {
 
         debug("Checking initial buffer availability...");
         ensure(
-            bitmap_all(allocator.buffer_availability,
-                       UDIPE_MAX_BUFFERS,
-                       BITMAP_START,
-                       index_to_bit_pos(allocator.config.buffer_count),
-                       true)
+            bitmap_range_alleq(allocator.buffer_availability,
+                               UDIPE_MAX_BUFFERS,
+                               BITMAP_START,
+                               index_to_bit_pos(allocator.config.buffer_count),
+                               true)
         );
 
         // TODO: Exercise more operations as they get implemented

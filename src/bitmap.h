@@ -147,7 +147,8 @@ static inline bit_pos_t index_to_bit_pos(size_t index) {
 /// First bit location inside of a bitmap
 ///
 /// This marks the start of a bitmap in commands that accept a bit location
-/// range like bitmap_all(), much like index 0 marks the start of a C array.
+/// range like bitmap_range_alleq(), as a left-inclusive bound, much like index
+/// 0 designates the start of a C array.
 ///
 /// See also bitmap_end().
 #define BITMAP_START ((bit_pos_t) { .word = 0, .offset = 0 })
@@ -155,8 +156,8 @@ static inline bit_pos_t index_to_bit_pos(size_t index) {
 /// First invalid bit location after the end of a bitmap of length `capacity`
 ///
 /// This marks the end of a bitmap in commands that accept a bit location range
-/// like bitmap_all(), much like loops ovec C arrays are typically structured
-/// in a `for (size_t i = 0; i < capacity; ++i)` manner.
+/// like bitmap_range_alleq(), as a right-exclusive bound, much like typical C
+/// loops over arrays are controlled by a `i < capacity` condition.
 ///
 /// See also \ref BITMAP_START.
 static inline bit_pos_t bitmap_end(size_t capacity) {
@@ -205,13 +206,13 @@ static inline void bitmap_set(word_t bitmap[],
     }
 }
 
-/// Truth that a region of a bitmap is filled with a uniform bit pattern
+/// Truth that a region of a bitmap contains only a certain value
 ///
 /// Check if all entries within `bitmap` from bit `start` (included) to bit
 /// `end` (excluded) are equal to `value`.
 ///
 /// If you want to check if the entire bitmap is equal to `value`, use
-/// `bitmap_all(bitmap, capacity, BITMAP_START, bitmap_end(capacity), value)`.
+/// `bitmap_range_alleq(bitmap, capacity, BITMAP_START, bitmap_end(capacity), value)`.
 ///
 /// \param bitmap must be a valid bitmap of capacity `capacity`.
 /// \param capacity must be the bit storage capacity of `bitmap`.
@@ -226,11 +227,11 @@ static inline void bitmap_set(word_t bitmap[],
 /// \param value is the bit value that is expected.
 ///
 /// \returns the truth that all bits in range `[start; end[` are set to `value`.
-static inline bool bitmap_all(const word_t bitmap[],
-                              size_t capacity,
-                              bit_pos_t start,
-                              bit_pos_t end,
-                              bool value) {
+static inline bool bitmap_range_alleq(const word_t bitmap[],
+                                      size_t capacity,
+                                      bit_pos_t start,
+                                      bit_pos_t end,
+                                      bool value) {
     assert(bit_pos_to_index(start) < capacity
            || (start.word == end.word && start.offset == end.offset));
     assert(bit_pos_to_index(end) <= capacity);
@@ -267,7 +268,8 @@ static inline bool bitmap_all(const word_t bitmap[],
 /// `end` (excluded) to `value`.
 ///
 /// If you want to set the entire bitmap to `value`, use
-/// `bitmap_fill(bitmap, capacity, BITMAP_START, bitmap_end(capacity), value)`.
+/// `bitmap_range_set(bitmap, capacity, BITMAP_START, bitmap_end(capacity),
+/// value)`.
 ///
 /// \param bitmap must be a valid bitmap of capacity `capacity`
 /// \param capacity must be the bit storage capacity of `bitmap`
@@ -280,11 +282,11 @@ static inline bool bitmap_all(const word_t bitmap[],
 ///            Use \link #bitmap_end `bitmap_end(capacity)` \endlink if you
 ///            want to cover every bit until the end of the bitmap.
 /// \param value is the bit value that will be set.
-static inline void bitmap_fill(word_t bitmap[],
-                               size_t capacity,
-                               bit_pos_t start,
-                               bit_pos_t end,
-                               bool value) {
+static inline void bitmap_range_set(word_t bitmap[],
+                                    size_t capacity,
+                                    bit_pos_t start,
+                                    bit_pos_t end,
+                                    bool value) {
     assert(bit_pos_to_index(start) < capacity
            || (start.word == end.word && start.offset == end.offset));
     assert(bit_pos_to_index(end) <= capacity);

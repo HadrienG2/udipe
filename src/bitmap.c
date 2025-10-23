@@ -20,19 +20,23 @@
                                         size_t capacity,
                                         bool value) {
         tracef("Filling bitmap with %us...", value);
-        bitmap_fill(bitmap, capacity, BITMAP_START, bitmap_end(capacity), value);
+        bitmap_range_set(bitmap,
+                         capacity,
+                         BITMAP_START,
+                         bitmap_end(capacity),
+                         value);
 
-        trace("Checking result of bitmap_all()...");
-        ensure(bitmap_all(bitmap,
-                          capacity,
-                          BITMAP_START,
-                          bitmap_end(capacity),
-                          value));
-        ensure((!bitmap_all(bitmap,
-                            capacity,
-                            BITMAP_START,
-                            bitmap_end(capacity),
-                            !value))
+        trace("Checking result of bitmap_range_alleq()...");
+        ensure(bitmap_range_alleq(bitmap,
+                                  capacity,
+                                  BITMAP_START,
+                                  bitmap_end(capacity),
+                                  value));
+        ensure((!bitmap_range_alleq(bitmap,
+                                    capacity,
+                                    BITMAP_START,
+                                    bitmap_end(capacity),
+                                    !value))
                || (capacity == 0));
 
         trace("Checking results of bitmap_get()...");
@@ -125,15 +129,15 @@
         }
     }
 
-    /// Sub-test of test_bitmap_with_hole() that exercises bitmap_all()
-    static void check_bitmap_all_with_hole(word_t bitmap[],
-                                           size_t capacity,
-                                           size_t hole_start,
-                                           size_t hole_end,
-                                           bool main_value) {
+    /// Sub-test of test_bitmap_with_hole() that exercises bitmap_range_alleq()
+    static void check_bitmap_range_alleq_with_hole(word_t bitmap[],
+                                                   size_t capacity,
+                                                   size_t hole_start,
+                                                   size_t hole_end,
+                                                   bool main_value) {
         const bool hole_value = !main_value;
         #define all(start, end, value)  \
-            bitmap_all(bitmap, capacity, (start), (end), (value))
+            bitmap_range_alleq(bitmap, capacity, (start), (end), (value))
         // Before hole
         ensure(all(BITMAP_START,
                    index_to_bit_pos(hole_start),
@@ -245,16 +249,16 @@
         tracef("Using main value %u and hole value %u.", main_value, hole_value);
 
         trace("Filling the bitmap with the specified pattern...");
-        bitmap_fill(bitmap,
-                    capacity,
-                    BITMAP_START,
-                    bitmap_end(capacity),
-                    main_value);
-        bitmap_fill(bitmap,
-                    capacity,
-                    index_to_bit_pos(hole_start),
-                    index_to_bit_pos(hole_end),
-                    hole_value);
+        bitmap_range_set(bitmap,
+                         capacity,
+                         BITMAP_START,
+                         bitmap_end(capacity),
+                         main_value);
+        bitmap_range_set(bitmap,
+                         capacity,
+                         index_to_bit_pos(hole_start),
+                         index_to_bit_pos(hole_end),
+                         hole_value);
 
         trace("Checking the value of each bit individually...");
         for (size_t idx = 0; idx < capacity; ++idx) {
@@ -267,11 +271,11 @@
         }
 
         trace("Checking the value of bits collectively...");
-        check_bitmap_all_with_hole(bitmap,
-                                   capacity,
-                                   hole_start,
-                                   hole_end,
-                                   main_value);
+        check_bitmap_range_alleq_with_hole(bitmap,
+                                           capacity,
+                                           hole_start,
+                                           hole_end,
+                                           main_value);
 
         // TODO: Test bitmap_find_first and bitmap_find_next
     }
