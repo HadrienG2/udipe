@@ -43,13 +43,11 @@ static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
     }
 }
 
-
 /// Truth that stderr is connected to a TTY
 ///
 /// Set upon default_log_callback() initialization. Used to decide whether
 /// stderr logs should use ANSI color highlighting.
 static atomic_bool stderr_is_tty;
-
 
 /// Default log callback
 ///
@@ -115,11 +113,9 @@ static void default_log_callback(void* /* context */,
     }
 }
 
-
 UDIPE_PUBLIC const char* udipe_log_level_name(udipe_log_level_t level) {
     return log_level_name(level, true);
 }
-
 
 logger_t log_initialize(udipe_log_config_t config) {
     // Select and configure log level
@@ -159,7 +155,6 @@ logger_t log_initialize(udipe_log_config_t config) {
     return config;
 }
 
-
 LOGF_IMPL_ATTRIBUTES
 void logf_impl(udipe_log_level_t level,
                const char* location,
@@ -194,9 +189,9 @@ void logf_impl(udipe_log_level_t level,
                                     message);
 }
 
-
 thread_local const logger_t* udipe_thread_logger = NULL;
 
+thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_LOG_INFO;
 
 #ifndef NDEBUG
     void validate_log(udipe_log_level_t level) {

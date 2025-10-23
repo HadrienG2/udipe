@@ -79,7 +79,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// system calls and third-party C libraries.
 #define log(level, message)  \
     do {  \
-        const udipe_log_level_t udipe_level = (level);  \
+        const udipe_log_level_t udipe_level = thread_log_level(level);  \
         if (log_enabled(udipe_level)) {  \
             (udipe_thread_logger->callback)(udipe_thread_logger->context,  \
                                             udipe_level,  \
@@ -134,7 +134,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// debugf() and tracef() for level-specific formatted logging macros.
 #define logf(level, format, ...)  \
     do {  \
-        const udipe_log_level_t udipe_level = (level);  \
+        const udipe_log_level_t udipe_level = thread_log_level(level);  \
         if (log_enabled(udipe_level)) {  \
             logf_impl(udipe_level,  \
                       __func__,  \
@@ -174,7 +174,8 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// \name Expression logging
 /// \{
 
-/// Log an expression and its value at TRACE level, along with the code location.
+/// Log an expression and its value at \link #UDIPE_LOG_TRACE `TRACE` \endlink
+/// level, along with the associated code location.
 ///
 /// This macro is only meant for debugging purpose and should not remain
 /// around in production code.
@@ -198,7 +199,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// Set up logging within a certain code scope
 ///
 /// Call as `with_logger(&logger, { ... })` to be able to use log() and related
-/// macros inside of the ... inner code scope.
+/// macros inside of the `{ ... }` inner code scope.
 ///
 /// This macro must be called at the start of every public `libudipe` entry
 /// point and early on inside the main function of every udipe worker thread.
@@ -213,6 +214,39 @@ static inline bool log_enabled(udipe_log_level_t level);
                         = udipe_thread_logger;  \
         udipe_thread_logger = (logger_ptr);  \
         trace("Start of a with_logger() scope.");  \
+        do __VA_ARGS__ while(false);  \
+    } while(false)
+
+/// Set up the thread-local relative log level
+///
+/// Call as `with_log_level(level, { ... })` to adjust how the \link
+/// #UDIPE_LOG_INFO `INFO`\endlink and \link #UDIPE_LOG_DEBUG `DEBUG`\endlink
+/// log levels are interpreted inside of the `{ ... }` inner code scope.
+///
+/// - If this is set to `DEBUG`, then the `INFO` log level is treated as
+///   `DEBUG` and the `DEBUG` log level is treated as `TRACE`.
+/// - If this is set to `TRACE`, then the `INFO` and `DEBUG` log levels are
+///   treated as `TRACE`.
+///
+/// Setting the relative log level to any other value is forbidden, and this
+/// functionality has no effect on the `ERROR`, `WARNING` and `TRACE` log
+/// levels.
+///
+/// This functionality is needed in situations where a particular function is
+/// called at several different layers of abstraction, and what qualifies as
+/// `INFO` logging in one situation qualities as `DEBUG` or `TRACE` logging in
+/// another situation. This most frequently comes up in unit tests.
+///
+/// \param level must be set to \ref UDIPE_LOG_DEBUG or \ref UDIPE_LOG_TRACE.
+#define with_log_level(level, ...)  \
+    do {  \
+        const udipe_log_level_t udipe_prev_log_level  \
+            __attribute__((__cleanup__(restore_thread_log_level)))  \
+                = udipe_thread_log_level;  \
+        udipe_thread_log_level = (level);  \
+        assert(udipe_thread_log_level == UDIPE_LOG_DEBUG  \
+               || udipe_thread_log_level == UDIPE_LOG_TRACE);  \
+        trace("Start of a with_log_level() scope.");  \
         do __VA_ARGS__ while(false);  \
     } while(false)
 
@@ -248,14 +282,49 @@ void logf_impl(udipe_log_level_t level,
                const char* format,
                ...);
 
+/// Thread-local log level
+///
+/// This thread-local variable is used by with_log_level() in order to locally
+/// override the log level of some logging statements.
+extern thread_local udipe_log_level_t udipe_thread_log_level;
+
 /// Thread-local logger (implementation detail of with_logger())
 ///
 /// This thread-local variable is used by with_logger() in order to locally
-/// enable a lightweight log syntax. It should not be used by any code other
-/// than the log() and with_logger() macro.
+/// enable a lightweight log syntax.
 extern thread_local const logger_t* udipe_thread_logger;
 
-/// Restore `udipe_thread_logger` (implementation detail of with_logger())
+/// Reinterprete the specified log level according to surrounding
+/// with_log_level() scopes
+static inline udipe_log_level_t thread_log_level(udipe_log_level_t level) {
+    validate_log(level);
+    switch (level) {
+    case UDIPE_LOG_DEBUG:
+        return (udipe_thread_log_level == UDIPE_LOG_TRACE) ? UDIPE_LOG_TRACE : UDIPE_LOG_DEBUG;
+    case UDIPE_LOG_INFO:
+        switch (udipe_thread_log_level) {
+        case UDIPE_LOG_TRACE:
+            return UDIPE_LOG_TRACE;
+        case UDIPE_LOG_DEBUG:
+            return UDIPE_LOG_DEBUG;
+        default:
+            return UDIPE_LOG_INFO;
+        }
+    default:
+        return level;
+    }
+}
+
+/// Restore `udipe_log_level` (implementation detail of with_log_level())
+///
+/// This helper function enables with_log_level() to clean up after itself
+/// through the GNU `__cleanup__` attribute.
+static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_level) {
+    trace("End of a with_log_level() scope.");
+    udipe_thread_log_level = *prev_log_level;
+}
+
+/// Restore `udipe_thread_logger`
 ///
 /// This helper function enables with_logger() to clean up after itself through
 /// the GNU `__cleanup__` attribute.
