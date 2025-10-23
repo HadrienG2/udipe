@@ -39,6 +39,22 @@
         }
     }
 
+    /// Sub-test of test_bitmap_with_hole() that exercises bitmap_count()
+    static void check_bitmap_count(word_t bitmap[],
+                                   size_t capacity,
+                                   size_t hole_start,
+                                   size_t hole_end,
+                                   bool main_value) {
+        const bool hole_value = !main_value;
+        const size_t num_holes = hole_end > hole_start
+                               ? hole_end - hole_start
+                               : 0;
+        ensure_eq(bitmap_count(bitmap, capacity, main_value),
+                  capacity - num_holes);
+        ensure_eq(bitmap_count(bitmap, capacity, hole_value),
+                  num_holes);
+    }
+
     /// Sub-test of test_bitmap_with_hole() that exercises bitmap_range_alleq()
     static void check_bitmap_range_alleq(word_t bitmap[],
                                          size_t capacity,
@@ -356,6 +372,13 @@
                          hole_start,
                          hole_end,
                          main_value);
+
+        trace("Testing bitmap_count()...");
+        check_bitmap_count(bitmap,
+                           capacity,
+                           hole_start,
+                           hole_end,
+                           main_value);
 
         trace("Testing bitmap_range_alleq()...");
         check_bitmap_range_alleq(bitmap,

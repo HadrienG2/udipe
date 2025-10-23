@@ -71,11 +71,18 @@ static inline word_t bit_broadcast(bool value) {
     return value ? WORD_MAX : 0;
 }
 
-/// Count the number of trailing zeros in a word of the bitmap
+/// Count the number of trailing zeros in a bitmap word
 ///
 /// \param word must not be zero
 static inline size_t count_trailing_zeros(word_t word) {
     return __builtin_ctzll(word);
+}
+
+/// Count the number of bits that are set to 1 in a bitmap word
+///
+/// \param word must not be zero
+static inline size_t population_count(word_t word) {
+    return __builtin_popcountll(word);
 }
 
 /// \}
@@ -203,6 +210,37 @@ static inline void bitmap_set(word_t bitmap[],
     } else {
         bitmap[bit.word] &= ~((word_t)1 << bit.offset);
     }
+}
+
+/// Count the number of bits within a bitmap that are set to some value
+///
+/// \param bitmap must be a valid bitmap of capacity `capacity`
+/// \param capacity must be the bit storage capacity of `bitmap`
+/// \param value is the value whose occurences will be counted
+static inline size_t bitmap_count(word_t bitmap[],
+                                  size_t capacity,
+                                  bool value) {
+    const size_t num_full_words = capacity / BITS_PER_WORD;
+    const size_t remaining_bits = capacity % BITS_PER_WORD;
+
+    // For full words, we normalize into the problem of looking for bits that
+    // are set to one, then invoke the popcount intrinsic.
+    size_t result = 0;
+    for (size_t word = 0; word < num_full_words; ++word) {
+        word_t target = bitmap[word];
+        if (!value) target = ~target;
+        result += population_count(target);
+    }
+
+    // If there is a trailing partial word, the logic is the same except we
+    // mask out the uninitialized leading bits after normalization.
+    if (remaining_bits > 0) {
+        word_t target = bitmap[num_full_words];
+        if (!value) target = ~target;
+        target &= ((word_t)1 << remaining_bits) - 1;
+        result += population_count(target);
+    }
+    return result;
 }
 
 /// Truth that a region of a bitmap contains only a certain value
