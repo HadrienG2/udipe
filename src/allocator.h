@@ -9,10 +9,10 @@
 #include <udipe/allocator.h>
 #include <udipe/pointer.h>
 
+#include "arch.h"
 #include "bitmap.h"
 
 #include <hwloc.h>
-#include <stddef.h>
 
 
 /// Memory allocator
@@ -111,24 +111,6 @@ void allocator_finalize(allocator_t allocator);
 UDIPE_NON_NULL_ARGS
 void liberate(allocator_t* allocator, void* buffer);
 
-#ifdef __x86_64__
-    /// Minimum page alignment
-    ///
-    /// This is used to improve compiler optimizations around allocate().
-    #define MIN_PAGE_ALIGNMENT 4096
-#else
-    /// Minimum page alignment
-    ///
-    /// Unfortunately, on this particular hardware architecture we do not know,
-    /// so we stick with the minimum alignment guaranteed by malloc() i.e. large
-    /// enough to align any standard type.
-    ///
-    /// But if you are reading this on doxygen, note that it may be an artifact
-    /// of doxygen's parser not setting the hardware architecture preprocessor
-    /// defines that normal compilers do set.
-    #define MIN_PAGE_ALIGNMENT alignof(max_align_t)
-#endif
-
 /// GNU attributes of the allocate() functions
 ///
 /// These attributes are used to let the compiler know that allocate() is a
@@ -136,7 +118,7 @@ void liberate(allocator_t* allocator, void* buffer);
 /// requirements, in order to enjoy higher-quality performance optimization and
 /// static analysis. None of these attributes is mandatory for correctness.
 #define ALLOCATE_ATTRIBUTES  \
-    __attribute__((assume_aligned(MIN_PAGE_ALIGNMENT)  \
+    __attribute__((assume_aligned(LOWEST_PAGE_ALIGNMENT)  \
                  , malloc  \
                  , malloc(liberate, 2)  \
                  , warn_unused_result))
