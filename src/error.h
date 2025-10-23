@@ -173,8 +173,7 @@ void ensure_comparison_failure(const char* format_template,
 ///     formatting pass, but become valid format specifiers afterwards.
 /// - Generate an error message based on this format string.
 ///   * This step is needed because the errorf() macro does not have a
-///     `verrorf()` variant that takes a `va_list`. And since this macro is the
-///     only use case for it that came up so far, it did not feel worth adding.
+///     `verrorf()` variant that takes a `va_list`.
 /// - Log this error message then die with `exit(EXIT_FAILURE)`.
 #define ensure_comparison(op_name, x, op, y)  \
     do {  \

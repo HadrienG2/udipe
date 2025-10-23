@@ -177,17 +177,38 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// Log an expression and its value at \link #UDIPE_LOG_TRACE `TRACE` \endlink
 /// level, along with the associated code location.
 ///
-/// This macro is only meant for debugging purpose and should not remain
-/// around in production code.
-//
-// TODO: Make this work with a single log statement using the same tricks as
-//       ensure_comparison().
+/// This macro is only meant for debugging purpose and should not appear
+/// anywhere in production code.
+///
+/// It must be called within the scope of with_logger().
+///
+/// \internal
+///
+/// If you are trying to understand the implementation of this macro, then you
+/// need to know that in order to produce an appropriate format string for
+/// operand `expr`, which may be of nearly any type, there is quite a lot to do:
+///
+/// - First we use format_for() to determine an appropriate format specifier for
+///   input expressions `expr`.
+/// - Then we generate a format string that uses these format specifiers.
+///   * This is needed because the output of format_for() cannot be concatenated
+///     with the rest of the format string at compile time.
+///   * It means that arguments other than the format specifiers must be escaped
+///     with a double percent sign so that they are not used during this first
+///     formatting pass, but become valid format specifiers afterwards.
+/// - Generate an error message based on this format string.
+///   * This step is needed because the tracef() macro does not have a
+///     `vtracef()` variant that takes a `va_list`.
+/// - Log this error message at trace() level.
 #define trace_expr(expr)  \
     do {  \
-        tracef("At %s:%u.\n"  \
-               "Evaluating %s...",   \
-               __FILE__, __LINE__, #expr);  \
-        tracef(format_for(expr), expr);  \
+        if (log_enabled(UDIPE_LOG_TRACE)) {  \
+            trace_expr_impl("At %%s:%%u.\n"  \
+                            "Evaluated %%s\n"  \
+                            "       => %s",   \
+                            format_for(expr),  \
+                            __FILE__, __LINE__, #expr, expr);  \
+        }  \
     } while(false)
 
 /// \}
@@ -332,6 +353,17 @@ static inline void restore_thread_logger(const logger_t** prev_logger) {
     trace("End of a with_logger() scope.");
     udipe_thread_logger = *prev_logger;
 }
+
+/// Implementation of trace_expr()
+///
+/// This is an implementation detail of trace_expr() that you should not call
+/// directly.
+///
+/// See the internal section of the trace_expr() documentation for more
+/// information about what it does.
+void trace_expr_impl(const char* format_template,
+                     const char* expr_format,
+                     ...);
 
 /// @}
 

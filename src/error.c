@@ -80,7 +80,6 @@ void warn_on_errno() {
     errno = 0;
 }
 
-
 void ensure_comparison_failure(const char* format_template,
                                const char* x_format,
                                const char* y_format,
