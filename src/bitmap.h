@@ -271,8 +271,8 @@ static inline bool bitmap_range_alleq(const word_t bitmap[],
 /// `bitmap_range_set(bitmap, capacity, BITMAP_START, bitmap_end(capacity),
 /// value)`.
 ///
-/// \param bitmap must be a valid bitmap of capacity `capacity`
-/// \param capacity must be the bit storage capacity of `bitmap`
+/// \param bitmap must be a valid bitmap of capacity `capacity`.
+/// \param capacity must be the bit storage capacity of `bitmap`.
 /// \param start designates the first bit to be set, which must be in range
 ///              for this bitmap unless `start == end`. Use \ref BITMAP_START if
 ///              you want to cover every bit from the start of the bitmap.
@@ -369,9 +369,9 @@ static inline void bitmap_range_set(word_t bitmap[],
 
 /// Find the first bit that has a certain value within a bitmap
 ///
-/// \param bitmap must be a valid bitmap of capacity `capacity`
-/// \param capacity must be the bit storage capacity of `bitmap`
-/// \param value is the bit value that will be searched within the bitmap
+/// \param bitmap must be a valid bitmap of capacity `capacity`.
+/// \param capacity must be the bit storage capacity of `bitmap`.
+/// \param value is the bit value that will be searched within the bitmap.
 /// \returns The position of the first bit that has the desired value, or
 ///          NO_BIT_POS to indicate absence of the desired value.
 static inline bit_pos_t bitmap_find_first(word_t bitmap[],
@@ -419,23 +419,24 @@ static inline bit_pos_t bitmap_find_first(word_t bitmap[],
 /// returned by bitmap_find_first() or a previous call to bitmap_find_next(),
 /// and returns the location of the next value of interest within the bitmap.
 ///
-/// \param bitmap must be a valid bitmap of capacity `capacity`
-/// \param capacity must be the bit storage capacity of `bitmap`
-/// \param value is the bit value that will be searched within the bitmap
+/// \param bitmap must be a valid bitmap of capacity `capacity`.
+/// \param capacity must be the bit storage capacity of `bitmap`.
 /// \param previous must be a valid bit position inside of `bitmap`. The search
-///        will begin at the last bit within the bitmap.
+///        will begin after this bit. It will not include this bit unless
+///        `wraparound` is enabled.
 /// \param wraparound indicates whether the search should wrap around to the
 ///        start of the bitmap if no occurence of `value` is found. If the
 ///        search does wrap around, then it will terminate unsuccessfully when
 ///        `previous` is reached again.
+/// \param value is the bit value that will be searched within the bitmap.
 /// \returns The position of the first bit after `previous` + possible wrap
 ///          around that has the desired value, or NO_BIT_POS to indicate
 ///          absence of the desired value.
 static inline bit_pos_t bitmap_find_next(word_t bitmap[],
                                          size_t capacity,
-                                         bool value,
                                          bit_pos_t previous,
-                                         bool wraparound) {
+                                         bool wraparound,
+                                         bool value) {
     // Check safety invariant in debug build
     assert(bit_pos_to_index(previous) < capacity);
 
