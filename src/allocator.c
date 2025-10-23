@@ -219,7 +219,8 @@ void allocator_finalize(allocator_t allocator) {
                            index_to_bit_pos(allocator.config.buffer_count),
                            true)
     );
-    munmap(allocator.memory_pool, allocator.config.buffer_size * allocator.config.buffer_count);
+    munmap(allocator.memory_pool,
+           allocator.config.buffer_size * allocator.config.buffer_count);
 }
 
 UDIPE_NON_NULL_ARGS
@@ -267,6 +268,7 @@ void* allocate(allocator_t* allocator) {
 
 
 #ifdef UDIPE_BUILD_TESTS
+
     void allocator_unit_tests() {
         info("Running allocator unit tests...");
 
@@ -313,4 +315,5 @@ void* allocate(allocator_t* allocator) {
         debug("Finalizing the allocator...");
         allocator_finalize(allocator);
     }
+
 #endif
