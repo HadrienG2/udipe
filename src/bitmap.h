@@ -79,8 +79,6 @@ static inline size_t count_trailing_zeros(word_t word) {
 }
 
 /// Count the number of bits that are set to 1 in a bitmap word
-///
-/// \param word must not be zero
 static inline size_t population_count(word_t word) {
     return __builtin_popcountll(word);
 }
