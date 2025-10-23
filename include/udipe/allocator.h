@@ -7,6 +7,11 @@
 //! that configures the memory management policy of `libudipe`, along with
 //! related type and constant definitions.
 
+//! \example custom_allocator.c
+//!
+//! This example demonstrates a non-default \ref udipe_allocator_config_t setup
+//! that configures worker threads to work with 42 buffers of 9216 bytes.
+
 #include <stddef.h>
 
 
