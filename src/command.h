@@ -100,7 +100,12 @@ typedef struct command_s {
     ///
     /// The value of `id` indicates which of this union's variants is valid.
     union {
-        udipe_connect_options_t connect;
+        // TODO: This will be heap allocated, but it means I need to define some
+        //       kind of recycling mechanism that lets worker threads give heap
+        //       allocated \ref udipe_connect_options_t structs back to the \ref
+        //       udipe_context_t when done, so that it can reuse them to handle
+        //       future user connection requests.
+        udipe_connect_options_t* connect;
         udipe_disconnect_options_t disconnect;
         udipe_send_options_t send;
         udipe_recv_options_t recv;

@@ -12,11 +12,12 @@
 //! a price to pay, which is that individual commands are rather expensive to
 //! process as they involve inter-thread communication.
 //!
-//! This is why most commands that process a single UDP packet come with a
-//! streaming variant that processes an arbitrarily long stream of UDP packets.
-//! For example, udipe_recv(), which receives a single UDP packet, comes with a
-//! udipe_recv_stream() streaming variant that processes an arbitrary amount of
-//! incoming UDP packets using arbitrary logic defined by a callback.
+//! This is why most commands that process a single UDP datagram come with a
+//! streaming variant that processes an arbitrarily long stream of UDP
+//! datagrams. For example, udipe_recv(), which receives a single UDP datagram,
+//! comes with a udipe_recv_stream() streaming variant that processes an
+//! arbitrary amount of incoming UDP datagrams using arbitrary logic defined by
+//! a callback.
 //!
 //! These callbacks are directly executed by `libudipe` worker threads, which
 //! means that they operate without requiring any inter-thread communication.
@@ -26,8 +27,8 @@
 //!
 //! Finally, all commands come with two associated API entry points, a
 //! synchronous one and an asynchronous one. For example, the udipe_recv() entry
-//! point, which receives a UDP packet, comes with a udipe_start_recv()
-//! asynchronous variant which starts receiving a UDP packet but does not wait
+//! point, which receives a UDP datagram, comes with a udipe_start_recv()
+//! asynchronous variant which starts receiving a UDP datagram but does not wait
 //! for it to be ready before returning. When you use the asynchronous version,
 //! you get a \ref udipe_future_t handle that you can later use to wait for the
 //! operation to complete through the udipe_wait() function.
@@ -42,19 +43,174 @@
 #include "visibility.h"
 
 #include <assert.h>
+#include <netinet/in.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/socket.h>
 
 
 /// \name Options and results of individual commands
 /// \{
+
+/// Communication direction(s)
+///
+/// When you create a \ref udipe_connection_t, you can specify whether you
+/// intend to receive datagrams, send datagrams, or both.
+///
+/// The more restricted configurations that only allow one direction of data
+/// exchange clarify intent and require fewer parameters to be set at
+/// configuration time. They should also enjoy slightly faster connection setup,
+/// though the performance of establishing connections should not matter in
+/// realistic use cases.
+typedef enum udipe_direction_e {
+    /// Can receive datagrams from the remote peer
+    UDIPE_IN = 0,
+
+    /// Can send datagrams to the remote peer
+    UDIPE_OUT,
+
+    /// Can exchange datagrams with the remote peer in either direction
+    UDIPE_INOUT
+} udipe_direction_t;
+
+/// IP address
+///
+/// As a UDP library, `libudipe` only supports IPv4 and IPv6 addresses, i.e.
+/// `sockaddr_in` and `sockaddr_in6` in POSIX parlance. As a special extension,
+/// `sa_family == 0` is interpreted as a user desire to use the default address,
+/// which is defined in the appropriate field of \ref udipe_connect_options_t.
+///
+/// This union does not need to be accompanied by a tag because the `sockaddr`
+/// types features a `sa_family` internal tag that enables IPv4/IPv6/default
+/// disambiguation.
+typedef union ip_address_u {
+    struct sockaddr unknown;  ///< Used to safely query the `sa_family` field
+    struct sockaddr_in v4;  ///< IPv4 address
+    struct sockaddr_in6 v6;  ///< IPv6 address
+} ip_address_t;
+
+/// udipe_connect() parameters
+///
+/// This struct controls the parameters that can be tuned when establishing a
+/// UDP connection.
+///
+/// \internal
+///
+/// Because IPv6 addresses are huge, there is no way this struct will ever fit
+/// in a single cache line. Taking into account that establishing a connection
+/// should be rare, and in the interest of not pessimizing the performance of
+/// other command messages which do fit in one cache line, connection options
+/// will therefore be passed to worker threads via heap-allocated structs.
+typedef struct udipe_connect_options_s {
+    /// Default send timeout in nanoseconds, or 0 = no timeout
+    ///
+    /// The default is for send commands to block forever.
+    uint64_t send_timeout_ns;
+
+    /// Default receive timeout in nanoseconds, or 0 = no timeout
+    ///
+    /// The default is for receive commands to block forever.
+    uint64_t recv_timeout_ns;
+
+    /// Local interface
+    ///
+    /// If set to a non-`NULL` string, this indicates that you only want to send
+    /// and receive traffic from the specified network interface.
+    ///
+    /// This parameter must be consistent with `local_address` (i.e.
+    /// `local_interface` should be able to emit from the address specified in
+    /// `local_address` if it is not a catch-all address) and `remote_address`
+    /// (i.e. `remote_address` should be reachable from `local_interface`),
+    /// otherwise you will not be able to send or receive traffic.
+    ///
+    /// By default, the connection is not bound to any network interface.
+    const char* local_interface;
+
+    /// Local address
+    ///
+    /// This address must be of the same type as `remote_address` i.e. if one is
+    /// an IPv4 address, then the other must be an IPv6 address, and vice versa.
+    ///
+    /// The default configuration sets this to IPv4 address 0.0.0.0 with port 0
+    /// aka a randomly assigned port, unless `remote_address` is an IPv6 address
+    /// in which case the default is IPv6 address `::` with port 0.
+    //
+    // TODO: Provide a way to get that auto-assigned port after connection
+    ///
+    /// This is appropriate if you want to send traffic and do not care which
+    /// NIC and UDP port it goes through, or if you want to receive traffic and
+    /// are ready to communicate the port number to your peer (as is common for
+    /// e.g. local server testing).
+    ip_address_t local_address;
+
+    /// Remote address
+    ///
+    /// This address must be of the same type as `local_address` i.e. if one is
+    /// an IPv4 address, then the other must be an IPv6 address, and vice versa.
+    ///
+    /// The default configuration sets this to IPv4 address 0.0.0.0 with port 0
+    /// aka any port, unless `local_address` is an IPv6 address in which case
+    /// the default is IPv6 address `::` with port 0.
+    ///
+    /// This is always incorrect for sending traffic and must be changed to the
+    /// address of the intended peer. When receiving traffic, it simply means
+    /// that you are accepting traffic from any source address and port.
+    ip_address_t remote_address;
+
+    /// Send buffer size
+    ///
+    /// This cannot be smaller than 1024 or larger than `INT_MAX`. In addition,
+    /// on Linux, non-privileged processes cannot go above the limit configured
+    /// in pseudo file `/proc/sys/net/core/wmem_max`.
+    ///
+    /// By default, the send buffer is configured at the OS' default size, which
+    /// on Linux is itself configured through pseudo-file
+    /// `/proc/sys/net/core/wmem_default` or the equivalent sysctl.
+    //
+    // TODO: Implement by trying SO_SNDBUF then SO_SNDBUFFORCE
+    unsigned send_buffer;
+
+    /// Receive buffer size
+    ///
+    /// This cannot be smaller than 128 or larger than `INT_MAX`. In addition,
+    /// on Linux, non-privileged processes cannot go above the limit configured
+    /// in pseudo file `/proc/sys/net/core/rmem_max`.
+    ///
+    /// By default, the receive buffer is configured at the OS' default size,
+    /// which on Linux is itself configured through pseudo-file
+    /// `/proc/sys/net/core/rmem_default` or the equivalent sysctl.
+    //
+    // TODO: Implement by trying SO_RCVBUF then SO_RCVBUFFORCE
+    unsigned recv_buffer;
+
+    /// Communication direction(s)
+    ///
+    /// You can use this field to specify that you only intend to send or
+    /// receive data. See \ref udipe_direction_t for more information.
+    ///
+    /// By default, the connection is configured to receive traffic only, as
+    /// sending traffic requires a remote address and there is no good default
+    /// for a remote address.
+    udipe_direction_t direction;
+
+    /// Desired traffic priority
+    ///
+    /// Setting a priority higher than zero indicates that the operating system
+    /// should attempt to process datagrams associated with this connection
+    /// before those associated with other connections.
+    ///
+    /// On Linux, setting a priority of 7 and above requires `CAP_NET_ADMIN`
+    /// privileges.
+    ///
+    /// By default, the priority is 0 i.e. lowest priority.
+    uint8_t priority;
+} udipe_connect_options_t;
 
 // TODO: Flesh out definitions, add docs
 //
 // TODO: Add max-size warnings in \internal, beware that they will not be the
 //       same for options and results as for options we need to fit in the
 //       internal command_t type.
-typedef int udipe_connect_options_t;
 typedef int udipe_connect_result_t;
 typedef int udipe_disconnect_options_t;
 typedef int udipe_disconnect_result_t;
@@ -419,7 +575,7 @@ udipe_recv_stream(udipe_context_t* context,
 // TODO: This is sort of the combination of a send_stream() and a
 //       recv_stream(). It combines an incoming and outgoing connection (which
 //       may be the same connection) in such a way that for each incoming
-//       packet on one connection, you can send a packet to the other
+//       datagram on one connection, you can send a datagram to the other
 //       connection, which is derived from the incoming one.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
