@@ -46,7 +46,7 @@ int main() {
 
     // Set up maximally verbose logging to the temporary file
     config.log = (udipe_log_config_t){
-        .min_level = UDIPE_LOG_TRACE,
+        .min_level = UDIPE_TRACE,
         .callback = log_to_tempfile,
         .context = (void*)tempfile
     };

@@ -36,8 +36,8 @@ typedef struct udipe_config_s {
     ///
     /// This member controls `libudipe`'s logging behavior. By default, status
     /// messages are logged to `stderr` when they have priority >= \link
-    /// #UDIPE_LOG_INFO `INFO` \endlink, and in `Debug` builds messages of
-    /// priority \link #UDIPE_LOG_DEBUG `DEBUG` \endlink are logged too.
+    /// #UDIPE_INFO `INFO` \endlink, and in `Debug` builds messages of priority
+    /// \link #UDIPE_DEBUG `DEBUG` \endlink are logged too.
     udipe_log_config_t log;
 
     /// Memory management configuration
