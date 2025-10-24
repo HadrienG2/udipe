@@ -100,7 +100,7 @@ typedef union ip_address_u {
 /// in a single cache line. Taking into account that establishing a connection
 /// should be rare, and in the interest of not pessimizing the performance of
 /// other command messages which do fit in one cache line, connection options
-/// will therefore be passed to worker threads via heap-allocated structs.
+/// will therefore be passed to worker threads via heap-allocated blocks.
 typedef struct udipe_connect_options_s {
     /// Default send timeout in nanoseconds, or 0 = no timeout
     ///
@@ -204,6 +204,20 @@ typedef struct udipe_connect_options_s {
     ///
     /// By default, the priority is 0 i.e. lowest priority.
     uint8_t priority;
+
+    /// Permission to handle traffic using multiple worker threads
+    ///
+    /// This is only appropriate for protocols where UDP datagrams are
+    /// independent from each other and the order in they are sent and received
+    /// doesn't matter. But it can improve performance in situations where the
+    /// number of live network connections is small with respect to the amount
+    /// of available CPU cores.
+    ///
+    /// By default, each connection is assigned to a single worker thread. This
+    /// means that as long as commands associated with the connection are only
+    /// sent by a single client thread, packets will be sent and received in a
+    /// strict FIFO manner.
+    bool parallel;
 } udipe_connect_options_t;
 
 // TODO: Flesh out definitions, add docs
