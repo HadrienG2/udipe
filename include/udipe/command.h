@@ -37,9 +37,12 @@
 //! wait for some of your udipe tasks to complete. In cases where you want to
 //! wait for multiple tasks to complete, consider using udipe_wait_all().
 
+#include "context.h"
 #include "pointer.h"
 #include "visibility.h"
 
+#include <assert.h>
+#include <stddef.h>
 #include <stdint.h>
 
 
@@ -317,8 +320,8 @@ udipe_disconnect_result_t udipe_disconnect(udipe_context_t* context,
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
-udipe_future_t udipe_start_send(udipe_context_t* context,
-                                udipe_send_options_t options);
+udipe_future_t* udipe_start_send(udipe_context_t* context,
+                                 udipe_send_options_t options);
 
 // TODO: document
 static inline
@@ -336,8 +339,8 @@ udipe_send_result_t udipe_send(udipe_context_t* context,
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
-udipe_future_t udipe_start_recv(udipe_context_t* context,
-                                udipe_recv_options_t options);
+udipe_future_t* udipe_start_recv(udipe_context_t* context,
+                                 udipe_recv_options_t options);
 
 // TODO: document
 static inline
@@ -355,8 +358,8 @@ udipe_recv_result_t udipe_recv(udipe_context_t* context,
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
-udipe_future_t udipe_start_send_stream(udipe_context_t* context,
-                                       udipe_send_stream_options_t options);
+udipe_future_t* udipe_start_send_stream(udipe_context_t* context,
+                                        udipe_send_stream_options_t options);
 
 // TODO: document
 static inline
@@ -375,8 +378,8 @@ udipe_send_stream(udipe_context_t* context,
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
-udipe_future_t udipe_start_recv_stream(udipe_context_t* context,
-                                       udipe_recv_stream_options_t options);
+udipe_future_t* udipe_start_recv_stream(udipe_context_t* context,
+                                        udipe_recv_stream_options_t options);
 
 // TODO: document
 static inline
@@ -400,8 +403,8 @@ udipe_recv_stream(udipe_context_t* context,
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
-udipe_future_t udipe_start_reply_stream(udipe_context_t* context,
-                                        udipe_reply_stream_options_t options);
+udipe_future_t* udipe_start_reply_stream(udipe_context_t* context,
+                                         udipe_reply_stream_options_t options);
 
 // TODO: document
 static inline
