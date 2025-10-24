@@ -46,6 +46,9 @@
 #include <stdint.h>
 
 
+/// \name Options and results of individual commands
+/// \{
+
 // TODO: Flesh out definitions, add docs
 //
 // TODO: Add max-size warnings in \internal, beware that they will not be the
@@ -65,6 +68,12 @@ typedef int udipe_recv_stream_options_t;
 typedef int udipe_recv_stream_result_t;
 typedef int udipe_reply_stream_options_t;
 typedef int udipe_reply_stream_result_t;
+
+/// \}
+
+
+/// \name Genericity over the command type
+/// \{
 
 /// Variant payload from a \ref udipe_result_t
 ///
@@ -127,6 +136,12 @@ typedef struct udipe_result_s {
     /// enables having generic utilities that can handle all types of results.
     udipe_command_id_t command_id;
 } udipe_result_t;
+
+/// \}
+
+
+/// \name Asynchronous operation futures
+/// \{
 
 /// Asynchronous operation future
 ///
@@ -278,6 +293,12 @@ size_t udipe_wait_any(size_t num_futures,
                       size_t* result_positions,
                       uint64_t timeout_ns);
 
+/// \}
+
+
+/// \name Worker thread commands
+/// \{
+
 // TODO: document and implement
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
@@ -418,3 +439,5 @@ udipe_reply_stream(udipe_context_t* context,
     assert(result.command_id == UDIPE_REPLY_STREAM);
     return result.payload.reply_stream;
 }
+
+/// \}

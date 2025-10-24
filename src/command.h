@@ -18,6 +18,9 @@
 #include <threads.h>
 
 
+/// \name Asynchronous operation futures
+/// \{
+
 /// \copydoc udipe_future_t
 struct udipe_future_s {
     /// Result of the command, if any
@@ -37,6 +40,12 @@ struct udipe_future_s {
     ///   with release ordering, and finally it wakes the futex.
     uint32_t futex;
 };
+
+/// \}
+
+
+/// \name Command queue
+/// \{
 
 /// Worker thread command queue capacity
 ///
@@ -169,6 +178,8 @@ typedef struct command_queue_s {
     /// threads then published through a `client_idx` increment.
     command_t commands[COMMAND_QUEUE_LEN];
 } command_queue_t;
+
+/// \}
 
 
 /// \name Unit tests
