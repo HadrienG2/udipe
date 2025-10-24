@@ -5,6 +5,7 @@
 
     #include "allocator.h"
     #include "bitmap.h"
+    #include "command.h"
     #include "log.h"
 
     #include <stdio.h>
@@ -39,6 +40,7 @@
         with_logger(&logger, {
             bitmap_unit_tests();
             allocator_unit_tests();
+            command_unit_tests();
         });
     }
 
