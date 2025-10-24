@@ -9,36 +9,54 @@
 #include <stddef.h>
 
 
-/// Upper bound on the CPU memory access granularity in bytes
+/// Upper bound on the CPU's memory access granularity in bytes
 ///
-/// This is used as a struct member alignment to prevent false sharing.
+/// This is the alignment that is set on struct members that are shared between
+/// threads in order to avoid false sharing issues.
 ///
-/// x86_64 specific for now, add ifdefs once more hardware becomes supported.
+/// The current definition is known to work for x86-64, aarch64 and powerpc64.
+/// It should be extended with ifdefs whenever the need arises as more CPU
+/// architectures become supported.
+///
+/// \internal
 ///
 /// This is 128B and not 64B as you might expect because according to the Intel
 /// optimization manual, some modern x86_64 CPUs fetch data at the granularity
-/// of pairs of cache lines, doubling the false sharing granularity.
+/// of pairs of cache lines, effectively doubling the false sharing granularity.
+/// with respect to the cache line size that is normally used.
+///
+/// However, not all x86_64 CPUs implement such pairwise cache line fetching, so
+/// when you aim for best spatial cache locality, 64B remains the maximal data
+/// structure size that you should aim for on x86_64.
 #define FALSE_SHARING_GRANULARITY ((size_t)128)
 
-/// Smallest available memory page size
+/// Expected size of the smallest memory page available, in bytes
 ///
-/// x86_64 specific for now, add ifdefs once more hardware becomes supported.
-#define LOWEST_PAGE_SIZE ((size_t)4096)
+/// This is used to set the size of the flexible array inside of
+/// mmap()-allocated storage buffers that are meant to fit in one memory page.
+///
+/// For this use case, it is okay if the value of the constant is wrong (we just
+/// allocate more pages than we should which is not the end of the world), so
+/// we tolerate an incorrect estimate on unknown CPU architectures.
+///
+/// The current definition is x86_64 specific, but coincidentally happens to
+/// work for several other popular CPU architectures. Extend if with ifdefs as
+/// required once more CPU architectures with other page sizes become supported.
+#define EXPECTED_MIN_PAGE_SIZE ((size_t)4096)
 
+/// Lower bound on the memory page alignment, in bytes
+///
+/// This is used to improve compiler optimizations around allocate() by telling
+/// the compiler how aligned allocations are guaranteed to be.
+///
+/// Unlike \ref EXPECTED_MIN_PAGE_SIZE, this definition is a **guaranteed**
+/// lower bound, and failure to meet it will result in undefined behavior. Which
+/// is why on CPU architectures where the page size isn't known, a very
+/// pessimistic guess is taken.
 #ifdef __x86_64__
-    /// Minimum guaranteed page alignment
-    ///
-    /// This is used to improve compiler optimizations around allocate().
-    #define LOWEST_PAGE_ALIGNMENT ((size_t)4096)
+    #define MIN_PAGE_ALIGNMENT ((size_t)4096)
 #else
-    /// Minimum guaranteed page alignment
-    ///
-    /// Unfortunately, on this particular hardware architecture we do not know,
-    /// so we stick with the minimum alignment guaranteed by malloc() i.e. large
-    /// enough to align any standard type.
-    ///
-    /// But if you are reading this on doxygen, note that it may be an artifact
-    /// of doxygen's parser not setting the hardware architecture preprocessor
-    /// defines that normal compilers do set.
-    #define LOWEST_PAGE_ALIGNMENT alignof(max_align_t)
+    #warning "Compiling on an unknown CPU architectures, will take a " \
+             "pessimistic lower bound for MIN_PAGE_ALIGNMENT."
+    #define MIN_PAGE_ALIGNMENT alignof(max_align_t)
 #endif
