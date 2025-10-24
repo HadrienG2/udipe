@@ -170,4 +170,16 @@ typedef struct command_queue_s {
     command_t commands[COMMAND_QUEUE_LEN];
 } command_queue_t;
 
-// TODO: Unit tests
+
+/// \name Unit tests
+/// \{
+
+#ifdef UDIPE_BUILD_TESTS
+    /// Unit tests for commands
+    ///
+    /// This function runs all the unit tests for commands. It must be called
+    /// within the scope of with_logger().
+    void command_unit_tests();
+#endif
+
+/// \}

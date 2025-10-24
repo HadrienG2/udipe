@@ -97,6 +97,7 @@ target_sources(udipe
                        src/arch.h
                        src/bitmap.h
                        src/bitmap.c
+                       src/command.c
                        src/command.h
                        src/context.c
                        src/context.h
