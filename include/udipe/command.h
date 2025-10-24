@@ -44,7 +44,10 @@
 
 
 // TODO: Flesh out definitions, add docs
-// TODO: Add max-size warnings in \internal
+//
+// TODO: Add max-size warnings in \internal, beware that they will not be the
+//       same for options and results as for options we need to fit in the
+//       internal command_t type.
 typedef int udipe_connect_options_t;
 typedef int udipe_connect_result_t;
 typedef int udipe_disconnect_options_t;
@@ -67,8 +70,9 @@ typedef int udipe_reply_stream_result_t;
 ///
 /// \internal
 ///
-/// The size of this union should be kept under 60B so that \ref udipe_future_t
-/// fits in one single cache line on all CPU platforms of interest.
+/// The size of this union should be kept such that \ref udipe_future_t fits in
+/// one single cache line on all CPU platforms of interest. This currently
+/// amounts to a size limit of 60B.
 typedef union udipe_result_payload_u {
     udipe_connect_result_t connect;  ///< Result of udipe_connect()
     udipe_disconnect_result_t disconnect;  ///< Result of udipe_disconnect()
@@ -97,13 +101,13 @@ typedef enum udipe_command_id_e {
     UDIPE_SEND_STREAM,  ///< udipe_send_stream()
     UDIPE_RECV_STREAM,  ///< udipe_recv_stream()
     UDIPE_REPLY_STREAM,  ///< udipe_reply_stream()
-    UDIPE_NO_COMMAND = 0  ///< Zero initialization placeholder
+    UDIPE_NO_COMMAND = 0  ///< Sentinel value with no associated command
 } udipe_command_id_t;
 
 /// Generic result type
 ///
 /// This type can encapsulate the result of any `libudipe` command, as well as
-/// the absence of a result.
+/// an absence of result.
 typedef struct udipe_result_s {
     /// Result of the command, if any
     ///
@@ -117,7 +121,7 @@ typedef struct udipe_result_s {
     /// Even when one is using infaillible wait commands such as udipe_wait()
     /// with a `timeout` of 0, this field can be useful for debug assertions
     /// that a result is associated with the expected command type. It also
-    /// allows for generic utilities that can handle all types of results.
+    /// enables having generic utilities that can handle all types of results.
     udipe_command_id_t command_id;
 } udipe_result_t;
 
@@ -139,6 +143,12 @@ typedef struct udipe_future_s udipe_future_t;
 ///
 /// If this returns true, then a call to udipe_wait() for this future is
 /// guaranteed to return the result immediately without blocking this thread.
+///
+/// If you find yourself needing to use this function for periodical polling
+/// because you are also waiting for some events outside of `libudipe`, please
+/// contact the `libudipe` developers. There _may_ be a way to provide a uniform
+/// blocking wait interface for you, at the expense of reducing portability or
+/// exposing more `libudipe` implementation details.
 ///
 /// \param future must be a future that was returned by an asynchronous entry
 ///               point (those whose name begins with `udipe_start_`), and that
@@ -191,14 +201,14 @@ udipe_result_t udipe_wait(udipe_future_t* future, uint64_t timeout_ns);
 /// whether all futures have completed or the request has timed out.
 ///
 /// If the result is `true`, indicating full completion, then it is guaranteed
-/// that the operations associated with all futures have completed, and
-/// therefore none of the output `results` have their `command_id` field set to
-/// \ref UDIPE_NO_COMMAND.
+/// that the operations associated with all futures have completed. Therefore
+/// none of the output `results` have their `command_id` field set to \ref
+/// UDIPE_NO_COMMAND, and none of the input `futures` can be used afterwards.
 ///
 /// If the result is `false`, indicating that the wait has timed out, then you
-/// must check each entry of `result` to see which operations have completed,
-/// per the same logic as udipe_wait(): those which have not completed will
-/// still have the `command_id` field of their \ref udipe_result_t set to \ref
+/// must check each entry of `result` to see which operations have completed. By
+/// the same logic as udipe_wait(), those which have **not** completed will have
+/// the `command_id` field of their \ref udipe_result_t set to \ref
 /// UDIPE_NO_COMMAND.
 ///
 /// As a reminder, futures associated with operations that have completed have
@@ -254,8 +264,8 @@ bool udipe_wait_all(size_t num_futures,
 //
 // TODO: Implement by first checking futexes for completion, then converting the
 //       remaining futexes to file descriptors using FUTEX_FD, then polling
-//       these fds using epoll(), then discarding everything. Have an internal
-//       variant that keeps the context around instead, used by the
+//       these fds using epoll(), then discarding everything. Consider having an
+//       internal variant that keeps the context around instead, used by the
 //       implementation of udipe_wait_any().
 UDIPE_PUBLIC
 UDIPE_NON_NULL_SPECIFIC_ARGS(2, 3)
