@@ -41,7 +41,7 @@ typedef enum udipe_log_level_e {
     /// understand the control flow path that was taken within `libudipe`. A
     /// core goal of `TRACE` logs is to reduce the amount of debugging scenarios
     /// for which a dedicated debugger is needed.
-    UDIPE_LOG_TRACE = 1,
+    UDIPE_TRACE = 1,
 
     /// Basic debugging logs
     ///
@@ -54,7 +54,7 @@ typedef enum udipe_log_level_e {
     /// requests as they pass through the various components of `udipe`, or
     /// detailed info about each and every lost packet (note that the
     /// performance impact of such logging will make packet loss worse).
-    UDIPE_LOG_DEBUG,
+    UDIPE_DEBUG,
 
     /// "For your information" logs
     ///
@@ -65,7 +65,7 @@ typedef enum udipe_log_level_e {
     /// merging defaults and automatic system configuration detection with
     /// manual user configuration, or beginning to listen for incoming packets
     /// on some network port/address.
-    UDIPE_LOG_INFO,
+    UDIPE_INFO,
 
     /// Warning logs
     ///
@@ -81,7 +81,7 @@ typedef enum udipe_log_level_e {
     /// Because the value of `errno` is unreliable, as you never know which
     /// function set or overwrote it, `errno`-related logs are also displayed at
     /// the `WARNING` log level.
-    UDIPE_LOG_WARNING,
+    UDIPE_WARNING,
 
     /// Error logs
     ///
@@ -91,7 +91,7 @@ typedef enum udipe_log_level_e {
     ///
     /// Basically, anytime a function that should not fail fails, an error log
     /// is emitted to explain why exactly it failed.
-    UDIPE_LOG_ERROR,
+    UDIPE_ERROR,
 
     /// Default configuration placeholder for \ref udipe_log_config_t::min_level
     ///
@@ -102,12 +102,13 @@ typedef enum udipe_log_level_e {
     ///
     /// This log level must not be applied to actual logs from the libudipe
     /// implementation. It is only a user-facing configuration helper.
-    UDIPE_LOG_DEFAULT = 0
+    UDIPE_DEFAULT_LOG_LEVEL = 0
 } udipe_log_level_t;
 
 /// Get the textual name of a certain log level
 ///
-/// For example, given the UDIPE_LOG_ERROR input, this function returns "ERROR".
+/// For example, when applied to \ref UDIPE_ERROR, this function returns
+/// "ERROR".
 ///
 /// As this function is meant to be used inside of logger implementations, it
 /// will exceptionally log invalid parameter errors to stderr as opposed to the
@@ -143,9 +144,9 @@ typedef void (*udipe_log_callback_t)(void* /*context */,
 typedef struct udipe_log_config_s {
     /// Minimal log level/priority to be reported
     ///
-    /// If this is left at `DEFAULT` (`0`), `udipe` will emit logs of priority
-    /// >= `INFO` in all builds and additionally emit logs of priority
-    /// `DEBUG` in `Debug` builds.
+    /// If this is left at \link #UDIPE_DEFAULT_LOG_LEVEL `DEFAULT`\endlink
+    /// (`0`), `udipe` will emit logs of priority >= `INFO` in all builds and
+    /// additionally emit logs of priority `DEBUG` in `Debug` builds.
     udipe_log_level_t min_level;
 
     /// User logging callback
