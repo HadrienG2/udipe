@@ -118,7 +118,7 @@ void liberate(allocator_t* allocator, void* buffer);
 /// requirements, in order to enjoy higher-quality performance optimization and
 /// static analysis. None of these attributes is mandatory for correctness.
 #define ALLOCATE_ATTRIBUTES  \
-    __attribute__((assume_aligned(LOWEST_PAGE_ALIGNMENT)  \
+    __attribute__((assume_aligned(MIN_PAGE_ALIGNMENT)  \
                  , malloc  \
                  , malloc(liberate, 2)  \
                  , warn_unused_result))

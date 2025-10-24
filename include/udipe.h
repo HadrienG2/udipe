@@ -23,7 +23,9 @@
 //! of the `libudipe` source tree.
 
 #include "udipe/allocator.h"
+#include "udipe/command.h"
 #include "udipe/context.h"
 #include "udipe/log.h"
 #include "udipe/pointer.h"
+// Not including udipe/tests as it isn't meant for end user consumption
 #include "udipe/visibility.h"
