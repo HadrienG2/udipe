@@ -17,22 +17,23 @@
 /// Name of a certain log level
 ///
 /// This is a utility shared between the public udipe_log_level_name() function
-/// and the internal default_log_callback(). In the former case DEFAULT is a
-/// valid input, whereas in the latter case it is not a valid input. We
-/// differentiate between these two cases using the allow_default parameter.
+/// and the internal default_log_callback(). In the former case \link
+/// #UDIPE_DEFAULT_LOG_LEVEL `DEFAULT`\endlink is a valid input, whereas in the
+/// latter case it is not a valid input. We differentiate between these two
+/// cases using the `allow_default` parameter.
 static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
     switch(level) {
-    case UDIPE_LOG_TRACE:
+    case UDIPE_TRACE:
         return "TRACE";
-    case UDIPE_LOG_DEBUG:
+    case UDIPE_DEBUG:
         return "DEBUG";
-    case UDIPE_LOG_INFO:
+    case UDIPE_INFO:
         return "INFO";
-    case UDIPE_LOG_WARNING:
+    case UDIPE_WARNING:
         return "WARN";
-    case UDIPE_LOG_ERROR:
+    case UDIPE_ERROR:
         return "ERROR";
-    case UDIPE_LOG_DEFAULT:
+    case UDIPE_DEFAULT_LOG_LEVEL:
         if (allow_default) return "DEFAULT";
         __attribute__ ((fallthrough));
     default:
@@ -71,22 +72,22 @@ static void default_log_callback(void* /* context */,
     const bool use_colors = atomic_load_explicit(&stderr_is_tty, memory_order_relaxed);
     if (use_colors) {
         switch(level) {
-        case UDIPE_LOG_TRACE:
+        case UDIPE_TRACE:
             level_color = "\033[36m";
             break;
-        case UDIPE_LOG_DEBUG:
+        case UDIPE_DEBUG:
             level_color = "\033[34m";
             break;
-        case UDIPE_LOG_INFO:
+        case UDIPE_INFO:
             level_color = "\033[32m";
             break;
-        case UDIPE_LOG_WARNING:
+        case UDIPE_WARNING:
             level_color = "\033[93;1m";
             break;
-        case UDIPE_LOG_ERROR:
+        case UDIPE_ERROR:
             level_color = "\033[91;1m";
             break;
-        case UDIPE_LOG_DEFAULT:
+        case UDIPE_DEFAULT_LOG_LEVEL:
         default:
             fprintf(stderr,
                     "libudipe: Called default_log_callback() "
@@ -120,17 +121,17 @@ UDIPE_PUBLIC const char* udipe_log_level_name(udipe_log_level_t level) {
 logger_t log_initialize(udipe_log_config_t config) {
     // Select and configure log level
     switch (config.min_level) {
-    case UDIPE_LOG_TRACE:
-    case UDIPE_LOG_DEBUG:
-    case UDIPE_LOG_INFO:
-    case UDIPE_LOG_WARNING:
-    case UDIPE_LOG_ERROR:
+    case UDIPE_TRACE:
+    case UDIPE_DEBUG:
+    case UDIPE_INFO:
+    case UDIPE_WARNING:
+    case UDIPE_ERROR:
         break;
-    case UDIPE_LOG_DEFAULT:
+    case UDIPE_DEFAULT_LOG_LEVEL:
         #ifdef NDEBUG
-            config.min_level = UDIPE_LOG_INFO;
+            config.min_level = UDIPE_INFO;
         #else
-            config.min_level = UDIPE_LOG_DEBUG;
+            config.min_level = UDIPE_DEBUG;
         #endif
         break;
     default:
@@ -191,7 +192,7 @@ void logf_impl(udipe_log_level_t level,
 
 thread_local const logger_t* udipe_thread_logger = NULL;
 
-thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_LOG_INFO;
+thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_INFO;
 
 #ifndef NDEBUG
     void validate_log(udipe_log_level_t level) {
@@ -199,11 +200,11 @@ thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_LOG_INFO;
                 "outside a with_logger() scope",
                 udipe_thread_logger));
         switch (level) {
-        case UDIPE_LOG_TRACE:
-        case UDIPE_LOG_DEBUG:
-        case UDIPE_LOG_INFO:
-        case UDIPE_LOG_WARNING:
-        case UDIPE_LOG_ERROR:
+        case UDIPE_TRACE:
+        case UDIPE_DEBUG:
+        case UDIPE_INFO:
+        case UDIPE_WARNING:
+        case UDIPE_ERROR:
             break;
         default:
             fprintf(stderr,

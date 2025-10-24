@@ -41,7 +41,7 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
         assert(("Caches should have a cpuset", cache->cpuset));
         const hwloc_cpuset_t cache_cpuset = hwloc_bitmap_dup(cache->cpuset);
         exit_on_null(cache_cpuset, "Failed to duplicate cache cpuset!");
-        if (log_enabled(UDIPE_LOG_TRACE)) {
+        if (log_enabled(UDIPE_TRACE)) {
             char* cpuset_str;
             exit_on_negative(hwloc_bitmap_list_asprintf(&cpuset_str, cache_cpuset),
                              "Failed to display cache cpuset!");
@@ -52,7 +52,7 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
         trace("Removing hyperthreads...");
         int result = hwloc_bitmap_singlify_per_core(topology, cache_cpuset, 0);
         assert(result == 0);
-        if (log_enabled(UDIPE_LOG_TRACE)) {
+        if (log_enabled(UDIPE_TRACE)) {
             char* cpuset_str;
             exit_on_negative(hwloc_bitmap_list_asprintf(&cpuset_str, cache_cpuset),
                              "Failed to display cache cpuset!");
@@ -109,7 +109,7 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
                                            HWLOC_CPUBIND_THREAD),
                          "Failed to query thread CPU binding!");
 
-        if (log_enabled(UDIPE_LOG_DEBUG)) {
+        if (log_enabled(UDIPE_DEBUG)) {
             char* cpuset_str;
             exit_on_negative(hwloc_bitmap_list_asprintf(&cpuset_str, thread_cpuset),
                              "Failed to display thread CPU binding!");
@@ -388,7 +388,7 @@ void* allocate(allocator_t* allocator) {
 
     void allocator_unit_tests() {
         info("Running allocator unit tests...");
-        with_log_level(UDIPE_LOG_DEBUG, {
+        with_log_level(UDIPE_DEBUG, {
             debug("Setting up an hwloc topology...");
             hwloc_topology_t topology;
             exit_on_negative(hwloc_topology_init(&topology),
@@ -404,7 +404,7 @@ void* allocate(allocator_t* allocator) {
             udipe_allocator_config_t config;
             udipe_thread_allocator_config_t thread_config;
             allocator_t allocator;
-            with_log_level(UDIPE_LOG_TRACE, {
+            with_log_level(UDIPE_TRACE, {
                 memset(&config, 0, sizeof(udipe_allocator_config_t));
                 memset(&thread_config, 0, sizeof(udipe_thread_allocator_config_t));
                 allocator = allocator_initialize(config, topology);
@@ -418,7 +418,7 @@ void* allocate(allocator_t* allocator) {
             config.context = (void*)&thread_config;
 
             debug("Testing a minimal configuration (1 x 1500B)...");
-            with_log_level(UDIPE_LOG_TRACE, {
+            with_log_level(UDIPE_TRACE, {
                 thread_config = (udipe_thread_allocator_config_t){
                     .buffer_size = 1500,
                     .buffer_count = 1
@@ -430,7 +430,7 @@ void* allocate(allocator_t* allocator) {
             });
 
             debug("Testing a bigger configuration (MAX x 9216B)...");
-            with_log_level(UDIPE_LOG_TRACE, {
+            with_log_level(UDIPE_TRACE, {
                 thread_config = (udipe_thread_allocator_config_t){
                     .buffer_size = 9216,
                     .buffer_count = UDIPE_MAX_BUFFERS

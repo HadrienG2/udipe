@@ -88,30 +88,30 @@ static inline bool log_enabled(udipe_log_level_t level);
         }  \
     } while(false)
 
-/// Log a \link #UDIPE_LOG_TRACE `TRACE` \endlink message
+/// Log a \link #UDIPE_TRACE `TRACE` \endlink message
 ///
 /// Can only be used within the scope of with_logger(). See log() for more info.
-#define trace(message)  log(UDIPE_LOG_TRACE, (message))
+#define trace(message)  log(UDIPE_TRACE, (message))
 
-/// Log a \link #UDIPE_LOG_DEBUG `DEBUG` \endlink message
+/// Log a \link #UDIPE_DEBUG `DEBUG` \endlink message
 ///
 /// Can only be used within the scope of with_logger(). See log() for more info.
-#define debug(message)  log(UDIPE_LOG_DEBUG, (message))
+#define debug(message)  log(UDIPE_DEBUG, (message))
 
-/// Log an \link #UDIPE_LOG_INFO `INFO` \endlink message
+/// Log an \link #UDIPE_INFO `INFO` \endlink message
 ///
 /// Can only be used within the scope of with_logger(). See log() for more info.
-#define info(message)  log(UDIPE_LOG_INFO, (message))
+#define info(message)  log(UDIPE_INFO, (message))
 
-/// Log a \link #UDIPE_LOG_WARNING `WARNING` \endlink message
+/// Log a \link #UDIPE_WARNING `WARNING` \endlink message
 ///
 /// Can only be used within the scope of with_logger(). See log() for more info.
-#define warning(message)  log(UDIPE_LOG_WARNING, (message))
+#define warning(message)  log(UDIPE_WARNING, (message))
 
-/// Log an \link #UDIPE_LOG_ERROR `ERROR` \endlink message
+/// Log an \link #UDIPE_ERROR `ERROR` \endlink message
 ///
 /// Can only be used within the scope of with_logger(). See log() for more info.
-#define error(message)  log(UDIPE_LOG_ERROR, (message))
+#define error(message)  log(UDIPE_ERROR, (message))
 
 /// \}
 
@@ -143,30 +143,30 @@ static inline bool log_enabled(udipe_log_level_t level);
         }  \
     } while(false);
 
-/// Log a \link #UDIPE_LOG_TRACE `TRACE` \endlink formatted message
+/// Log a \link #UDIPE_TRACE `TRACE` \endlink formatted message
 ///
 /// Can only be used within the scope of with_logger(). See logf() for more info.
-#define tracef(format, ...)  logf(UDIPE_LOG_TRACE, (format), __VA_ARGS__)
+#define tracef(format, ...)  logf(UDIPE_TRACE, (format), __VA_ARGS__)
 
-/// Log a \link #UDIPE_LOG_DEBUG `DEBUG` \endlink formatted message
+/// Log a \link #UDIPE_DEBUG `DEBUG` \endlink formatted message
 ///
 /// Can only be used within the scope of with_logger(). See logf() for more info.
-#define debugf(format, ...)  logf(UDIPE_LOG_DEBUG, (format), __VA_ARGS__)
+#define debugf(format, ...)  logf(UDIPE_DEBUG, (format), __VA_ARGS__)
 
-/// Log an \link #UDIPE_LOG_INFO `INFO` \endlink formatted message
+/// Log an \link #UDIPE_INFO `INFO` \endlink formatted message
 ///
 /// Can only be used within the scope of with_logger(). See logf() for more info.
-#define infof(format, ...)  logf(UDIPE_LOG_INFO, (format), __VA_ARGS__)
+#define infof(format, ...)  logf(UDIPE_INFO, (format), __VA_ARGS__)
 
-/// Log a \link #UDIPE_LOG_WARNING `WARNING` \endlink formatted message
+/// Log a \link #UDIPE_WARNING `WARNING` \endlink formatted message
 ///
 /// Can only be used within the scope of with_logger(). See logf() for more info.
-#define warningf(format, ...)  logf(UDIPE_LOG_WARNING, (format), __VA_ARGS__)
+#define warningf(format, ...)  logf(UDIPE_WARNING, (format), __VA_ARGS__)
 
-/// Log an \link #UDIPE_LOG_ERROR `ERROR` \endlink formatted message
+/// Log an \link #UDIPE_ERROR `ERROR` \endlink formatted message
 ///
 /// Can only be used within the scope of with_logger(). See logf() for more info.
-#define errorf(format, ...)  logf(UDIPE_LOG_ERROR, (format), __VA_ARGS__)
+#define errorf(format, ...)  logf(UDIPE_ERROR, (format), __VA_ARGS__)
 
 /// \}
 
@@ -174,7 +174,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// \name Expression logging
 /// \{
 
-/// Log an expression and its value at \link #UDIPE_LOG_TRACE `TRACE` \endlink
+/// Log an expression and its value at \link #UDIPE_TRACE `TRACE` \endlink
 /// level, along with the associated code location.
 ///
 /// This macro is only meant for debugging purpose and should not appear
@@ -202,7 +202,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// - Log this error message at trace() level.
 #define trace_expr(expr)  \
     do {  \
-        if (log_enabled(UDIPE_LOG_TRACE)) {  \
+        if (log_enabled(UDIPE_TRACE)) {  \
             trace_expr_impl("At %%s:%%u.\n"  \
                             "Evaluated %%s\n"  \
                             "       => %s",   \
@@ -240,9 +240,9 @@ static inline bool log_enabled(udipe_log_level_t level);
 
 /// Set up the thread-local relative log level
 ///
-/// Call as `with_log_level(level, { ... })` to adjust how the \link
-/// #UDIPE_LOG_INFO `INFO`\endlink and \link #UDIPE_LOG_DEBUG `DEBUG`\endlink
-/// log levels are interpreted inside of the `{ ... }` inner code scope.
+/// Call as `with_log_level(level, { ... })` to adjust how the \link #UDIPE_INFO
+/// `INFO`\endlink and \link #UDIPE_DEBUG `DEBUG`\endlink log levels are
+/// interpreted inside of the `{ ... }` inner code scope.
 ///
 /// - If this is set to `DEBUG`, then the `INFO` log level is treated as
 ///   `DEBUG` and the `DEBUG` log level is treated as `TRACE`.
@@ -258,15 +258,15 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// `INFO` logging in one situation qualities as `DEBUG` or `TRACE` logging in
 /// another situation. This most frequently comes up in unit tests.
 ///
-/// \param level must be set to \ref UDIPE_LOG_DEBUG or \ref UDIPE_LOG_TRACE.
+/// \param level must be set to \ref UDIPE_DEBUG or \ref UDIPE_TRACE.
 #define with_log_level(level, ...)  \
     do {  \
         const udipe_log_level_t udipe_prev_log_level  \
             __attribute__((__cleanup__(restore_thread_log_level)))  \
                 = udipe_thread_log_level;  \
         udipe_thread_log_level = (level);  \
-        assert(udipe_thread_log_level == UDIPE_LOG_DEBUG  \
-               || udipe_thread_log_level == UDIPE_LOG_TRACE);  \
+        assert(udipe_thread_log_level == UDIPE_DEBUG  \
+               || udipe_thread_log_level == UDIPE_TRACE);  \
         trace("Start of a with_log_level() scope.");  \
         do __VA_ARGS__ while(false);  \
     } while(false)
@@ -320,16 +320,16 @@ extern thread_local const logger_t* udipe_thread_logger;
 static inline udipe_log_level_t thread_log_level(udipe_log_level_t level) {
     validate_log(level);
     switch (level) {
-    case UDIPE_LOG_DEBUG:
-        return (udipe_thread_log_level == UDIPE_LOG_TRACE) ? UDIPE_LOG_TRACE : UDIPE_LOG_DEBUG;
-    case UDIPE_LOG_INFO:
+    case UDIPE_DEBUG:
+        return (udipe_thread_log_level == UDIPE_TRACE) ? UDIPE_TRACE : UDIPE_DEBUG;
+    case UDIPE_INFO:
         switch (udipe_thread_log_level) {
-        case UDIPE_LOG_TRACE:
-            return UDIPE_LOG_TRACE;
-        case UDIPE_LOG_DEBUG:
-            return UDIPE_LOG_DEBUG;
+        case UDIPE_TRACE:
+            return UDIPE_TRACE;
+        case UDIPE_DEBUG:
+            return UDIPE_DEBUG;
         default:
-            return UDIPE_LOG_INFO;
+            return UDIPE_INFO;
         }
     default:
         return level;
