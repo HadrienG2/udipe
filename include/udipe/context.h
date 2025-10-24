@@ -52,13 +52,12 @@ typedef struct udipe_config_s {
 
 /// Core `libudipe` context
 ///
-/// This opaque data structure is built by udipe_initialize() and can
-/// subsequently be passed to most `libudipe` functions entry points for the
+/// A pointer to this opaque data structure is built by udipe_initialize() and
+/// can subsequently be passed to most `libudipe` API entry points for the
 /// purpose of performing UDP network operations.
 ///
-/// Throughout its useful lifetime, you must treat this object as opaque and not
-/// attempt to read or modify it in any way other than by passing it to
-/// `libudipe` functions.
+/// Its content is an opaque implementation detail of `libudipe` that you should
+/// not attempt to read or modify.
 ///
 /// Once you are done with `libudipe`, you can pass this object back to
 /// udipe_finalize() to destroy it.

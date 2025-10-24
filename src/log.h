@@ -28,7 +28,7 @@ typedef udipe_log_config_t logger_t;
 /// Set up logging
 ///
 /// This should be done as early as possible during the `libudipe`
-/// initialization process in order to reduce the amount of code that cannot
+/// initialization process in order to minimize the amount of code that cannot
 /// perform logging.
 ///
 /// \param config should be valid per \link #udipe_log_config_t the type
@@ -222,8 +222,8 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// Call as `with_logger(&logger, { ... })` to be able to use log() and related
 /// macros inside of the `{ ... }` inner code scope.
 ///
-/// This macro must be called at the start of every public `libudipe` entry
-/// point and early on inside the main function of every udipe worker thread.
+/// This macro must be called at the start of every public `libudipe` API entry
+/// point, and early on inside the main function of every worker thread.
 ///
 /// \param logger_ptr must point to a `logger_t` that was previously initialized
 ///        by log_initialize(), and that is valid to use until the end of the
