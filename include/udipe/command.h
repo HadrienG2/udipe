@@ -214,9 +214,9 @@ typedef struct udipe_connect_options_s {
     /// of available CPU cores.
     ///
     /// By default, each connection is assigned to a single worker thread. This
-    /// means that as long as commands associated with the connection are only
-    /// sent by a single client thread, packets will be sent and received in a
-    /// strict FIFO manner.
+    /// means that as long as commands associated with the connection only
+    /// originate from a single client thread, packets will be sent and received
+    /// in a strict FIFO manner.
     bool parallel;
 } udipe_connect_options_t;
 
