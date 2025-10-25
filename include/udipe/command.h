@@ -89,6 +89,17 @@ typedef union ip_address_u {
     struct sockaddr_in6 v6;  ///< IPv6 address
 } ip_address_t;
 
+/// Boolean option with a nontrivial default value
+///
+/// This is used in circumstances where the default value for an option is not
+/// `false` but e.g. "`true` if supported", "`true` if deemed worthwhile based
+/// on system configuration", etc.
+typedef enum udipe_bool_with_default_e {
+    UDIPE_FALSE = 1,  ///< Set to `false`
+    UDIPE_TRUE = 2,  ///< Set to `true`
+    UDIPE_DEFAULT = 0,  ///< Use default value (depends on context)
+} udipe_bool_with_default_t;
+
 /// udipe_connect() parameters
 ///
 /// This struct controls the parameters that can be tuned when establishing a
@@ -234,6 +245,68 @@ typedef struct udipe_connect_options_s {
     // TODO: Used to enforce usage validation by detecting invalid parameters
     //       and commands.
     udipe_direction_t direction;
+
+    /// Enable Generic Segmentation Offload (GSO)
+    ///
+    /// This is a Linux UDP performance optimization that lets you send multiple
+    /// UDP datagrams with a single `send` command. It roughly works by
+    /// modifying the semantics of oversized `send` commands whose input buffer
+    /// goes above the MTU, so that instead of failing they split the input
+    /// buffer into multiple datagrams.
+    ///
+    /// The granularity at which a `send` operation is split into datagrams is
+    /// controlled by the `gso_segment_size` option.
+    ///
+    /// By default, GSO if enabled if the host operating system supports it and
+    /// disabled otherwise. This differs from the behavior of setting this to
+    /// \ref UDIPE_TRUE, which makes connection setup fail if GSO is not
+    /// supported.
+    //
+    // TODO: Sets UDP_SEGMENT in tandem with gso_segment_size
+    udipe_bool_with_default_t enable_gso;
+
+    /// Enable Generic Receive Offload (GRO)
+    ///
+    /// This is a Linux UDP performance optimization that lets you receive
+    /// multiple UDP datagrams with a single `receive` command. It roughly works
+    /// by modifying the semantics of oversized `receive` commands whose output
+    /// buffer goes above the MTU, so that instead of receiving a single
+    /// datagram they may receive multiple ones and concatenate their payloads.
+    ///
+    /// You cannot control the granularity of GRO, as it is given by the size of
+    /// incoming datagrams (which must be of identical size), but you will be
+    /// able to tell the datagram size at the end of the receive operation.
+    ///
+    /// By default, GRO if enabled if the host operating system supports it and
+    /// left disabled otherwise. This differs from the behavior of intentionally
+    /// setting this to \ref UDIPE_TRUE, which makes connection setup fail if
+    /// GRO is not supported.
+    //
+    // TODO: Sets UDP_GRO
+    udipe_bool_with_default_t enable_gro;
+
+    /// GSO segment size
+    ///
+    /// This is the granularity at which the payload of a `send` command is
+    /// split into separate UDP datagrams when the Generic Segmentation Offload
+    /// feature is enabled.
+    ///
+    /// You must set it such that the resulting packets after adding UDP,
+    /// IPv4/v6 and Ethernet headers remain below the network's path MTU.
+    ///
+    /// Linux additionally enforces that no more than 64 datagrams may be sent
+    /// with a single `send` operation when GSO is enabled.
+    ///
+    /// This option can only be set when `enable_gso` is set to \ref UDIPE_TRUE,
+    /// as it makes little sense otherwise and can lead to dangerous judgment
+    /// errors where you think that your datagrams have one size but they
+    /// actually have another payload size.
+    ///
+    /// By default, the GSO segment size is auto-tuned to the network path MTU
+    /// that is estimated by the Linux kernel.
+    //
+    // TODO: Sets UDP_SEGMENT in tandem with enable_gso
+    uint16_t gso_segment_size;
 
     /// Desired traffic priority
     ///
@@ -594,6 +667,10 @@ udipe_disconnect_result_t udipe_disconnect(udipe_context_t* context,
 }
 
 // TODO: document and implement
+//
+// TODO: Should have GSO-like semantics, i.e. if you give a large enough buffer
+//       then multiple datagrams may be sent. If GSO is disabled, then it just
+//       sends a single datagram.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
@@ -620,6 +697,11 @@ udipe_future_t* udipe_start_recv(udipe_context_t* context,
                                  udipe_recv_options_t options);
 
 // TODO: document
+//
+// TODO: Should have GSR-like semantics, i.e. if you give a large enough buffer
+//       then multiple datagrams may be received, and there will be anciliary
+//       data telling you how large the inner segments are. If GSO is disabled,
+//       then it just receives a single datagram.
 static inline
 UDIPE_NON_NULL_ARGS
 udipe_recv_result_t udipe_recv(udipe_context_t* context,
