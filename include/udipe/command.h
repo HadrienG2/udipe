@@ -84,7 +84,7 @@ typedef enum udipe_direction_e {
 /// types features a `sa_family` internal tag that enables IPv4/IPv6/default
 /// disambiguation.
 typedef union ip_address_u {
-    struct sockaddr unknown;  ///< Used to safely query the `sa_family` field
+    struct sockaddr any;  ///< Used to safely query the `sa_family` field
     struct sockaddr_in v4;  ///< IPv4 address
     struct sockaddr_in6 v6;  ///< IPv6 address
 } ip_address_t;
@@ -92,7 +92,9 @@ typedef union ip_address_u {
 /// udipe_connect() parameters
 ///
 /// This struct controls the parameters that can be tuned when establishing a
-/// UDP connection.
+/// UDP connection. Like most configuration structs, it is designed such that
+/// zero-initializing results in sane defaults, except for sending traffic where
+/// you will need to set at least a `remote_address`.
 ///
 /// \internal
 ///
@@ -104,29 +106,42 @@ typedef union ip_address_u {
 typedef struct udipe_connect_options_s {
     /// Default send timeout in nanoseconds, or 0 = no timeout
     ///
+    /// This parameter must not be set if `direction` is \ref UDIPE_IN.
+    ///
     /// The default is for send commands to block forever.
+    //
+    // TODO: Maps to SO_SNDTIMEO if set
     uint64_t send_timeout_ns;
 
     /// Default receive timeout in nanoseconds, or 0 = no timeout
     ///
-    /// The default is for receive commands to block forever.
+    /// This parameter must not be set if `direction` is UDIPE_OUT.
+    ///
+    /// The default is for recv commands to block forever.
+    //
+    // TODO: Maps to SO_RCVTIMEO if set
     uint64_t recv_timeout_ns;
 
     /// Local interface
     ///
     /// If set to a non-`NULL` string, this indicates that you only want to send
-    /// and receive traffic from the specified network interface.
+    /// and receive traffic via the specified network interface.
     ///
     /// This parameter must be consistent with `local_address` (i.e.
     /// `local_interface` should be able to emit from the address specified in
     /// `local_address` if it is not a catch-all address) and `remote_address`
     /// (i.e. `remote_address` should be reachable from `local_interface`),
-    /// otherwise you will not be able to send or receive traffic.
+    /// otherwise you will not be able to send and receive datagrams.
     ///
     /// By default, the connection is not bound to any network interface.
+    //
+    // TODO: Maps to SO_BINDTODEVICE
     const char* local_interface;
 
     /// Local address
+    ///
+    /// If set to a non-default value, this indicates that you only want to send
+    /// and receive traffic via the specified local IP address and port.
     ///
     /// This address must be of the same type as `remote_address` i.e. if one is
     /// an IPv4 address, then the other must be an IPv6 address, and vice versa.
@@ -135,15 +150,22 @@ typedef struct udipe_connect_options_s {
     /// aka a randomly assigned port, unless `remote_address` is an IPv6 address
     /// in which case the default is IPv6 address `::` with port 0.
     //
-    // TODO: Provide a way to get that auto-assigned port after connection
+    // TODO: Provide a way to get that auto-assigned port after connection, this
+    //       is done via getsockname().
     ///
     /// This is appropriate if you want to send traffic and do not care which
-    /// NIC and UDP port it goes through, or if you want to receive traffic and
-    /// are ready to communicate the port number to your peer (as is common for
-    /// e.g. local server testing).
+    /// network interface and UDP port it goes through, or if you want to
+    /// receive traffic and are ready to communicate the port number to your
+    /// peer (as is common for e.g. local server testing).
+    //
+    // TODO: Maps to bind() if set + check type consistency with
+    //       remote_address
     ip_address_t local_address;
 
     /// Remote address
+    ///
+    /// This is used to configure which remote IP address and port you want to
+    /// exchange traffic with.
     ///
     /// This address must be of the same type as `local_address` i.e. if one is
     /// an IPv4 address, then the other must be an IPv6 address, and vice versa.
@@ -155,22 +177,34 @@ typedef struct udipe_connect_options_s {
     /// This is always incorrect for sending traffic and must be changed to the
     /// address of the intended peer. When receiving traffic, it simply means
     /// that you are accepting traffic from any source address and port.
+    //
+    // TODO: Maps to connect() if set + check type consistency with
+    //       local_address
     ip_address_t remote_address;
 
     /// Send buffer size
     ///
-    /// This cannot be smaller than 1024 or larger than `INT_MAX`. In addition,
-    /// on Linux, non-privileged processes cannot go above the limit configured
-    /// in pseudo file `/proc/sys/net/core/wmem_max`.
+    /// This parameter must not be set if `direction` is \ref UDIPE_IN.
+    ///
+    /// It cannot be smaller than 1024 or larger than `INT_MAX`. In addition, on
+    /// Linux, non-privileged processes cannot go above the limit configured in
+    /// pseudo file `/proc/sys/net/core/wmem_max`.
     ///
     /// By default, the send buffer is configured at the OS' default size, which
     /// on Linux is itself configured through pseudo-file
     /// `/proc/sys/net/core/wmem_default` or the equivalent sysctl.
+    ///
+    /// \internal
+    ///
+    /// Bitfields are ab(used) there to ensure that attempting to set this to a
+    /// value higher than `INT_MAX` is a compiler error.
     //
     // TODO: Implement by trying SO_SNDBUF then SO_SNDBUFFORCE
-    unsigned send_buffer;
+    unsigned send_buffer : 31;
 
     /// Receive buffer size
+    ///
+    /// This parameter must not be set if `direction` is \ref UDIPE_OUT.
     ///
     /// This cannot be smaller than 128 or larger than `INT_MAX`. In addition,
     /// on Linux, non-privileged processes cannot go above the limit configured
@@ -179,9 +213,14 @@ typedef struct udipe_connect_options_s {
     /// By default, the receive buffer is configured at the OS' default size,
     /// which on Linux is itself configured through pseudo-file
     /// `/proc/sys/net/core/rmem_default` or the equivalent sysctl.
+    ///
+    /// \internal
+    ///
+    /// Bitfields are ab(used) there to ensure that attempting to set this to a
+    /// value higher than `INT_MAX` is a compiler error.
     //
     // TODO: Implement by trying SO_RCVBUF then SO_RCVBUFFORCE
-    unsigned recv_buffer;
+    unsigned recv_buffer : 31;
 
     /// Communication direction(s)
     ///
@@ -191,6 +230,9 @@ typedef struct udipe_connect_options_s {
     /// By default, the connection is configured to receive traffic only, as
     /// sending traffic requires a remote address and there is no good default
     /// for a remote address.
+    //
+    // TODO: Used to enforce usage validation by detecting invalid parameters
+    //       and commands.
     udipe_direction_t direction;
 
     /// Desired traffic priority
@@ -203,21 +245,62 @@ typedef struct udipe_connect_options_s {
     /// privileges.
     ///
     /// By default, the priority is 0 i.e. lowest priority.
+    //
+    // TODO: Implement by setting SO_PRIORITY
     uint8_t priority;
 
-    /// Permission to handle traffic using multiple worker threads
+    /// Allow datagrams to be handled by multiple worker threads
     ///
-    /// This is only appropriate for protocols where UDP datagrams are
-    /// independent from each other and the order in they are sent and received
-    /// doesn't matter. But it can improve performance in situations where the
-    /// number of live network connections is small with respect to the amount
-    /// of available CPU cores.
+    /// This is only appropriate for higher-level protocols where UDP datagrams
+    /// are independent from each other and the order in which they are sent and
+    /// processed doesn't matter. But when that is the case, it can
+    /// significantly improve performance in situations where the number of live
+    /// network connections is small with respect to the amount of CPU cores.
+    ///
+    /// When this option is set, the callbacks that are passed to streaming
+    /// commands like udipe_stream_send() must be thread-safe.
     ///
     /// By default, each connection is assigned to a single worker thread. This
     /// means that as long as commands associated with the connection only
-    /// originate from a single client thread, packets will be sent and received
-    /// in a strict FIFO manner.
-    bool parallel;
+    /// originate from a single client thread, packets will be sent and
+    /// processed in a strict FIFO manner with respect to the order in which the
+    /// network provided them. But do remember that UDP as a protocol does not
+    /// provide ordering guarantees to allow e.g. switching between IP routes...
+    //
+    // TODO: This will require SO_REUSEPORT + fancier infrastructure in
+    //       udipe_context as a connexion may now be associated with multiple
+    //       worker threads. In any case, udipe_context will need a way to know
+    //       which worker threads can handle which connexion.
+    bool allow_multithreading;
+
+    /// Request packet timestamps
+    ///
+    /// If enabled, each packet will come with a timestamp that indicates when
+    /// the network interface processed it. This can be combined with
+    /// application-side timestamps to estimate the kernel and application
+    /// processing delay on the receive path.
+    ///
+    /// By default, timestamps are not requested.
+    //
+    // TODO: Implement by setting SO_TIMESTAMPNS and checking the
+    //       `SCM_TIMESTAMPNS` cmsg.
+    bool enable_timestamps;
+
+    // TODO: Activer aussi IP_RECVERR et logger voire gérer les erreurs, cf man
+    //       7 ip pour plus d'infos.
+
+    // TODO: Activer périodiquement SO_RXQ_OVFL pour check l'overflow côté
+    //       socket, puis le désactiver après réception du cmsg suivant.
+
+    // TODO: Utiliser IP_MTU après binding pour autotuning de la segment size
+    //       GRO, cf man 7 ip.
+
+    // TODO: Dans udipe-config, creuser man 7 netdevice et man 7 rtnetlink pour
+    //       la configuration device + check pseudofichiers mentionnés à la fin
+    //       de man 7 socket, man 7 ip et man 7 udp pour la config kernel.
+
+    // TODO: Quand j'aurai implémenté le multithreading des workers, utiliser
+    //       SO_INCOMING_CPU pour associer le socket de chaque worker à son CPU.
 } udipe_connect_options_t;
 
 // TODO: Flesh out definitions, add docs
@@ -470,6 +553,9 @@ size_t udipe_wait_any(size_t num_futures,
 /// \{
 
 // TODO: document and implement
+//
+// TODO: Explain somewhere that a udipe connection is mostly like a POSIX socket
+//       but may be implemented using multiple sockets under the hood.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
