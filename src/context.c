@@ -28,16 +28,7 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
                          "Failed to build the hwloc hopology!");
 
         debug("Initializing the connection options allocator...");
-        const size_t num_connect_options =
-            sizeof(context->connect_options) / sizeof(shared_connect_options_t);
-        assert(num_connect_options <= 32);
-        const uint32_t initial_availability =
-            num_connect_options == 32 ? UINT32_MAX
-                                      : ((uint32_t)1 << num_connect_options) - 1;
-        atomic_init(&context->connect_options_availability, initial_availability);
-        for (size_t i = 0; i < num_connect_options; ++i) {
-            atomic_init(&context->connect_options[i].reference_count, 0);
-        }
+        context->connect_options = connect_options_allocator_initialize();
     });
     return context;
 }
