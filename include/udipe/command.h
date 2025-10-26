@@ -77,8 +77,7 @@ typedef enum udipe_direction_e {
 ///
 /// As a UDP library, `libudipe` only supports IPv4 and IPv6 addresses, i.e.
 /// `sockaddr_in` and `sockaddr_in6` in POSIX parlance. As a special extension,
-/// `sa_family == 0` is interpreted as a user desire to use the default address,
-/// which is defined in the appropriate field of \ref udipe_connect_options_t.
+/// `sa_family == 0` is interpreted as requesting some default address.
 ///
 /// This union does not need to be accompanied by a tag because the `sockaddr`
 /// types features a `sa_family` internal tag that enables IPv4/IPv6/default
@@ -91,7 +90,7 @@ typedef union ip_address_u {
 
 /// Boolean option with a nontrivial default value
 ///
-/// This is used in circumstances where the default value for an option is not
+/// This is needed in circumstances where the default value for an option is not
 /// `false` but e.g. "`true` if supported", "`true` if deemed worthwhile based
 /// on system configuration", etc.
 typedef enum udipe_bool_with_default_e {
@@ -113,7 +112,7 @@ typedef enum udipe_bool_with_default_e {
 /// in a single cache line. Taking into account that establishing a connection
 /// should be rare, and in the interest of not pessimizing the performance of
 /// other command messages which do fit in one cache line, connection options
-/// will therefore be passed to worker threads via heap-allocated blocks.
+/// will therefore be passed to worker threads via a pointer indirection.
 typedef struct udipe_connect_options_s {
     /// Default send timeout in nanoseconds, or 0 = no timeout
     ///
