@@ -3,7 +3,7 @@
 //! \file
 //! \brief Catch-all header for the udipe library.
 //!
-//! Consider using more focused `udipe/xyz.h` headers for clarity.
+//! Consider including more focused `udipe/xyz.h` headers for clarity.
 
 //! \mainpage `libudipe` API reference
 //!
@@ -24,8 +24,11 @@
 
 #include "udipe/allocator.h"
 #include "udipe/command.h"
+#include "udipe/connect.h"
 #include "udipe/context.h"
+#include "udipe/future.h"
 #include "udipe/log.h"
 #include "udipe/pointer.h"
+#include "udipe/result.h"
 // Not including udipe/tests as it isn't meant for end user consumption
 #include "udipe/visibility.h"

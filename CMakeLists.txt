@@ -78,9 +78,12 @@ add_library(Udipe::udipe ALIAS udipe)
 set(udipe_relative_headers include/udipe.h
                            include/udipe/allocator.h
                            include/udipe/command.h
+                           include/udipe/connect.h
                            include/udipe/context.h
+                           include/udipe/future.h
                            include/udipe/log.h
                            include/udipe/pointer.h
+                           include/udipe/result.h
                            include/udipe/tests.h
                            include/udipe/visibility.h)
 target_sources(udipe
@@ -94,11 +97,13 @@ target_sources(udipe
                        src/bitmap.c
                        src/command.c
                        src/command.h
+                       src/connect.h
                        src/context.c
                        src/context.h
                        src/error.c
                        src/error.h
                        src/format.h
+                       src/future.h
                        src/log.c
                        src/log.h
                        src/tests.c)
