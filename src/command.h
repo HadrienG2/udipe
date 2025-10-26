@@ -176,10 +176,11 @@ typedef struct command_s {
     union {
         shared_connect_options_t* connect;
         udipe_disconnect_options_t disconnect;
-        udipe_send_options_t send;
+        // TODO: Add and implement
+        /*udipe_send_options_t send;
         udipe_recv_options_t recv;
         udipe_send_stream_options_t send_stream;
-        udipe_recv_stream_options_t recv_stream;
+        udipe_recv_stream_options_t recv_stream;*/
     };
 
     // TODO: Consider some kind of QoS infrastructure so that e.g. IPBus slow

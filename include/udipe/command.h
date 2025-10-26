@@ -383,7 +383,8 @@ typedef struct udipe_connect_options_s {
 typedef int udipe_connect_result_t;
 typedef int udipe_disconnect_options_t;
 typedef int udipe_disconnect_result_t;
-typedef int udipe_send_options_t;
+// TODO: Add and implement
+/*typedef int udipe_send_options_t;
 typedef int udipe_send_result_t;
 typedef int udipe_recv_options_t;
 typedef int udipe_recv_result_t;
@@ -392,7 +393,7 @@ typedef int udipe_send_stream_result_t;
 typedef int udipe_recv_stream_options_t;
 typedef int udipe_recv_stream_result_t;
 typedef int udipe_reply_stream_options_t;
-typedef int udipe_reply_stream_result_t;
+typedef int udipe_reply_stream_result_t;*/
 
 /// \}
 
@@ -413,11 +414,12 @@ typedef int udipe_reply_stream_result_t;
 typedef union udipe_result_payload_u {
     udipe_connect_result_t connect;  ///< Result of udipe_connect()
     udipe_disconnect_result_t disconnect;  ///< Result of udipe_disconnect()
-    udipe_send_result_t send;  ///< Result of udipe_send()
+    // TODO: Add and implement
+    /*udipe_send_result_t send;  ///< Result of udipe_send()
     udipe_recv_result_t recv;  ///< Result of udipe_recv()
     udipe_send_stream_result_t send_stream;  ///< Result of udipe_send_stream()
     udipe_recv_stream_result_t recv_stream;  ///< Result of udipe_recv_stream()
-    udipe_reply_stream_result_t reply_stream;  ///< Result of udipe_reply_stream()
+    udipe_reply_stream_result_t reply_stream;  ///< Result of udipe_reply_stream()*/
 } udipe_result_payload_t;
 
 /// Command identifier
@@ -433,11 +435,12 @@ typedef union udipe_result_payload_u {
 typedef enum udipe_command_id_e {
     UDIPE_CONNECT = 1,  ///< udipe_connect()
     UDIPE_DISCONNECT,  ///< udipe_disconnect()
-    UDIPE_SEND,  ///< udipe_send()
+    // TODO: Add and implement
+    /*UDIPE_SEND,  ///< udipe_send()
     UDIPE_RECV,  ///< udipe_recv()
     UDIPE_SEND_STREAM,  ///< udipe_send_stream()
     UDIPE_RECV_STREAM,  ///< udipe_recv_stream()
-    UDIPE_REPLY_STREAM,  ///< udipe_reply_stream()
+    UDIPE_REPLY_STREAM,  ///< udipe_reply_stream()*/
     UDIPE_NO_COMMAND = 0  ///< Sentinel value with no associated command
 } udipe_command_id_t;
 
@@ -665,7 +668,8 @@ udipe_disconnect_result_t udipe_disconnect(udipe_context_t* context,
     return result.payload.connect;
 }
 
-// TODO: document and implement
+// TODO: Add and implement
+/*// TODO: document and implement
 //
 // TODO: Should have GSO-like semantics, i.e. if you give a large enough buffer
 //       then multiple datagrams may be sent. If GSO is disabled, then it just
@@ -775,6 +779,6 @@ udipe_reply_stream(udipe_context_t* context,
     udipe_result_t result = udipe_wait(future, 0);
     assert(result.command_id == UDIPE_REPLY_STREAM);
     return result.payload.reply_stream;
-}
+}*/
 
 /// \}
