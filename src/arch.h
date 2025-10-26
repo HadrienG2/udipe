@@ -4,8 +4,9 @@
 //! \brief Hardware-specific definitions
 //!
 //! This code module contains preprocessor defines that encode compile-time
-//! knowledge about supported CPU architectures, x86_64 only for now.
+//! knowledge about supported CPU architectures.
 
+#include <assert.h>
 #include <stddef.h>
 
 
@@ -14,7 +15,7 @@
 /// This is the alignment that is set on struct members that are shared between
 /// threads in order to avoid false sharing issues.
 ///
-/// The current definition is known to work for x86-64, aarch64 and powerpc64.
+/// The current definition is known to work for x86_64, aarch64 and powerpc64.
 /// It should be extended with ifdefs whenever the need arises as more CPU
 /// architectures become supported.
 ///
@@ -29,6 +30,20 @@
 /// when you aim for best spatial cache locality, 64B remains the maximal data
 /// structure size that you should aim for on x86_64.
 #define FALSE_SHARING_GRANULARITY ((size_t)128)
+
+/// Lower bound on the CPU cache line size, in bytes
+///
+/// This is the size that any data structure which is not manipulated in array
+/// batches should strive to stay under for optimal access performance.
+///
+/// This number is only used for testing at the time of writing, so it's fine
+/// (although obviously not ideal) if the estimate is off.
+///
+/// The current definition is known to work for x86_64, and should be extended
+/// with ifdefs whenever the need arises as more CPU architectures become
+/// supported.
+#define CACHE_LINE_SIZE ((size_t)64)
+static_assert(CACHE_LINE_SIZE <= FALSE_SHARING_GRANULARITY);
 
 /// Expected size of the smallest memory page available, in bytes
 ///
