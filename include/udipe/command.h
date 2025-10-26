@@ -670,7 +670,7 @@ udipe_disconnect_result_t udipe_disconnect(udipe_context_t* context,
 //
 // TODO: Should have GSO-like semantics, i.e. if you give a large enough buffer
 //       then multiple datagrams may be sent. If GSO is disabled, then it just
-//       sends a single datagram.
+//       sends a single datagram. Do not attempt to send more than 64 datagrams.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
