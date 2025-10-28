@@ -146,9 +146,13 @@ bool countdown_dec_and_check(countdown_t* countdown) {
 //
 // TODO: Set up a pool of countdown_t in udipe_context_t which works much like
 //       the existing connection pool, or just share the same bitmap allocator
-//       for both and call that a parallel command slot or something? I think I
+//       for both and call that a complex command slot or something? I think I
 //       actually prefer that second idea.
 //
 // TODO: Modify connect.[ch] to use an externally provided countdown_t, which
 //       will become a pointer member of shared_connect_options_t instead of an
 //       inline allocation, thus taking the minimal struct size down to 128B.
+//       Set this pointer to NULL when the connection is carried out
+//       sequentially, so that the lone worker thread knows that no decrement is
+//       necessary. And finally remove the fast path from countdown, which is
+//       not needed anymore.
