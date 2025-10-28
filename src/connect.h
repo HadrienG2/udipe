@@ -44,39 +44,25 @@
 ///   them, and reference counting is used to synchronize worker threads with
 ///   each other in the subsequent struct liberation process.
 typedef struct shared_connect_options_s {
+    /// Connection options
+    ///
+    /// If `reference_count` is greater than 1, this struct is visible by
+    /// multiple worker threads and must not be modified. This means that
+    /// default values must be normalized into final settings within the client
+    /// thread before this struct is sent to worker threads.
+    alignas(FALSE_SHARING_GRANULARITY) udipe_connect_options_t options;
+
     /// Reference count
     ///
     /// This should be zero upon allocation if correct synchronization was used
     /// by prior worker threads. It is initialized to the number of worker
-    /// threads that will consume this struct (1 for sequential connections,
-    /// >= 1 for parallel connections) and will go down until it reaches zero.
+    /// threads that will consume this struct (1 for sequential connections, >=
+    /// 1 for parallel connections) and will go down until it reaches zero.
     ///
-    /// If this refcount is initially 1 (which can be checked with a relaxed
-    /// load and is the case for all sequential connections), then the
-    /// consumer worker thread can take the following fast path:
-    ///
-    /// - Read the `options` member
-    /// - Set this refcount to zero with a release store
-    /// - Liberate this struct as directed in the documentation of \ref
-    ///   udipe_context_t.
-    ///
-    /// If this refcount is not initially 1, then the standard reference
-    /// counting pattern must be followed instead.
-    ///
-    /// - Read the `options` member
-    /// - Decrement this refcount with a release fetch_sub()
-    /// - If the refcount reaches zero (i.e. fetch_sub() returns an initial
-    ///   value of 1), then liberate this struct as directed in the
-    ///   documentation of \ref udipe_context_t.
+    /// It is aligned to the false sharing granularity to ensure that worker
+    /// threads that decrement the reference count do not accidentally steal the
+    /// `options` cache line from other threads that are still working.
     alignas(FALSE_SHARING_GRANULARITY) atomic_size_t reference_count;
-
-    /// Connection options
-    ///
-    /// If the reference count is greater than 1, this struct is visible by
-    /// multiple worker threads and must not be modified. This means that
-    /// default values must be normalized into final settings within the client
-    /// thread before this struct is sent to worker threads.
-    udipe_connect_options_t options;
 } shared_connect_options_t;
 static_assert(alignof(shared_connect_options_t) == FALSE_SHARING_GRANULARITY);
 static_assert(sizeof(shared_connect_options_t) == FALSE_SHARING_GRANULARITY);
