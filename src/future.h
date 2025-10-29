@@ -8,6 +8,25 @@
 //! futex leverages the existence of the \ref UDIPE_NO_COMMAND sentinel value of
 //! the \ref udipe_command_id_t result tag in order to let threads efficiently
 //! wait for the result to come up.
+//!
+//! "Collective" commands which may be executed by multiple worker threads, such
+//! as the set up of a parallel connection or stream, must set up a suitable
+//! synchronization infrastructure to ensure that...
+//!
+//! - The future is not set until all worker threads are done or at least one
+//!   worker has failed.
+//!   * Ideally, no user-visible side effect would happen until all threads are
+//!     confirmed to have succeeded, but this may be hard for e.g. receive
+//!     streams where it would entail nasty things like throwing away incoming
+//!     packets on those threads that did successfully finish their setup. Need
+//!     to experiment with this.
+//! - If a worker fails, then the failure is reported in such a way that...
+//!   * Workers which finished previously are notified and asked to revert their
+//!     work.
+//!   * Workers which finished afterwards will not wrongly report success, but
+//!     instead revert their work too.
+//!   * The collective operation state is not deallocated until all workers have
+//!     seen it.
 
 #include <udipe/future.h>
 #include <udipe/result.h>
