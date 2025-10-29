@@ -3,15 +3,15 @@
 //! \file
 //! \brief Asynchronous operation management
 //!
-//! Asynchronous `libudipe` commands like udipe_start_connect() do not directly
-//! return a result, but instead return a \ref udipe_future_t proxy object that
-//! can be used to eventually wait for the result to come up.
+//! Asynchronous `libudipe` commands such as udipe_start_connect() do not
+//! directly return a result, but instead return a pointer to a \ref
+//! udipe_future_t proxy that is later used to wait for the result to come up.
 //!
 //! Adding this intermediary stage where the command has been submitted to
-//! worker threads but not executed yet allows you to schedule more command
-//! while you wait for the result of the original command to come up, and to
-//! flexibly and efficiently wait for multiple operations using collective
-//! operations like udipe_wait_all() and udipe_wait_any().
+//! worker threads, but has not been awaited yet, allows you to schedule more
+//! commands before you wait for the result of the initial command to come up,
+//! and to flexibly and efficiently wait for multiple operations using
+//! collective operations udipe_wait_all() and udipe_wait_any().
 
 #include "pointer.h"
 #include "result.h"
@@ -24,22 +24,25 @@
 
 /// Asynchronous operation future
 ///
-/// A pointer to this opaque struct is built by every asynchronous command
-/// (those whose name begins with `udipe_start_`). It can be used to query
-/// whether the associated asynchronous operation is done executing, wait for it
-/// to finish executing, and collect the result.
+/// Every asynchronous `libudipe` command (function whose name begins with
+/// `udipe_start_`) returns a pointer to a future, which acts as a proxy for the
+/// associated asynchronous operation.
 ///
-/// Its content is an opaque implementation detail of `libudipe` that you should
-/// not attempt to read or modify.
+/// This future **must** later be awaited using udipe_wait() or a collective
+/// version thereof, which is the point at which the operation's result or
+/// errors will be reported, and associated resources will be liberated.
 ///
-/// It cannot be used again after the completion of the operation has been
-/// successfully awaited using a function like udipe_wait().
+/// After a future has been awaited to completion, the ressources associated
+/// with it have been liberated, and it must not be used again.
+///
+/// The content of a future is an opaque implementation detail of `libudipe`
+/// that you should not attempt to read or modify in any way.
 typedef struct udipe_future_s udipe_future_t;
 
 /// Truth that an asynchronous operation is finished
 ///
-/// If this returns true, then a call to udipe_wait() for this future is
-/// guaranteed to return the result immediately without blocking this thread.
+/// If this returns true, then a subsequent call to udipe_wait() for this future
+/// is guaranteed to return the result immediately without blocking the caller.
 ///
 /// If you find yourself needing to use this function for periodical polling
 /// because you are also waiting for some events outside of `libudipe`'s
@@ -62,17 +65,25 @@ bool udipe_done(const udipe_future_t* future);
 /// below) elapses.
 ///
 /// If the asynchronous operation completes before the timeout, then the output
-/// \ref udipe_result_t will have the nonzero `command_id` of the command that
-/// was originally submitted. In this case, the future object is destroyed and
-/// must not be used again.
+/// \ref udipe_result_t will have the nonzero \ref command_id_t of the command
+/// that was originally submitted. In this case the future is liberated and must
+/// not be used again.
 ///
 /// If the asynchronous operation takes longer than the specified timeout to
 /// complete, then this function will return an invalid result (with
-/// `command_id` set to \ref UDIPE_NO_COMMAND). In this case, the future object
-/// remains valid and can be awaited again.
+/// `command_id` set to \ref UDIPE_NO_COMMAND). In this case the future remains
+/// valid and can be awaited again.
 ///
-/// \param future must be a future that was returned by an asynchronous entry
-///               point (those whose name begins with `udipe_start_`), and that
+/// It is possible to await a future on a thread other than the one which
+/// started the asynchronous operation, however that will come at the expense of
+/// a performance hit and less optimal resource management.
+///
+/// If you need to wait for multiple asynchronous operations, then you may want
+/// to look into use udipe_wait_all() or udipe_wait_any() instead of awaiting
+/// them one by one.
+///
+/// \param future must be a future that was returned by an asynchronous command
+///               (those functions whose name begins with `udipe_start_`), and
 ///               has not been successfully awaited yet.
 /// \param timeout_ns specifies a minimal time in nanoseconds during which
 ///                   udipe_wait() will wait for the asynchronous operation to
@@ -100,17 +111,17 @@ udipe_result_t udipe_wait(udipe_future_t* future, uint64_t timeout_ns);
 ///
 /// If the result is `true`, indicating full completion, then it is guaranteed
 /// that the operations associated with all futures have completed. Therefore
-/// none of the output `results` have their `command_id` field set to \ref
-/// UDIPE_NO_COMMAND, and none of the input `futures` can be used afterwards.
+/// all of the output `results` will be set to the result of the associated
+/// operations, and none of the input futures can be used again.
 ///
-/// If the result is `false`, indicating that the wait has timed out, then you
-/// must check each entry of `result` to see which operations have completed. By
-/// the same logic as udipe_wait(), those which have **not** completed will have
-/// the `command_id` field of their \ref udipe_result_t set to \ref
-/// UDIPE_NO_COMMAND.
+/// If the result is `false`, indicating that the wait has timed out before all
+/// operations reached completion, then you must check each entry of `result` to
+/// see which operations have completed. By the same logic as udipe_wait(),
+/// those operations that have **not** completed will have the `command_id`
+/// field of their \ref udipe_result_t set to \ref UDIPE_NO_COMMAND.
 ///
 /// As a reminder, futures associated with operations that have completed have
-/// been destroyed and must not be used again.
+/// been liberated and must not be used again.
 ///
 /// \param num_futures must indicate the number of elements in the `futures`
 ///                    and `results` arrays.
@@ -140,10 +151,11 @@ bool udipe_wait_all(size_t num_futures,
 /// future to complete, or for the timeout to elapse. The result indicates how
 /// many futures have completed, if it is 0 then the request has timed out.
 ///
-/// Aside from the obvious difference that it waits for 1+ operation rather than
-/// all of them, this function is used a lot like udipe_wait_all(), with a few
-/// API tweaks. We will therefore mainly focus on the differences, and let you
-/// check the documentation of udipe_wait_all() where they work identically.
+/// Aside from the obvious difference that it waits for one or more operations
+/// rather than operations, this function is used a lot like udipe_wait_all(),
+/// with a few API tweaks. We will therefore mainly focus on the differences,
+/// and let you check the documentation of udipe_wait_all() for those areas
+/// where both functions work identically.
 ///
 /// \param num_futures works as in udipe_wait_all() except it also indicates
 ///                    the size of the `result_positions` array if there is one.
@@ -152,15 +164,15 @@ bool udipe_wait_all(size_t num_futures,
 /// \param result_positions can be `NULL`. If it is set, then it must point to
 ///                         an array of `size_t` of length `num_futures`.
 ///                         This array will be used to record the positions of
-///                         the futures that did reach completion, the return
-///                         value of the function will tell how many entries
-///                         were filled this way.
+///                         the futures that did reach completion, and the
+///                         return value of the function will tell how many
+///                         entries were filled this way.
 /// \param timeout_ns works as in udipe_wait().
 ///
 /// \returns the number of operations that have completed, which will be nonzero
 ///          if at least one operation has completed and zero otherwise.
 //
-// TODO: Implement by first checking futexes for completion, then converting the
+// TODO: Implement by first polling futexes for completion, then converting the
 //       remaining futexes to file descriptors using FUTEX_FD, then polling
 //       these fds using epoll(), then discarding everything. Consider having an
 //       internal variant that keeps the context around instead, used by the
