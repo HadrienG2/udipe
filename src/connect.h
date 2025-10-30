@@ -64,8 +64,12 @@ typedef struct shared_connect_options_s {
     /// `options` cache line from other threads that are still working.
     alignas(FALSE_SHARING_GRANULARITY) atomic_size_t reference_count;
 } shared_connect_options_t;
-static_assert(alignof(shared_connect_options_t) == FALSE_SHARING_GRANULARITY);
-static_assert(sizeof(shared_connect_options_t) == FALSE_SHARING_GRANULARITY);
+static_assert(alignof(shared_connect_options_t) == FALSE_SHARING_GRANULARITY,
+              "Different options may belong to different client threads and "
+              "should thus reside in their own false sharing granules");
+static_assert(sizeof(shared_connect_options_t) == 2 * FALSE_SHARING_GRANULARITY,
+              "Need to split read-only and writable into different "
+              "false sharing granules for optimal read-mostly performance.");
 
 /// Number of \ref shared_connect_options_t within a \ref
 /// connect_options_allocator_t
@@ -82,7 +86,8 @@ static_assert(sizeof(shared_connect_options_t) == FALSE_SHARING_GRANULARITY);
 /// client threads for a little while until some of the ongoing connection
 /// requests have been processed;
 #define NUM_CONNECT_OPTIONS ((size_t)32)
-static_assert(NUM_CONNECT_OPTIONS <= 32);
+static_assert(NUM_CONNECT_OPTIONS <= 32,
+              "Imposed by Linux futex limitations + simple bitmap design");
 
 /// Simple allocator for \ref shared_connect_options_t
 ///

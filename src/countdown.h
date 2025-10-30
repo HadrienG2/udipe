@@ -37,6 +37,8 @@
 typedef struct countdown_s {
     alignas(FALSE_SHARING_GRANULARITY) atomic_size_t counter;
 } countdown_t;
+// TODO: Actually it's not countdown that should be aligned but the entire
+//       control block that it belongs to, TBD during upcoming sync rework.
 static_assert(alignof(countdown_t) == FALSE_SHARING_GRANULARITY,
               "As a synchronization variable, countdown_t must be aligned to "
               "avoid false sharing with neighboring non-synchronization state");

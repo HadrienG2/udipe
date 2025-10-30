@@ -58,12 +58,18 @@ struct udipe_future_s {
     ///   with release ordering, and finally it wakes the futex.
     _Atomic uint32_t futex;
 };
-static_assert(alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY);
-static_assert(sizeof(udipe_future_t) == FALSE_SHARING_GRANULARITY);
+static_assert(alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
+              "Each future potentially synchronizes different workers and "
+              "client threads, and should therefore reside on its own "
+              "false sharing granule");
+static_assert(sizeof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
+              "Should not need more than one false sharing granule per future");
 static_assert(
-    offsetof(udipe_future_t, futex) + sizeof(uint32_t) <= CACHE_LINE_SIZE
+    offsetof(udipe_future_t, futex) + sizeof(uint32_t) <= CACHE_LINE_SIZE,
+    "Should fit on a single cache line for optimal memory access performance "
+    "on CPUs where the FALSE_SHARING_GRANULARITY upper bound is pessimistic"
 );
-// Also check result layout while we're at it
-static_assert(sizeof(udipe_result_t) <= CACHE_LINE_SIZE);
+static_assert(sizeof(udipe_result_t) <= CACHE_LINE_SIZE,
+              "Should always be true because future is isomorphic to result");
 
 // TODO: Implement operations
