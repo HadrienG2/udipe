@@ -94,10 +94,15 @@ typedef struct command_s {
     /// value \ref UDIPE_NO_COMMAND.
     udipe_command_id_t id;
 } command_t;
-static_assert(alignof(command_t) == FALSE_SHARING_GRANULARITY);
-static_assert(sizeof(command_t) == FALSE_SHARING_GRANULARITY);
+static_assert(alignof(command_t) == FALSE_SHARING_GRANULARITY,
+              "Each command may originate from a different client thread and "
+              "should therefore be stored in its own false sharing granule");
+static_assert(sizeof(command_t) == FALSE_SHARING_GRANULARITY,
+              "Shouldn't need more than one false sharing granule per command");
 static_assert(
-    offsetof(command_t, id) + sizeof(udipe_command_id_t) <= CACHE_LINE_SIZE
+    offsetof(command_t, id) + sizeof(udipe_command_id_t) <= CACHE_LINE_SIZE,
+    "Should fit on a single cache line for optimal memory access performance "
+    "on CPUs where the FALSE_SHARING_GRANULARITY upper bound is pessimistic"
 );
 
 /// Multi-producer single-consumer command queue of a `libudipe` worker thread
@@ -159,9 +164,14 @@ typedef struct command_queue_s {
     /// threads then published through a `client_idx` increment.
     command_t commands[COMMAND_QUEUE_LEN];
 } command_queue_t;
-static_assert(alignof(command_queue_t) == FALSE_SHARING_GRANULARITY);
-static_assert(sizeof(command_queue_t) > EXPECTED_MIN_PAGE_SIZE/2);
-static_assert(sizeof(command_queue_t) <= EXPECTED_MIN_PAGE_SIZE);
+static_assert(alignof(command_queue_t) == FALSE_SHARING_GRANULARITY,
+              "Should be a normal consequence of alignment directives, "
+              "which themselves ensure that threads which should not fight "
+              "over cache lines don't fight over cache lines");
+static_assert(sizeof(command_queue_t) > EXPECTED_MIN_PAGE_SIZE/2,
+              "Should use at least half a page (otherwise size can double)");
+static_assert(sizeof(command_queue_t) <= EXPECTED_MIN_PAGE_SIZE,
+              "Should not use more than a page (otherwise size should shrink)");
 
 // TODO: Add queue operations
 

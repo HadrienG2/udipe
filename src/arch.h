@@ -43,7 +43,8 @@
 /// with ifdefs whenever the need arises as more CPU architectures become
 /// supported.
 #define CACHE_LINE_SIZE ((size_t)64)
-static_assert(CACHE_LINE_SIZE <= FALSE_SHARING_GRANULARITY);
+static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
+              "The CPU should access data at the granularity of cache lines");
 
 /// Expected size of the smallest memory page available, in bytes
 ///
