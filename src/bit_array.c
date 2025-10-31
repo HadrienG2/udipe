@@ -4,6 +4,8 @@
 
     #include "error.h"
 
+    #include <stdlib.h>
+
 
     /// Truth that a particular bit array length or index is an "interesting"
     /// test input.
