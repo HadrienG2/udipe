@@ -271,6 +271,34 @@ static inline bool log_enabled(udipe_log_level_t level);
         do __VA_ARGS__ while(false);  \
     } while(false)
 
+#ifdef UDIPE_BUILD_TESTS
+    /// Save the current thread-local logging state to local variables with a
+    /// certain name prefix
+    ///
+    /// This is needed to propagate the thread-local logging state to OpenMP
+    /// threads in parallel unit tests. To do so, call this macro before the
+    /// start of an omp parallel region in order to back up the thread-local
+    /// logging state, then apply said state to the OpenMP thread by calling
+    /// load_thread_logger_state() inside of the omp parallel block.
+    ///
+    /// Unfortunately, a cleaner interface around this operation cannot be
+    /// provided at the time of writing, because as of GCC 15.2.1 the GCC OpenMP
+    /// frontend dies with a bogus "loop nest expected before ..." error when a
+    /// macro attempts to generate an omp parallel block surrounded by any code
+    /// construct that the author of this macro thought about trying.
+    #define save_thread_logger_state(state)  \
+        const logger_t* const state ## _logger = udipe_thread_logger;  \
+        const udipe_log_level_t const state ## _log_level = udipe_thread_log_level;
+
+    /// Restore thread-local logging state that was saved by
+    /// save_thread_logger_state()
+    ///
+    /// See save_thread_logger_state() for more information.
+    #define load_thread_logger_state(state)  \
+        udipe_thread_logger = state ## _logger;  \
+        udipe_thread_log_level = state ## _log_level;
+#endif
+
 ///@}
 
 
