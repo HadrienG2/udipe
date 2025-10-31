@@ -22,7 +22,7 @@
 //! document the internal components of the library within the `src/` directory
 //! of the `libudipe` source tree.
 
-#include "udipe/allocator.h"
+#include "udipe/buffer.h"
 #include "udipe/command.h"
 #include "udipe/connect.h"
 #include "udipe/context.h"

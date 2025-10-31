@@ -1,7 +1,7 @@
 #pragma once
 
 //! \file
-//! \brief Time-related type definitions
+//! \brief Time-related definitions
 //!
 //! At the time of writing, the public `libudipe` API only exposes support for
 //! timeouts, but when a given worker thread awaits multiple timeouts, its
