@@ -76,7 +76,7 @@ endif()
 add_library(udipe)
 add_library(Udipe::udipe ALIAS udipe)
 set(udipe_relative_headers include/udipe.h
-                           include/udipe/allocator.h
+                           include/udipe/buffer.h
                            include/udipe/command.h
                            include/udipe/connect.h
                            include/udipe/context.h
@@ -91,11 +91,11 @@ target_sources(udipe
                PUBLIC FILE_SET HEADERS
                       BASE_DIRS include
                       FILES ${udipe_relative_headers}
-               PRIVATE src/allocator.c
-                       src/allocator.h
-                       src/arch.h
+               PRIVATE src/arch.h
                        src/bitmap.h
                        src/bitmap.c
+                       src/buffer.c
+                       src/buffer.h
                        src/command.c
                        src/command.h
                        src/connect.h
