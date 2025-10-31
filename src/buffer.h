@@ -1,12 +1,13 @@
 #pragma once
 
 //! \file
-//! \brief Memory allocator
+//! \brief Buffer allocator
 //!
-//! This header is the home of \ref allocator_t, the memory allocator
-//! that is internally used by `libudipe` worker threads.
+//! This header is the home of \ref buffer_allocator_t, the specialized memory
+//! allocator that is internally used by `libudipe` worker threads to allocate
+//! storage for incoming or outgoing datagrams.
 
-#include <udipe/allocator.h>
+#include <udipe/buffer.h>
 #include <udipe/pointer.h>
 
 #include "arch.h"
@@ -15,9 +16,9 @@
 #include <hwloc.h>
 
 
-/// Memory allocator
+/// Buffer allocator
 ///
-/// Each `libudipe` worker thread sets up its own \ref allocator_t on
+/// Each `libudipe` worker thread sets up its own \ref buffer_allocator_t on
 /// startup, which manages a pool of identically sized page-aligned buffers.
 ///
 /// In the default configuration, which can be overriden, the size of individual
@@ -43,9 +44,9 @@
 /// stop worrying and enjoy the simplicity/speed. We'll see how that plays out
 /// as the project develops (TODO: evaluate once benchmarking allows for it).
 ///
-/// An allocator is set up using allocator_initialize() and destroyed using
-/// allocator_finalize().
-typedef struct allocator_s {
+/// An allocator is set up using buffer_allocator_initialize() and destroyed
+/// using buffer_allocator_finalize().
+typedef struct buffer_allocator_s {
     /// Memory pool base pointer
     ///
     /// This points to the first page of memory that was allocated when this
@@ -58,69 +59,75 @@ typedef struct allocator_s {
     /// This contains the final configuration after replacing placeholder zeroes
     /// with default values and rounding up the buffer size to the next multiple
     /// of the system's page size.
-    udipe_thread_allocator_config_t config;
+    udipe_buffer_config_t config;
 
     /// Bitmap of buffer availability within the memory pool
     ///
     /// The N-th bit within this bitmap tracks whether the N-th buffer (where N
-    /// is between 0 and \link #udipe_thread_allocator_config_t::buffer_count
+    /// is between 0 and \link #udipe_buffer_config_t::buffer_count
     /// config.buffer_count\endlink) is currently available for use.
     ///
     /// A set bit means that a buffer is available for use, a cleared bit means
     /// that it is currently allocated.
     INLINE_BITMAP(buffer_availability, UDIPE_MAX_BUFFERS);
-} allocator_t;
+} buffer_allocator_t;
 
-/// Initialize a \link #allocator_t memory allocator \endlink.
+/// Initialize a \ref buffer_allocator_t.
 ///
-/// The memory allocator must later be liberated using allocator_finalize().
+/// The buffer allocator must later be liberated using
+/// buffer_allocator_finalize().
 ///
 /// This function must be called within the scope of with_logger().
 ///
-/// \param config indicates how the user wants the allocator to be configured.
+/// \param configurator indicates how the user wants the allocator to be
+///                     configured.
 /// \param topology is an hwloc topology used for the default allocator
 ///                 configuration, which is optimized for L1/L2 cache locality.
 UDIPE_NON_NULL_ARGS
-allocator_t allocator_initialize(udipe_allocator_config_t config,
-                                 hwloc_topology_t topology);
+buffer_allocator_t
+buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
+                            hwloc_topology_t topology);
 
-/// Finalize a \link #allocator_t memory allocator \endlink.
+/// Finalize a \ref buffer_allocator_t.
 ///
-/// All former allocations should have been liberated before calling this
-/// function, and the memory allocator cannot be used again after this is done.
+/// All former allocations should have been liberated with buffer_liberate()
+/// before calling this function. The buffer allocator cannot be used again
+/// after this is done.
 ///
 /// This function must be called within the scope of with_logger().
 ///
 /// \param allocator points to an allocator that has previously been set up
 ///                  using allocator_initialize() and hasn't been destroyed
 ///                  through allocator_finalize() yet.
-void allocator_finalize(allocator_t allocator);
+void buffer_allocator_finalize(buffer_allocator_t allocator);
 
-/// Liberate a memory buffer previously allocated via allocate()
+/// Liberate a memory buffer previously allocated via buffer_allocate()
 ///
 /// After this is done, the buffer must not be used again for any purpose.
 ///
 /// This function must be called within the scope of with_logger().
 ///
 /// \param allocator points to an allocator that has previously been set up
-///                  using allocator_initialize() and hasn't been destroyed
-///                  through allocator_finalize() yet.
+///                  using buffer_allocator_initialize() and hasn't been
+///                  destroyed with buffer_allocator_finalize() yet.
 /// \param buffer points to a buffer that has previously been allocated from
-///               `allocator` using allocate() and hasn't been destroyed through
-///               liberate() yet.
+///               `allocator` using buffer_allocate() and hasn't been destroyed
+///               through buffer_liberate() yet.
 UDIPE_NON_NULL_ARGS
-void liberate(allocator_t* allocator, void* buffer);
+void buffer_liberate(buffer_allocator_t* allocator, void* buffer);
 
-/// GNU attributes of the allocate() functions
+/// GNU attributes of the buffer_allocate() functions
 ///
-/// These attributes are used to let the compiler know that allocate() is a
-/// memory allocator that provides certain guarantees and expects certain usage
-/// requirements, in order to enjoy higher-quality performance optimization and
-/// static analysis. None of these attributes is mandatory for correctness.
-#define ALLOCATE_ATTRIBUTES  \
+/// These attributes are used to let the compiler know that buffer_allocate() is
+/// a memory allocator that provides certain guarantees and expects certain
+/// usage requirements, in order to enjoy higher-quality performance
+/// optimization and static analysis. None of these attributes is mandatory for
+/// correctness, so they can all be ifdef'd-out if portability to more compilers
+/// is needed someday.
+#define BUFFER_ALLOCATE_ATTRIBUTES  \
     __attribute__((assume_aligned(MIN_PAGE_ALIGNMENT)  \
                  , malloc  \
-                 , malloc(liberate, 2)  \
+                 , malloc(buffer_liberate, 2)  \
                  , warn_unused_result))
 
 /// Attempt to allocate a memory buffer
@@ -132,20 +139,20 @@ void liberate(allocator_t* allocator, void* buffer);
 /// This function must be called within the scope of with_logger().
 ///
 /// \param allocator points to an allocator that has previously been set up
-///                  using allocator_initialize() and hasn't been destroyed
-///                  through allocator_finalize() yet.
-/// \returns points to a buffer of size \link
-///          #udipe_thread_allocator_config_t::buffer_size
+///                  using buffer_allocator_initialize() and hasn't been
+///                  destroyed through buffer_allocator_finalize() yet.
+/// \returns a buffer of size \link
+///          #udipe_buffer_config_t::buffer_size
 ///          allocator->config.buffer_size\endlink, or `NULL` if no buffer is
 ///          presently available for use.
 UDIPE_NON_NULL_ARGS
-ALLOCATE_ATTRIBUTES
-void* allocate(allocator_t* allocator);
+BUFFER_ALLOCATE_ATTRIBUTES
+void* buffer_allocate(buffer_allocator_t* allocator);
 
 #ifdef UDIPE_BUILD_TESTS
-    /// Unit tests for allocators
+    /// Unit tests for buffer management
     ///
-    /// This function runs all the unit tests for allocators. It must be called
-    /// within the scope of with_logger().
-    void allocator_unit_tests();
+    /// This function runs all the unit tests for buffer allocators. It must be
+    /// called within the scope of with_logger().
+    void buffer_unit_tests();
 #endif

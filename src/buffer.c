@@ -1,4 +1,4 @@
-#include "allocator.h"
+#include "buffer.h"
 
 #include "error.h"
 #include "log.h"
@@ -85,13 +85,13 @@ static size_t get_page_size() {
     return (size_t)page_size_l;
 }
 
-/// Apply defaults and page rounding to a \ref udipe_thread_allocator_config_t
+/// Apply defaults and page rounding to a \ref udipe_buffer_config_t
 ///
 /// This prepares the config struct for use within the actual allocator by
 /// replacing placeholder zeroes with actual default values and rounding up the
 /// buffer size to the next multiple of the system page size.
 UDIPE_NON_NULL_ARGS
-static void finish_configuration(udipe_thread_allocator_config_t* config,
+static void finish_configuration(udipe_buffer_config_t* config,
                                  hwloc_topology_t topology) {
     debug("Querying system page size...");
     const size_t page_size = get_page_size();
@@ -163,23 +163,24 @@ static void finish_configuration(udipe_thread_allocator_config_t* config,
 }
 
 UDIPE_NON_NULL_ARGS
-allocator_t allocator_initialize(udipe_allocator_config_t global_config,
-                                 hwloc_topology_t topology) {
-    allocator_t allocator;
-    if (global_config.callback) {
+buffer_allocator_t
+buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
+                            hwloc_topology_t topology) {
+    buffer_allocator_t allocator;
+    if (configurator.callback) {
         debug("Obtaining configuration from user callback...");
-        allocator.config = (global_config.callback)(global_config.context);
+        allocator.config = (configurator.callback)(configurator.context);
         debugf("User requested buffer_size %zu "
                "and buffer_count %zu (0 = default)",
                allocator.config.buffer_size,
                allocator.config.buffer_count);
     } else {
         debug("No user callback specified, will use default configuration.");
-        if (global_config.context) {
-            exit_with_error("Cannot set udipe_allocator_config_t::context "
+        if (configurator.context) {
+            exit_with_error("Do not set udipe_buffer_configurator_t::context "
                             "without also setting the callback field!");
         }
-        memset(&allocator.config, 0, sizeof(udipe_thread_allocator_config_t));
+        memset(&allocator.config, 0, sizeof(udipe_buffer_config_t));
     }
 
     debug("Applying defaults and page rounding...");
@@ -216,7 +217,7 @@ allocator_t allocator_initialize(udipe_allocator_config_t global_config,
     return allocator;
 }
 
-void allocator_finalize(allocator_t allocator) {
+void buffer_allocator_finalize(buffer_allocator_t allocator) {
     debug("Finalizing the bitmap allocator");
     assert(
         bitmap_range_alleq(allocator.buffer_availability,
@@ -230,7 +231,7 @@ void allocator_finalize(allocator_t allocator) {
 }
 
 UDIPE_NON_NULL_ARGS
-void liberate(allocator_t* allocator, void* buffer) {
+void buffer_liberate(buffer_allocator_t* allocator, void* buffer) {
     assert(allocator);
     assert(buffer);
 
@@ -251,8 +252,8 @@ void liberate(allocator_t* allocator, void* buffer) {
 }
 
 UDIPE_NON_NULL_ARGS
-ALLOCATE_ATTRIBUTES
-void* allocate(allocator_t* allocator) {
+BUFFER_ALLOCATE_ATTRIBUTES
+void* buffer_allocate(buffer_allocator_t* allocator) {
     assert(allocator);
 
     trace("Starting buffer allocation...");
@@ -283,23 +284,23 @@ void* allocate(allocator_t* allocator) {
     /// Make sure that an allocator, which has been configured in a certain
     /// way, meets expected requirements. Then finalize it.
     static void check_and_finalize(
-        allocator_t allocator,
-        udipe_thread_allocator_config_t thread_config,
+        buffer_allocator_t allocator,
+        udipe_buffer_config_t config,
         size_t page_size
     ) {
         trace("Checking default allocator configuration...");
-        size_t min_size = thread_config.buffer_size;
+        size_t min_size = config.buffer_size;
         // Default configuration should be able to hold any possible UDP packet,
         // and 9216 bytes is a common MTU limit for Ethernet equipment
         if (!min_size) min_size = 9216;
         ensure_ge(allocator.config.buffer_size, min_size);
         ensure_eq(allocator.config.buffer_size % page_size, (size_t)0);
-        size_t min_count = thread_config.buffer_count;
+        size_t min_count = config.buffer_count;
         if (!min_count) min_count = 1;
         ensure_ge(allocator.config.buffer_count, min_count);
 
         trace("Backing up initial allocator configuration...");
-        const udipe_thread_allocator_config_t config = allocator.config;
+        config = allocator.config;
         void* const memory_pool = allocator.memory_pool;
 
         trace("Checking memory pool pointer...");
@@ -324,7 +325,7 @@ void* allocate(allocator_t* allocator) {
         void* buffers[UDIPE_MAX_BUFFERS];
         for (size_t buf = 0; buf < UDIPE_MAX_BUFFERS; ++buf) {
             tracef("Allocating buffer #%zu...", buf);
-            buffers[buf] = allocate(&allocator);
+            buffers[buf] = buffer_allocate(&allocator);
 
             trace("Checking invariant fields...");
             ensure_eq(allocator.config.buffer_size, config.buffer_size);
@@ -360,7 +361,7 @@ void* allocate(allocator_t* allocator) {
         trace("Liberating all the buffers...");
         for (size_t buf = 0; buf < config.buffer_count; ++buf) {
             tracef("Liberating buffer #%zu...", buf);
-            liberate(&allocator, buffers[buf]);
+            buffer_liberate(&allocator, buffers[buf]);
 
             trace("Checking invariant fields...");
             ensure_eq(allocator.config.buffer_size, config.buffer_size);
@@ -375,18 +376,17 @@ void* allocate(allocator_t* allocator) {
         }
 
         trace("Finalizing the allocator...");
-        allocator_finalize(allocator);
+        buffer_allocator_finalize(allocator);
     }
 
     /// Configuration callback that applies a predefined configuration
     /// without thread-specific adjustments
-    udipe_thread_allocator_config_t apply_shared_configuration(void* context) {
-        const udipe_thread_allocator_config_t* config =
-            (udipe_thread_allocator_config_t*)context;
+    udipe_buffer_config_t apply_shared_configuration(void* context) {
+        const udipe_buffer_config_t* config = (udipe_buffer_config_t*)context;
         return *config;
     }
 
-    void allocator_unit_tests() {
+    void buffer_unit_tests() {
         info("Running allocator unit tests...");
         with_log_level(UDIPE_DEBUG, {
             debug("Setting up an hwloc topology...");
@@ -401,43 +401,43 @@ void* allocate(allocator_t* allocator) {
             debugf("System page size is %1$zu (%1$#zx) bytes.", page_size);
 
             debug("Testing the default configuration...");
-            udipe_allocator_config_t config;
-            udipe_thread_allocator_config_t thread_config;
-            allocator_t allocator;
+            udipe_buffer_configurator_t configurator;
+            udipe_buffer_config_t config;
+            buffer_allocator_t allocator;
             with_log_level(UDIPE_TRACE, {
-                memset(&config, 0, sizeof(udipe_allocator_config_t));
-                memset(&thread_config, 0, sizeof(udipe_thread_allocator_config_t));
-                allocator = allocator_initialize(config, topology);
+                memset(&configurator, 0, sizeof(udipe_buffer_configurator_t));
+                memset(&config, 0, sizeof(udipe_buffer_config_t));
+                allocator = buffer_allocator_initialize(configurator, topology);
                 check_and_finalize(allocator,
-                                   thread_config,
+                                   config,
                                    page_size);
             });
 
             debug("Preparing for manual configurations...");
-            config.callback = apply_shared_configuration;
-            config.context = (void*)&thread_config;
+            configurator.callback = apply_shared_configuration;
+            configurator.context = (void*)&config;
 
             debug("Testing a minimal configuration (1 x 1500B)...");
             with_log_level(UDIPE_TRACE, {
-                thread_config = (udipe_thread_allocator_config_t){
+                config = (udipe_buffer_config_t){
                     .buffer_size = 1500,
                     .buffer_count = 1
                 };
-                allocator = allocator_initialize(config, topology);
+                allocator = buffer_allocator_initialize(configurator, topology);
                 check_and_finalize(allocator,
-                                   thread_config,
+                                   config,
                                    page_size);
             });
 
             debug("Testing a bigger configuration (MAX x 9216B)...");
             with_log_level(UDIPE_TRACE, {
-                thread_config = (udipe_thread_allocator_config_t){
+                config = (udipe_buffer_config_t){
                     .buffer_size = 9216,
                     .buffer_count = UDIPE_MAX_BUFFERS
                 };
-                allocator = allocator_initialize(config, topology);
+                allocator = buffer_allocator_initialize(configurator, topology);
                 check_and_finalize(allocator,
-                                   thread_config,
+                                   config,
                                    page_size);
             });
         });
