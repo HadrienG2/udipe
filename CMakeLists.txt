@@ -92,8 +92,8 @@ target_sources(udipe
                       BASE_DIRS include
                       FILES ${udipe_relative_headers}
                PRIVATE src/arch.h
-                       src/bitmap.h
-                       src/bitmap.c
+                       src/bit_array.h
+                       src/bit_array.c
                        src/buffer.c
                        src/buffer.h
                        src/command.c

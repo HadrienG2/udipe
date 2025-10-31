@@ -147,9 +147,9 @@ bool countdown_dec_and_check(countdown_t* countdown) {
 // TODO: Add unit tests
 //
 // TODO: Set up a pool of countdown_t in udipe_context_t which works much like
-//       the existing connection pool, or just share the same bitmap allocator
-//       for both and call that a complex command slot or something? I think I
-//       actually prefer that second idea.
+//       the existing connection pool, or just share the same bit array
+//       allocator for both and call that a complex command slot or something? I
+//       think I actually prefer that second idea.
 //
 // TODO: Modify connect.[ch] to use an externally provided countdown_t, which
 //       will become a pointer member of shared_connect_options_t instead of an

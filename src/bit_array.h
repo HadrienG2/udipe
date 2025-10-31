@@ -1,25 +1,31 @@
 #pragma once
 
 //! \file
-//! \brief Bitmap
+//! \brief Bit array (a.k.a bit map, bit set, bit string, bit vector)
 //!
-//! This is a simple container that is typically used for tracking the usage of
-//! each element of an array of resources.
+//! This module provides tools for declaring and manipulating bit arrays, which
+//! are optimized containers for tracking arrays of boolean values. Typical uses
+//! for this data structure include...
 //!
-//! Its implementation is more efficient when the number of ressources that is
-//! tracked is a multiple of \ref BITS_PER_WORD, which is why...
+//! - Tracking which element of a pool of resources are in use.
+//! - Tracking which threads from a thread pool are done with some task.
 //!
-//! - You are encouraged to enforce this granularity by e.g. allocating a bitmap
-//!   that is larger than you need and using sentinel values at the end such
-//!   that the extra elements are never considered in bit searches.
-//!   * While \ref BITS_PER_WORD is CPU architecture specific, a bitmap size
-//!     that is a multiple of 64 will work fine on all popular CPU architectures
-//!     at the time of writing.
-//! - You are encouraged to use bitmaps with a size that is known at compile
-//!   time. Failing that, you can get some performance back by storing your
-//!   dynamic side as a multiple of the \ref BITS_PER_WORD and making sure that
-//!   the compiler's optimizer can see the multiplication.
-//! - All bitmap operations are inline functions, allowing the compiler to
+//! The implementation of bit array operations is more efficient when the length
+//! of the bit array is known at compile time to be a multiple of \ref
+//! BITS_PER_WORD, which is why...
+//!
+//! - You are encouraged to enforce this granularity by e.g. allocating a bit
+//!   array that is larger than you need and using "neutral" padding values that
+//!   will never considered be considered as valid candidates in bit searches.
+//!   * While \ref BITS_PER_WORD is CPU architecture specific, a bit array
+//!     length that is a multiple of 64 will work fine on all popular CPU
+//!     architectures at the time of writing.
+//! - You are encouraged to use bit arrays with a length that is known at
+//!   compile time. Failing that, you can get some of the associated performance
+//!   benefits back by storing your length as a multiple of the \ref
+//!   BITS_PER_WORD and making sure that the compiler's optimizer can see the
+//!   multiplication of that "length in words" by \ref BITS_PER_WORD.
+//! - All bit array operations are inline functions, allowing the compiler to
 //!   exploit this granularity for optimization when it is present, along with
 //!   other useful compile-time information like e.g. the precise bit value that
 //!   you are setting or searching.
@@ -35,51 +41,50 @@
 
 /// Divide `num` and `denom`, rounding upwards
 ///
-/// \param num must be side-effects-free integer expression
+/// \param num must be a side-effects-free integer expression
 /// \param denom must be a side-effects-free integer value that does not
 ///              evaluate to zero
 #define DIV_CEIL(num, denom) ((num / denom) + ((num % denom) != 0))
 
 /// Unsigned machine word type used for bit storage
 ///
-/// At the C language level, a bitmap is just an array of \ref word_t.
+/// From the C language's perspective, a bit array is an array of \ref word_t.
 typedef size_t word_t;
 
 /// Number of bits within a \ref word_t
 ///
-/// This links the amount of \ref word_t that a bitmap is composed of the the
-/// amount of bits that it can hold internally.
+/// This links the amount of \ref word_t that a bit array is composed of, to the
+/// amount of boolean values that it can hold internally.
 ///
-/// Bitmap operations perform best on bitmaps whose capacity is a multiple of
-/// this quantity.
+/// Bit array operations perform best on bit arrays whose length is known at
+/// compile time to be a multiple of this quantity.
 #define BITS_PER_WORD (sizeof(word_t) * 8)
 
-/// Amount of \ref word_t inside a bitmap of specified capacity
+/// Amount of \ref word_t inside a bit array of specified length
 ///
-/// \param capacity must be an integer expression which can safely be evaluated
-///                 multiple times.
-#define BITMAP_WORDS(capacity)  DIV_CEIL((capacity), BITS_PER_WORD)
+/// \param length must be a side-effects-free integer expression.
+#define BIT_ARRAY_WORDS(length)  DIV_CEIL((length), BITS_PER_WORD)
 
 /// Maximum value of \ref word_t
 ///
-/// From a bitmap perspective, this is a \ref word_t where all bits are set.
+/// From a bit array perspective, this is a \ref word_t where all bits are set.
 #define WORD_MAX SIZE_MAX
 
-/// Broadcast a boolean value to all lanes of a bitmap word
+/// Broadcast a boolean value to all bits of a \ref word_t
 ///
 /// Returns a \ref word_t where all bits are set to the given `value`.
 static inline word_t bit_broadcast(bool value) {
     return value ? WORD_MAX : 0;
 }
 
-/// Count the number of trailing zeros in a bitmap word
+/// Count the number of trailing zeros in a \ref word_t
 ///
 /// \param word must not be zero
 static inline size_t count_trailing_zeros(word_t word) {
     return __builtin_ctzll(word);
 }
 
-/// Count the number of bits that are set to 1 in a bitmap word
+/// Count the number of bits that are set to 1 in a \ref word_t
 ///
 /// \returns the word's population count aka Hamming weight
 static inline size_t population_count(word_t word) {
@@ -89,28 +94,26 @@ static inline size_t population_count(word_t word) {
 /// \}
 
 
-/// \name Bitmap declaration
+/// \name Bit array declaration
 /// \{
 
-/// Declare a bitmap on the stack or as a struct member.
+/// Declare a bit array as a stack variable or struct member
 ///
-/// This macro generates a declaration for a bitmap variable called `name`,
-/// capable of holding `capacity` bits, which is allocated inline (i.e. not
-/// on a separate heap allocation).
+/// This macro generates a declaration for a bit array variable called `name`,
+/// capable of holding `length` bits, whose storage is allocated inline (i.e.
+/// not on a separate heap allocation).
 ///
-/// You can use this macro for the purpose of declaring either local bitmap
-/// variables or struct bitmap members.
+/// You can use this macro for the purpose of declaring either local bit array
+/// variables or struct bit array members.
 ///
 /// \param name must be a valid variable identifier, that is not already used
 ///             in the scope where this variable is called.
-/// \param capacity dictates how many bits the bitmap is capable of holding. It
-///                 should be a compile-time constant, otherwise this macro will
-///                 generate a Variable Lenght Array (VLA), which can fail in
-///                 some circumstances and will have a negative effect on
-///                 compiler optimizations in any case. And it must be a
-///                 side-effects free expression that tolerates multiple
-///                 evaluations.
-#define INLINE_BITMAP(name, capacity)  word_t name[BITMAP_WORDS(capacity)]
+/// \param length dictates how many bits the bit array is capable of holding.
+///               It should be a compile-time constant, otherwise this macro
+///               will generate a Variable Lenght Array (VLA), which will have a
+///               negative effect on compiler optimizations. In any case,
+///               `length` must be a side-effects-free operation.
+#define INLINE_BIT_ARRAY(name, length)  word_t name[BIT_ARRAY_WORDS(length)]
 
 /// \}
 
@@ -118,23 +121,23 @@ static inline size_t population_count(word_t word) {
 /// \name Bit indexing
 /// \{
 
-/// Bit location within a bitmap
+/// Bit location within a bit array
 ///
 /// This designates either the `offset`-th bit within the `word`-th word of a
-/// particular bitmap, or an invalid bit position (used for failed searches).
+/// particular bit array, or an invalid bit position (used for failed searches).
 typedef struct bit_pos_s {
     size_t word; ///< Target word, or SIZE_MAX if invalid
     size_t offset; ///< Target bit within word, or SIZE_MAX if invalid
 } bit_pos_t;
 
-/// Invalid bit location within a bitmap
+/// Invalid bit location within a bit array
 ///
-/// Used as the return value of failed bitmap searches.
+/// Used as the return value of failed bit searches.
 #define NO_BIT_POS ((bit_pos_t) { .word = SIZE_MAX, .offset = SIZE_MAX })
 
-/// Convert a bitmap location to a linear index
+/// Convert a bit location to a linear index
 ///
-/// This is typically used when using the result of a bitmap search to inform
+/// This is typically used when using the result of a bit array search to inform
 /// lookup into some associated array of resources.
 ///
 /// \param bit must be a valid bit location
@@ -144,10 +147,10 @@ static inline size_t bit_pos_to_index(bit_pos_t bit) {
     return bit.word * BITS_PER_WORD + bit.offset;
 }
 
-/// Convert a linear index to a bitmap location
+/// Convert a linear index to a bit location
 ///
 /// This is typically used when mapping an entry of an array of resource into
-/// the associated entry within a bitmap.
+/// the associated entry within a bit array.
 ///
 /// \param index must be a valid linear index
 static inline bit_pos_t index_to_bit_pos(size_t index) {
@@ -158,83 +161,83 @@ static inline bit_pos_t index_to_bit_pos(size_t index) {
     };
 }
 
-/// First bit location inside of a bitmap
+/// First bit location inside of a bit array
 ///
-/// This marks the start of a bitmap in commands that accept a bit location
-/// range like bitmap_range_alleq(), as a left-inclusive bound, much like index
-/// 0 designates the start of a C array.
+/// This marks the start of a bit array in commands that accept a bit location
+/// range like bit_array_range_alleq(), as a left-inclusive bound, much like
+/// index 0 designates the start of a C array.
 ///
-/// See also bitmap_end().
-#define BITMAP_START ((bit_pos_t) { .word = 0, .offset = 0 })
+/// See also bit_array_end().
+#define BIT_ARRAY_START ((bit_pos_t) { .word = 0, .offset = 0 })
 
-/// First invalid bit location after the end of a bitmap of length `capacity`
+/// First invalid bit location past the end of an array of `length` bits
 ///
-/// This marks the end of a bitmap in commands that accept a bit location range
-/// like bitmap_range_alleq(), as a right-exclusive bound, much like typical C
-/// loops over arrays are controlled by an `i < capacity` condition.
+/// This marks the end of a bit array in commands that accept a bit location
+/// range like bit_array_range_alleq(), as a right-exclusive bound, much like
+/// typical C loops over arrays are controlled by an `i < length` condition.
 ///
-/// See also \ref BITMAP_START.
-static inline bit_pos_t bitmap_end(size_t capacity) {
-    assert(capacity != SIZE_MAX);
-    return index_to_bit_pos(capacity);
+/// See also \ref BIT_ARRAY_START.
+static inline bit_pos_t bit_array_end(size_t length) {
+    assert(length != SIZE_MAX);
+    return index_to_bit_pos(length);
 }
 
 /// \}
 
 
-/// \name Bitmap operations
+/// \name Bit array operations
 /// \{
 
-/// Get the value of the Nth bit of a bitmap
+/// Get the value of the Nth bit of a bit array
 ///
-/// This tells whether a particular bit of a bitmap is set.
+/// This tells whether a particular bit of a bit array is set.
 ///
-/// \param bitmap must be a valid bitmap of capacity `capacity`
-/// \param capacity must be the bit storage capacity of `bitmap`
-/// \param bit must be a valid bit position inside of `bitmap`
-static inline bool bitmap_get(word_t bitmap[],
-                              size_t capacity,
-                              bit_pos_t bit) {
-    assert(bit_pos_to_index(bit) < capacity);
-    return (bitmap[bit.word] & ((word_t)1 << bit.offset)) != 0;
+/// \param bit_array must be a valid array of `length` bits
+/// \param length must be the number of bits within `bit_array`
+/// \param bit must be a valid bit position inside of `bit_array`
+static inline bool bit_array_get(word_t bit_array[],
+                                 size_t length,
+                                 bit_pos_t bit) {
+    assert(bit_pos_to_index(bit) < length);
+    return (bit_array[bit.word] & ((word_t)1 << bit.offset)) != 0;
 }
 
-/// Set the value of the Nth bit of a bitmap
+/// Set the value of the Nth bit of a bit array
 ///
-/// This lets you adjust the value of a particular bit of a bitmap.
+/// This lets you adjust the value of a particular bit of a bit array.
 ///
-/// \param bitmap must be a valid bitmap of capacity `capacity`
-/// \param capacity must be the bit storage capacity of `bitmap`
-/// \param bit must be a valid bit position inside of `bitmap`
+/// \param bit_array must be a valid array of `length` bits
+/// \param length must be the number of bits within `bit_array`
+/// \param bit must be a valid bit position inside of `bit_array`
 /// \param value is the value to which this bit will be set
-static inline void bitmap_set(word_t bitmap[],
-                              size_t capacity,
-                              bit_pos_t bit,
-                              bool value) {
-    assert(bit_pos_to_index(bit) < capacity);
+static inline void bit_array_set(word_t bit_array[],
+                                 size_t length,
+                                 bit_pos_t bit,
+                                 bool value) {
+    assert(bit_pos_to_index(bit) < length);
     if (value) {
-        bitmap[bit.word] |= ((word_t)1 << bit.offset);
+        bit_array[bit.word] |= ((word_t)1 << bit.offset);
     } else {
-        bitmap[bit.word] &= ~((word_t)1 << bit.offset);
+        bit_array[bit.word] &= ~((word_t)1 << bit.offset);
     }
 }
 
-/// Count the number of bits within a bitmap that are set to some value
+/// Count the number of bits within a bit array that are set to some value
 ///
-/// \param bitmap must be a valid bitmap of capacity `capacity`
-/// \param capacity must be the bit storage capacity of `bitmap`
+/// \param bit_array must be a valid array of `length` bits
+/// \param length must be the number of bits within `bit_array`
 /// \param value is the value whose occurences will be counted
-static inline size_t bitmap_count(word_t bitmap[],
-                                  size_t capacity,
-                                  bool value) {
-    const size_t num_full_words = capacity / BITS_PER_WORD;
-    const size_t remaining_bits = capacity % BITS_PER_WORD;
+static inline size_t bit_array_count(word_t bit_array[],
+                                     size_t length,
+                                     bool value) {
+    const size_t num_full_words = length / BITS_PER_WORD;
+    const size_t remaining_bits = length % BITS_PER_WORD;
 
     // For full words, we normalize into the problem of looking for bits that
     // are set to one, then invoke the popcount intrinsic.
     size_t result = 0;
     for (size_t word = 0; word < num_full_words; ++word) {
-        word_t target = bitmap[word];
+        word_t target = bit_array[word];
         if (!value) target = ~target;
         result += population_count(target);
     }
@@ -242,7 +245,7 @@ static inline size_t bitmap_count(word_t bitmap[],
     // If there is a trailing partial word, the logic is the same except we
     // mask out the uninitialized leading bits after normalization.
     if (remaining_bits > 0) {
-        word_t target = bitmap[num_full_words];
+        word_t target = bit_array[num_full_words];
         if (!value) target = ~target;
         target &= ((word_t)1 << remaining_bits) - 1;
         result += population_count(target);
@@ -250,35 +253,44 @@ static inline size_t bitmap_count(word_t bitmap[],
     return result;
 }
 
-/// Truth that a region of a bitmap contains only a certain value
+/// Truth that a region of a bit array contains only a certain value
 ///
-/// Check if all entries within `bitmap` from bit `start` (included) to bit
+/// Check if all entries within `bit_array` from bit `start` (included) to bit
 /// `end` (excluded) are equal to `value`.
 ///
-/// If you want to check if the entire bitmap is equal to `value`, use
-/// `bitmap_range_alleq(bitmap, capacity, BITMAP_START, bitmap_end(capacity), value)`.
+/// In the common case where you want to check if the entire bit array is equal
+/// to `value`, you can use the following pattern:
 ///
-/// \param bitmap must be a valid bitmap of capacity `capacity`.
-/// \param capacity must be the bit storage capacity of `bitmap`.
+/// ```c
+/// bool result = bit_array_range_alleq(bit_array,
+///                                     length,
+///                                     BIT_ARRAY_START,
+///                                     bit_array_end(length),
+///                                     value);
+/// ```
+///
+/// \param bit_array must be a valid array of `length` bits.
+/// \param length must be the number of bits within `bit_array`.
 /// \param start designates the first bit to be checked, which must be in range
-///              for this bitmap. Use \ref BITMAP_START if you want to cover
-///              every bit from the start of the bitmap.
+///              for this bit array. Use \ref BIT_ARRAY_START if you want to
+///              cover every bit from the start of `bit_array`.
 /// \param end designates the bit **past** the last bit to be checked. In other
 ///            words, if `start == end`, no bit will be checked. This bit
-///            position can be in range or one bit past the end of the bitmap.
-///            Use \link #bitmap_end `bitmap_end(capacity)` \endlink if you
-///            want to cover every bit until the end of the bitmap.
+///            position can be in range or one bit past the end of `bit_array`.
+///            Use \link #bit_array_end `bit_array_end(length)`
+///            \endlink if you want to cover every bit until the end of
+///            `bit_array`.
 /// \param value is the bit value that is expected.
 ///
 /// \returns the truth that all bits in range `[start; end[` are set to `value`.
-static inline bool bitmap_range_alleq(const word_t bitmap[],
-                                      size_t capacity,
-                                      bit_pos_t start,
-                                      bit_pos_t end,
-                                      bool value) {
-    assert(bit_pos_to_index(start) < capacity
+static inline bool bit_array_range_alleq(const word_t bit_array[],
+                                         size_t length,
+                                         bit_pos_t start,
+                                         bit_pos_t end,
+                                         bool value) {
+    assert(bit_pos_to_index(start) < length
            || (start.word == end.word && start.offset == end.offset));
-    assert(bit_pos_to_index(end) <= capacity);
+    assert(bit_pos_to_index(end) <= length);
 
     // For each word covered by the selected range...
     for (size_t word = start.word; word <= end.word; ++word) {
@@ -286,7 +298,7 @@ static inline bool bitmap_range_alleq(const word_t bitmap[],
         if ((word == end.word) && (end.offset == 0)) break;
 
         // Load the word of interest
-        word_t target = bitmap[word];
+        word_t target = bit_array[word];
 
         // Normalize into the problem of looking for zeroed bits
         if (value) target = ~target;
@@ -306,36 +318,43 @@ static inline bool bitmap_range_alleq(const word_t bitmap[],
     return true;
 }
 
-/// Fill a region of a bitmap with a uniform bit pattern
+/// Fill a region of a bit array with a uniform bit pattern
 ///
-/// Set all entries within `bitmap` from bit `start` (included) to bit
+/// Set all entries within `bit_array` from bit `start` (included) to bit
 /// `end` (excluded) to `value`.
 ///
-/// If you want to set the entire bitmap to `value`, use
-/// `bitmap_range_set(bitmap, capacity, BITMAP_START, bitmap_end(capacity),
-/// value)`.
+/// In the common case where you want to set the entire bit array to `value`,
+/// you can use the following pattern:
 ///
-/// \param bitmap must be a valid bitmap of capacity `capacity`.
-/// \param capacity must be the bit storage capacity of `bitmap`.
+/// ```c
+/// bool result = bit_array_range_set(bit_array,
+///                                   length,
+///                                   BIT_ARRAY_START,
+///                                   bit_array_end(length),
+///                                   value);
+/// ```
+///
+/// \param bit_array must be a valid array of `length` bits.
+/// \param length must be the number of bits within `bit_array`.
 /// \param start designates the first bit to be set, which must be in range
-///              for this bitmap unless `start == end`. Use \ref BITMAP_START if
-///              you want to cover every bit from the start of the bitmap.
+///              for `bit_array` unless `start == end`. Use \ref BIT_ARRAY_START
+///              if you want to cover every bit from the start of the bit array.
 /// \param end designates the bit **past** the last bit to be set. In other
 ///            words, if `start == end`, no bit will be set. This bit
-///            position can be in range or one bit past the end of the bitmap.
-///            Use \link #bitmap_end `bitmap_end(capacity)` \endlink if you
-///            want to cover every bit until the end of the bitmap.
+///            position can be in range or one bit past the end of the bit array.
+///            Use \link #bit_array_end `bit_array_end(length)` \endlink if you
+///            want to cover every bit until the end of `bit_array`.
 /// \param value is the bit value that will be set.
-static inline void bitmap_range_set(word_t bitmap[],
-                                    size_t capacity,
-                                    bit_pos_t start,
-                                    bit_pos_t end,
-                                    bool value) {
-    assert(bit_pos_to_index(start) < capacity
+static inline void bit_array_range_set(word_t bit_array[],
+                                       size_t length,
+                                       bit_pos_t start,
+                                       bit_pos_t end,
+                                       bool value) {
+    assert(bit_pos_to_index(start) < length
            || (start.word == end.word && start.offset == end.offset));
-    assert(bit_pos_to_index(end) <= capacity);
+    assert(bit_pos_to_index(end) <= length);
 
-    // Filling an entire bitmap word means assigning this value to it
+    // Filling an entire bit array word means assigning this value to it
     const word_t broadcast = bit_broadcast(value);
 
     // We mostly do this for each covered word, except for the first and last
@@ -347,7 +366,7 @@ static inline void bitmap_range_set(word_t bitmap[],
         // This fast path must not be removed as it is necessary for the
         // correctness of the partial word computation below.
         if ((word > start.word || start.offset == 0) && word < end.word) {
-            bitmap[word] = broadcast;
+            bit_array[word] = broadcast;
             continue;
         }
 
@@ -355,7 +374,7 @@ static inline void bitmap_range_set(word_t bitmap[],
         if (word == end.word && end.offset == 0) break;
 
         // Load the current value of the word of interest
-        const word_t current = bitmap[word];
+        const word_t current = bit_array[word];
 
         // Set up a mask to select which bits will be modified
         //
@@ -406,36 +425,36 @@ static inline void bitmap_range_set(word_t bitmap[],
         const size_t offset_delta = end_offset - start_offset;
         const word_t fill_mask = (((word_t)1 << offset_delta) - 1) << start_offset;
 
-        // Update bitmap with the masked mixture of the current and new value
-        bitmap[word] = (broadcast & fill_mask) | (current & ~fill_mask);
+        // Update bit array with the masked mixture of the current and new value
+        bit_array[word] = (broadcast & fill_mask) | (current & ~fill_mask);
     }
 }
 
-/// Find the first bit that has a certain value within a bitmap
+/// Find the first bit that has a certain value within a bit array
 ///
-/// \param bitmap must be a valid bitmap of capacity `capacity`.
-/// \param capacity must be the bit storage capacity of `bitmap`.
-/// \param value is the bit value that will be searched within the bitmap.
+/// \param bit_array must be a valid array of `length` bits.
+/// \param length must be the number of bits within `bit_array`.
+/// \param value is the bit value that will be searched within `bit_array`.
 /// \returns The position of the first bit that has the desired value, or
 ///          \ref NO_BIT_POS to indicate absence of the desired value.
-static inline bit_pos_t bitmap_find_first(word_t bitmap[],
-                                          size_t capacity,
-                                          bool value) {
+static inline bit_pos_t bit_array_find_first(word_t bit_array[],
+                                             size_t length,
+                                             bool value) {
     // Quickly skip over words where the value isn't present
     const word_t empty_word = bit_broadcast(!value);
-    const size_t end_word = BITMAP_WORDS(capacity);
+    const size_t end_word = BIT_ARRAY_WORDS(length);
     size_t word;
     for (word = 0; word < end_word; ++word) {
-        if (bitmap[word] != empty_word) break;
+        if (bit_array[word] != empty_word) break;
     }
 
-    // If we skipped all words, we know the value is absent from the bitmap
+    // If we skipped all words, we know the value is absent from the bit array
     if (word == end_word) return NO_BIT_POS;
 
     // Otherwise, check the word on which we ended up
-    const size_t num_full_words = capacity / BITS_PER_WORD;
-    const size_t remaining_bits = capacity % BITS_PER_WORD;
-    word_t found_word = bitmap[word];
+    const size_t num_full_words = length / BITS_PER_WORD;
+    const size_t remaining_bits = length % BITS_PER_WORD;
+    word_t found_word = bit_array[word];
 
     // Normalize into the problem of looking for set bits
     if (!value) found_word = ~found_word;
@@ -456,48 +475,49 @@ static inline bit_pos_t bitmap_find_first(word_t bitmap[],
     };
 }
 
-/// Find the next bit that has a certain value within a bitmap
+/// Find the next bit that has a certain value within a bit array
 ///
 /// This is meant to be used when iterating over bits that have a certain value
-/// within a certain bitmap. It receives a \ref bit_pos_t that was typically
-/// returned by bitmap_find_first() or a previous call to bitmap_find_next(),
-/// and returns the location of the next value of interest within the bitmap.
+/// within a certain bit array. It receives a \ref bit_pos_t that was typically
+/// returned by bit_array_find_first() or a previous call to
+/// bit_array_find_next(), and returns the location of the next value of
+/// interest within the bit array.
 ///
-/// \param bitmap must be a valid bitmap of capacity `capacity`.
-/// \param capacity must be the bit storage capacity of `bitmap`.
-/// \param previous must be a valid bit position inside of `bitmap`. The search
-///        will begin after this bit. It will not include this bit unless
+/// \param bit_array must be a valid array of `length` bits.
+/// \param length must be the number of bits within `bit_array`.
+/// \param previous must be a valid bit position inside of `bit_array`. The
+///        search will begin after this bit. It will not include this bit unless
 ///        `wraparound` is enabled.
 /// \param wraparound indicates whether the search should wrap around to the
-///        start of the bitmap if no occurence of `value` is found. If the
-///        search does wrap around, then it will terminate unsuccessfully when
-///        `previous` is reached again.
-/// \param value is the bit value that will be searched within the bitmap.
+///        start of `bit_array` if no occurence of `value` is found. If the
+///        search does wrap around, then it will terminate unsuccessfully if
+///        `previous` is reached again and does not contain `value`.
+/// \param value is the bit value that will be searched within `bit_array`.
 /// \returns The position of the first bit after `previous` (including possible
 ///          search wraparound) that has the desired value, or \ref NO_BIT_POS
 ///          to indicate absence of the desired value.
-static inline bit_pos_t bitmap_find_next(word_t bitmap[],
-                                         size_t capacity,
-                                         bit_pos_t previous,
-                                         bool wraparound,
-                                         bool value) {
+static inline bit_pos_t bit_array_find_next(word_t bit_array[],
+                                            size_t length,
+                                            bit_pos_t previous,
+                                            bool wraparound,
+                                            bool value) {
     // Check safety invariant in debug build
-    assert(bit_pos_to_index(previous) < capacity);
+    assert(bit_pos_to_index(previous) < length);
 
     // If we were not looking at the last bit of the previous word, then
     // continue search within this word.
-    const size_t num_full_words = capacity / BITS_PER_WORD;
-    const size_t remaining_bits = capacity % BITS_PER_WORD;
+    const size_t num_full_words = length / BITS_PER_WORD;
+    const size_t remaining_bits = length % BITS_PER_WORD;
     const bool previous_incomplete = previous.word == num_full_words;
     const size_t previous_bits = previous_incomplete ? remaining_bits : BITS_PER_WORD;
     if (previous.offset != (previous_bits - 1)) {
         // Extract previous word
-        word_t previous_word = bitmap[previous.word];
+        word_t previous_word = bit_array[previous.word];
 
         // Normalize into the problem of looking for set bits
         if (!value) previous_word = ~previous_word;
 
-        // If this was the last word of an incomplete bitmap, mask out its
+        // If this was the last word of an incomplete bit array, mask out its
         // padding bits so they do not result in search false positives
         if (previous_incomplete) previous_word &= ((word_t)1 << remaining_bits) - 1;
 
@@ -515,13 +535,13 @@ static inline bit_pos_t bitmap_find_next(word_t bitmap[],
         }
     }
 
-    // Look inside the remaining words from the bitmap, if any
-    const size_t num_words = BITMAP_WORDS(capacity);
+    // Look inside the remaining words from the bit array, if any
+    const size_t num_words = BIT_ARRAY_WORDS(length);
     if (previous.word != num_words - 1) {
         const size_t word_offset = previous.word + 1;
-        bit_pos_t pos = bitmap_find_first(
-            bitmap + word_offset,
-            capacity - word_offset * BITS_PER_WORD,
+        bit_pos_t pos = bit_array_find_first(
+            bit_array + word_offset,
+            length - word_offset * BITS_PER_WORD,
             value
         );
         if (pos.word != SIZE_MAX) {
@@ -534,9 +554,9 @@ static inline bit_pos_t bitmap_find_next(word_t bitmap[],
     if (!wraparound) return NO_BIT_POS;
 
     // Otherwise, look into bits before and including the `previous` bit
-    return bitmap_find_first(bitmap,
-                             bit_pos_to_index(previous) + 1,
-                             value);
+    return bit_array_find_first(bit_array,
+                                bit_pos_to_index(previous) + 1,
+                                value);
 }
 
 /// \}
@@ -546,11 +566,11 @@ static inline bit_pos_t bitmap_find_next(word_t bitmap[],
 /// \{
 
 #ifdef UDIPE_BUILD_TESTS
-    /// Unit tests for bitmaps
+    /// Unit tests for bit arrays
     ///
-    /// This function runs all the unit tests for bitmaps. It must be called
+    /// This function runs all the unit tests for bit arrays. It must be called
     /// within the scope of with_logger().
-    void bitmap_unit_tests();
+    void bit_array_unit_tests();
 #endif
 
 /// \}

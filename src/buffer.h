@@ -11,7 +11,7 @@
 #include <udipe/pointer.h>
 
 #include "arch.h"
-#include "bitmap.h"
+#include "bit_array.h"
 
 #include <hwloc.h>
 
@@ -61,15 +61,15 @@ typedef struct buffer_allocator_s {
     /// of the system's page size.
     udipe_buffer_config_t config;
 
-    /// Bitmap of buffer availability within the memory pool
+    /// Bit array of buffer availability within the memory pool
     ///
-    /// The N-th bit within this bitmap tracks whether the N-th buffer (where N
-    /// is between 0 and \link #udipe_buffer_config_t::buffer_count
+    /// The N-th bit within this bit array tracks whether the N-th buffer (where
+    /// N is between 0 and \link #udipe_buffer_config_t::buffer_count
     /// config.buffer_count\endlink) is currently available for use.
     ///
     /// A set bit means that a buffer is available for use, a cleared bit means
     /// that it is currently allocated.
-    INLINE_BITMAP(buffer_availability, UDIPE_MAX_BUFFERS);
+    INLINE_BIT_ARRAY(buffer_availability, UDIPE_MAX_BUFFERS);
 } buffer_allocator_t;
 
 /// Initialize a \ref buffer_allocator_t.
