@@ -15,11 +15,11 @@
 
 #include "pointer.h"
 #include "result.h"
+#include "time.h"
 #include "visibility.h"
 
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 
 
 /// Asynchronous operation future
@@ -42,7 +42,8 @@ typedef struct udipe_future_s udipe_future_t;
 /// Truth that an asynchronous operation is finished
 ///
 /// If this returns true, then a subsequent call to udipe_wait() for this future
-/// is guaranteed to return the result immediately without blocking the caller.
+/// is guaranteed to return the result immediately without blocking the caller,
+/// even if a timeout of 0 is used.
 ///
 /// If you find yourself needing to use this function for periodical polling
 /// because you are also waiting for some events outside of `libudipe`'s
@@ -85,13 +86,11 @@ bool udipe_done(const udipe_future_t* future);
 /// \param future must be a future that was returned by an asynchronous command
 ///               (those functions whose name begins with `udipe_start_`), and
 ///               has not been successfully awaited yet.
-/// \param timeout_ns specifies a minimal time in nanoseconds during which
-///                   udipe_wait() will wait for the asynchronous operation to
-///                   complete. The actual delay will be rounded up to the next
-///                   multiple of the system scheduler clock granularity and may
-///                   be affected by system task scheduling overheads. If a
-///                   delay of UINT64_MAX is specified, then udipe_wait() will
-///                   not return until the specified operation completes.
+/// \param timeout specifies a minimal time in nanoseconds during which
+///                udipe_wait() will wait for the asynchronous operation to
+///                complete, unless set to zero in which case it means "wait
+///                indefinitely for something to happens". See \ref
+///                udipe_duration_ns_t for more information.
 ///
 /// \returns The result of the asynchronous operation if it completes, or an
 ///          invalid result (with `command_id` set to \ref UDIPE_NO_COMMAND) if
@@ -101,7 +100,7 @@ bool udipe_done(const udipe_future_t* future);
 //       Recycle the future into the host thread's local cache.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
-udipe_result_t udipe_wait(udipe_future_t* future, uint64_t timeout_ns);
+udipe_result_t udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout);
 
 /// Wait for the result of multiple asynchronous operations
 ///
@@ -130,7 +129,7 @@ udipe_result_t udipe_wait(udipe_future_t* future, uint64_t timeout_ns);
 /// \param results must be an array of length `num_futures` of \ref
 ///                udipe_result_t. The initial value of these results does not
 ///                matter, they will be overwritten.
-/// \param timeout_ns works as in udipe_wait().
+/// \param timeout works as in udipe_wait().
 ///
 /// \returns `true` if all asynchronous operations completed, and `false` if the
 ///          operation did not complete before the timeout was reached.
@@ -143,7 +142,7 @@ UDIPE_NON_NULL_ARGS
 bool udipe_wait_all(size_t num_futures,
                     udipe_future_t* futures[],
                     udipe_result_t results[],
-                    uint64_t timeout_ns);
+                    udipe_duration_ns_t timeout);
 
 /// Wait for the result of at least one asynchronous operation
 ///
@@ -167,7 +166,7 @@ bool udipe_wait_all(size_t num_futures,
 ///                         the futures that did reach completion, and the
 ///                         return value of the function will tell how many
 ///                         entries were filled this way.
-/// \param timeout_ns works as in udipe_wait().
+/// \param timeout works as in udipe_wait().
 ///
 /// \returns the number of operations that have completed, which will be nonzero
 ///          if at least one operation has completed and zero otherwise.
@@ -183,4 +182,4 @@ size_t udipe_wait_any(size_t num_futures,
                       udipe_future_t* futures[],
                       udipe_result_t results[],
                       size_t* result_positions,
-                      uint64_t timeout_ns);
+                      udipe_duration_ns_t timeout);
