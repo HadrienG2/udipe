@@ -11,7 +11,7 @@
 
 
     #define NUM_RUNS 100
-    #define RANGE 100
+    #define RANGE 10000
 
     static void test_countdown(countdown_t* countdown, size_t initial) {
         countdown_set(countdown, initial);
