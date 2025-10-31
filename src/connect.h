@@ -87,7 +87,7 @@ static_assert(sizeof(shared_connect_options_t) == 2 * FALSE_SHARING_GRANULARITY,
 /// requests have been processed;
 #define NUM_CONNECT_OPTIONS ((size_t)32)
 static_assert(NUM_CONNECT_OPTIONS <= 32,
-              "Imposed by Linux futex limitations + simple bitmap design");
+              "Imposed by Linux futex limitations + simple bit arraya design");
 
 /// Simple allocator for \ref shared_connect_options_t
 ///
@@ -100,8 +100,8 @@ static_assert(NUM_CONNECT_OPTIONS <= 32,
 typedef struct connect_options_allocator_s {
     /// Futex that tracks which of the `options` are available for use
     ///
-    /// This futex is a bitmap where each bit is set to 1 to indicate that the
-    /// matching entry of the `connect_options` array is available, or 0 to
+    /// This futex is a bit array where each bit is set to 1 to indicate that
+    /// the matching entry of the `connect_options` array is available, or 0 to
     /// indicate that it is currently used as part of some outstanding
     /// connection request to worker threads.
     ///

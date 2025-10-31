@@ -3,7 +3,7 @@
     #include <udipe/log.h>
     #include <udipe/tests.h>
 
-    #include "bitmap.h"
+    #include "bit_array.h"
     #include "buffer.h"
     #include "command.h"
     #include "log.h"
@@ -38,7 +38,7 @@
 
         logger_t logger = log_initialize(log_config);
         with_logger(&logger, {
-            bitmap_unit_tests();
+            bit_array_unit_tests();
             buffer_unit_tests();
             command_unit_tests();
         });

@@ -202,29 +202,29 @@ buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
     exit_on_negative(mlock(allocator.memory_pool, pool_size),
                      "Failed to lock memory pages into RAM!");
 
-    debug("Initializing the availability bitmap...");
+    debug("Initializing the availability bit array...");
     const bit_pos_t buffers_end = index_to_bit_pos(allocator.config.buffer_count);
-    bitmap_range_set(allocator.buffer_availability,
-                     UDIPE_MAX_BUFFERS,
-                     BITMAP_START,
-                     buffers_end,
-                     true);
-    bitmap_range_set(allocator.buffer_availability,
-                     UDIPE_MAX_BUFFERS,
-                     buffers_end,
-                     bitmap_end(UDIPE_MAX_BUFFERS),
-                     false);
+    bit_array_range_set(allocator.buffer_availability,
+                        UDIPE_MAX_BUFFERS,
+                        BIT_ARRAY_START,
+                        buffers_end,
+                        true);
+    bit_array_range_set(allocator.buffer_availability,
+                        UDIPE_MAX_BUFFERS,
+                        buffers_end,
+                        bit_array_end(UDIPE_MAX_BUFFERS),
+                        false);
     return allocator;
 }
 
 void buffer_allocator_finalize(buffer_allocator_t allocator) {
-    debug("Finalizing the bitmap allocator");
+    debug("Finalizing the buffer allocator");
     assert(
-        bitmap_range_alleq(allocator.buffer_availability,
-                           UDIPE_MAX_BUFFERS,
-                           BITMAP_START,
-                           index_to_bit_pos(allocator.config.buffer_count),
-                           true)
+        bit_array_range_alleq(allocator.buffer_availability,
+                              UDIPE_MAX_BUFFERS,
+                              BIT_ARRAY_START,
+                              index_to_bit_pos(allocator.config.buffer_count),
+                              true)
     );
     munmap(allocator.memory_pool,
            allocator.config.buffer_size * allocator.config.buffer_count);
@@ -242,13 +242,13 @@ void buffer_liberate(buffer_allocator_t* allocator, void* buffer) {
     const size_t buffer_idx = buffer_offset / allocator->config.buffer_size;
     assert(buffer_idx < allocator->config.buffer_count);
     const bit_pos_t buffer_bit = index_to_bit_pos(buffer_idx);
-    assert(!bitmap_get(allocator->buffer_availability,
-                       UDIPE_MAX_BUFFERS,
-                       buffer_bit));
-    bitmap_set(allocator->buffer_availability,
-               UDIPE_MAX_BUFFERS,
-               buffer_bit,
-               true);
+    assert(!bit_array_get(allocator->buffer_availability,
+                          UDIPE_MAX_BUFFERS,
+                          buffer_bit));
+    bit_array_set(allocator->buffer_availability,
+                  UDIPE_MAX_BUFFERS,
+                  buffer_bit,
+                  true);
 }
 
 UDIPE_NON_NULL_ARGS
@@ -258,19 +258,19 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
 
     trace("Starting buffer allocation...");
     const bit_pos_t buffer_bit =
-        bitmap_find_first(allocator->buffer_availability,
-                          UDIPE_MAX_BUFFERS,
-                          true);
+        bit_array_find_first(allocator->buffer_availability,
+                             UDIPE_MAX_BUFFERS,
+                             true);
 
     if (buffer_bit.word == SIZE_MAX) {
         trace("Allocation rejected because no buffer is currently available.");
         return NULL;
     }
 
-    bitmap_set(allocator->buffer_availability,
-               UDIPE_MAX_BUFFERS,
-               buffer_bit,
-               false);
+    bit_array_set(allocator->buffer_availability,
+                  UDIPE_MAX_BUFFERS,
+                  buffer_bit,
+                  false);
     const size_t buffer_idx = bit_pos_to_index(buffer_bit);
     const size_t buffer_offset = buffer_idx * allocator->config.buffer_size;
     void* buffer = (void*)((char*)allocator->memory_pool + buffer_offset);
@@ -309,17 +309,17 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
 
         trace("Checking initial buffer availability...");
         const bit_pos_t buffers_end = index_to_bit_pos(config.buffer_count);
-        ensure(bitmap_range_alleq(allocator.buffer_availability,
-                                  UDIPE_MAX_BUFFERS,
-                                  BITMAP_START,
-                                  buffers_end,
-                                  true)
+        ensure(bit_array_range_alleq(allocator.buffer_availability,
+                                     UDIPE_MAX_BUFFERS,
+                                     BIT_ARRAY_START,
+                                     buffers_end,
+                                     true)
         );
-        ensure(bitmap_range_alleq(allocator.buffer_availability,
-                                  UDIPE_MAX_BUFFERS,
-                                  buffers_end,
-                                  bitmap_end(UDIPE_MAX_BUFFERS),
-                                  false));
+        ensure(bit_array_range_alleq(allocator.buffer_availability,
+                                     UDIPE_MAX_BUFFERS,
+                                     buffers_end,
+                                     bit_array_end(UDIPE_MAX_BUFFERS),
+                                     false));
 
         trace("Allocating all the buffers...");
         void* buffers[UDIPE_MAX_BUFFERS];
@@ -335,18 +335,18 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
             trace("Handling allocation failure...");
             if (!buffers[buf]) {
                 ensure_ge(buf, config.buffer_count);
-                ensure_eq(bitmap_count(allocator.buffer_availability,
-                                       UDIPE_MAX_BUFFERS,
-                                       true),
+                ensure_eq(bit_array_count(allocator.buffer_availability,
+                                          UDIPE_MAX_BUFFERS,
+                                          true),
                           (size_t)0);
                 continue;
             }
 
             trace("Handling allocation success...");
             ensure_lt(buf, config.buffer_count);
-            ensure_eq(bitmap_count(allocator.buffer_availability,
-                                   UDIPE_MAX_BUFFERS,
-                                   true),
+            ensure_eq(bit_array_count(allocator.buffer_availability,
+                                      UDIPE_MAX_BUFFERS,
+                                      true),
                       config.buffer_count - buf - 1);
             const size_t offset = (char*)buffers[buf] - (char*)memory_pool;
             ensure_eq(offset % config.buffer_size, (size_t)0);
@@ -368,10 +368,10 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
             ensure_eq(allocator.config.buffer_count, config.buffer_count);
             ensure_eq(allocator.memory_pool, memory_pool);
 
-            trace("Checking availability bitmap...");
-            ensure_eq(bitmap_count(allocator.buffer_availability,
-                                   UDIPE_MAX_BUFFERS,
-                                   true),
+            trace("Checking availability bit array...");
+            ensure_eq(bit_array_count(allocator.buffer_availability,
+                                      UDIPE_MAX_BUFFERS,
+                                      true),
                       buf + 1);
         }
 
