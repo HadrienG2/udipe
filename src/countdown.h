@@ -4,47 +4,55 @@
 //! \brief Lock-free countdown
 //!
 //! This header is the home of \ref countdown_t and supporting functions, which
-//! are used to detect the end of parallel work from N worker threads.
+//! are used in circumstances where N worker threads are doing something and the
+//! last one to finish its task must do something else (e.g. liberate resources
+//! associated with the parallel job and signal completion to a client thread).
 
 #include <udipe/pointer.h>
 
-#include "arch.h"
+#include "log.h"
 
 #include <assert.h>
-#include <stdalign.h>
 #include <stdatomic.h>
 
 
 /// Lock-free countdown
 ///
-/// The \ref countdown_t type is basically a lock-free reference count that
-/// comes with the additional constraint that it cannot go up, only down.
+/// A \ref countdown_t is basically a lock-free reference count that comes with
+/// the additional constraint that it cannot increase, only decrease.
 ///
-/// It is used in circumstances where N worker threads must do the same thing in
-/// parallel then take a final action, such as freeing up resources that were
-/// allocated to a task or signaling a \ref future_t that tells a client thread
-/// that the task has completed. From this perspective, you can think of it as
-/// the lock-free equivalent of a pthread barrier.
+/// It is used in circumstances where all of the following is true:
 ///
-/// Its associated operations are also reasonably optimized for the common
-/// special case where only one worker thread happens to be performing a
-/// particular action that also supports being executed by multiple threads.
+/// - At least two worker threads are working on some task.
+/// - Once the last worker is done, something must happen no matter the outcome
+///   (typically liberating resources and signaling completion to the client
+///   thread that initiated the parallel task).
+/// - It is not necessary to track which threads completed the task so far and
+///   which threads didn't (which required fancier atomic bit arrays/trees).
 ///
-/// It should be initialized with countdown_initialize() once. Then whenever you
-/// need to use it, set it to some initial value with countdown_set() and
-/// decrement it with countdown_dec_and_check() until it reaches zero again, at
-/// which point it can be set to another value and decremented again.
-typedef struct countdown_s {
-    alignas(FALSE_SHARING_GRANULARITY) atomic_size_t counter;
-} countdown_t;
-// TODO: Actually it's not countdown that should be aligned but the entire
-//       control block that it belongs to, TBD during upcoming sync rework.
-static_assert(alignof(countdown_t) == FALSE_SHARING_GRANULARITY,
-              "As a synchronization variable, countdown_t must be aligned to "
-              "avoid false sharing with neighboring non-synchronization state");
-static_assert(sizeof(countdown_t) == FALSE_SHARING_GRANULARITY
-              "Multiple countdown_t are associated with unrelated tasks and "
-              "should therefore not reside on the same false sharing granule");
+/// An example of a task for which \ref countdown_t is a good fit is the
+/// cancelation of a parallel job which has failed: cancelation is considered
+/// infaillible in `libudipe` as failure to cancel something is either ignored
+/// with a warning or handled by crashing the application with exit(), so there
+/// is no need to track which thread is done canceling and which is not done, we
+/// just need to liberate task resources and send a failure notification to the
+/// client thread that initiated the task once we are done.
+///
+/// Like all heavily mutated shared state, a \ref countdown_t should be isolated
+/// into its own false sharing granule using something like
+/// `alignas(FALSE_SHARING_GRANULARITY)`, away from any read-only state used for
+/// the same task or mutable state used for an unrelated parallel task. But this
+/// alignment is not enforced at the \ref countdown_t level because there are
+/// cases where a \ref countdown_t must be grouped with other state that is used
+/// to synchronize the same threads, and in that case it is fine to put all this
+/// state inside of the same false sharing granule.
+///
+/// A \ref countdown_t should be initialized with countdown_initialize() once.
+/// Then whenever you need to use it, set it to some initial value with
+/// countdown_set() and decrement it with countdown_dec_and_check() until it
+/// reaches zero again, at which point it can be set to another value and
+/// decremented again.
+typedef atomic_size_t countdown_t;
 
 /// Initialize a \ref countdown_t
 ///
@@ -57,104 +65,71 @@ static_assert(sizeof(countdown_t) == FALSE_SHARING_GRANULARITY
 static inline
 UDIPE_NON_NULL_ARGS
 void countdown_initialize(countdown_t* countdown) {
-    atomic_init(&countdown->counter, 0);
+    atomic_init(countdown, 0);
 }
 
-/// (Re)set a \ref countdown_t to a nonzero value
+/// (Re)set a \ref countdown_t to an initial value >= 2
 ///
 /// This operation is only valid when a countdown is not in active use from
 /// multiple threads, i.e. when it has just been initialized or has been taken
-/// back to zero using decrements since the last time it has been set.
-///
-/// Debug builds will (faillibly) attempt to check for this.
+/// back to zero via countdown_dec_and_check() since the last time where it has
+/// been set.
 ///
 /// \param countdown must be a \ref countdown_t that has previously been
-///                  initialized using countdown_initialize_inplace() and is
-///                  currently in the zeroed state.
-/// \param initial must not be zero
+///                  initialized using countdown_initialize() and is currently
+///                  in the zeroed state.
+/// \param initial should be greater than or equal to 2
 static inline
 UDIPE_NON_NULL_ARGS
 void countdown_set(countdown_t* countdown, size_t initial) {
     debugf("Initializing countdown %p to %zu...", countdown, initial);
-    assert(("Countdown must have a nonzero initial value", initial > 0));
+    assert(initial >= 2);
     assert((
         "Countdown must be done with its previous task before being reset",
-        atomic_load_explicit(&countdown->counter, memory_order_relaxed) == 0
+        atomic_load_explicit(countdown, memory_order_relaxed) == 0
     ));
-    atomic_store_explicit(&countdown->counter, initial, memory_order_relaxed);
+    atomic_store_explicit(countdown, initial, memory_order_relaxed);
 }
 
-/// Decrement a \ref countdown_t and tell whether it reached zero
+/// Decrement a \ref countdown_t and tell if it reached zero
 ///
-/// This atomic operation has `memory_order_release` when the counter has not
-/// yet reached zero and `memory_order_acquire` when it reaches zero. Together,
-/// these memory ordering constraints ensure that the thread which decrements
-/// the countdown for the last time by taking it to zero also observes the
-/// decrements from other threads as well as any other work that these threads
-/// did before performing the countdown decrement.
+/// This atomic operation has `memory_order_release` ordering when the counter
+/// has not yet reached zero and `memory_order_acquire` when it reaches zero.
+/// Together, these memory ordering constraints ensure that the thread which
+/// decrements the countdown for the last time by taking it to zero also
+/// observes the decrements from other threads as well as any other work that
+/// these threads did before performing the countdown decrement.
 static inline
 UDIPE_NON_NULL_ARGS
 bool countdown_dec_and_check(countdown_t* countdown) {
     tracef("Decrementing countdown %p...", countdown);
-    const size_t initial_count = atomic_load_explicit(&options->counter,
-                                                      memory_order_relaxed);
-    assert(("Countdown has been decremented too many times",
-            initial_count > 0));
-
-    if (initial_count == 1) {
-        // While this fast path may seem oddly specific, it is actually always
-        // taken in the common scenario where an operation that _can_ happen in
-        // parallel is scheduled in a sequential manner.
-        debugf("Countdown %p is only visible by this thread, "
-               "can go to 0 via the single-threaded fast path...",
-               countdown);
-        // With this fence, which applies to the counter load above, we
-        // synchronize with every other thread that decremented the counter with
-        // release ordering previously, so that any code after this function
-        // returns happens after every other countdown decrement and the work
-        // that preceded it in each thread.
-        atomic_thread_fence(memory_order_acquire);
-        // Release ordering is not needed here because we're not synchronizing
-        // with any other thread by setting this counter to zero, only making
-        // sure that whoever reuses this countdown later on will observe it in
-        // the expected initial unused/zeroed state.
-        atomic_store_explicit(&options->counter,
-                              0,
-                              memory_order_relaxed);
-        return true;
-    }
-
-    tracef("Countdown is still visible by %zu other threads, "
-           "must decrement it via the slow RMW path...",
-           initial_count - 1);
     // Need release ordering here so that the thread that will perform the last
-    // decrement sees everything this thread did before calling this function.
+    // decrement can synchronize-with this thread and correctly observe the
+    // effect of its work on shared program state.
     const size_t previous_count =
-        atomic_fetch_sub_explicit(&options->counter, 1, memory_order_release);
+        atomic_fetch_sub_explicit(countdown, 1, memory_order_release);
+    assert(("Decremented a countdown too many times", previous_count != 0));
 
-    if (previous_count == 1) {
-        debugf("Countdown %p reached zero via the slow RMW path.", countdown);
-        // Need this acquire fence for the same reason as the one above, but
-        // this time it pairs with the fetch_sub above, which is the one that
-        // observed the countdown as going from 1 to 0.
-        atomic_thread_fence(memory_order_acquire);
-        return true;
+    if (previous_count > 1) {
+        tracef("%zu more thread(s) must decrement this countdown before it reaches 0.",
+               previous_count - 1);
+        return false;
     }
-    return false;
+
+    debugf("Countdown %p has reached zero.", countdown);
+    // With this fence, which applies to the load from the fetch_sub load above,
+    // we synchronize-with every other thread that decremented the counter with
+    // release ordering previously, which ensures that any code after this
+    // function returns happens-after every other countdown decrement and
+    // correctly observes the effect of its work on shared program state.
+    atomic_thread_fence(memory_order_acquire);
+    return true;
 }
 
-
-// TODO: Add unit tests
-//
-// TODO: Set up a pool of countdown_t in udipe_context_t which works much like
-//       the existing connection pool, or just share the same bit array
-//       allocator for both and call that a complex command slot or something? I
-//       think I actually prefer that second idea.
-//
-// TODO: Modify connect.[ch] to use an externally provided countdown_t, which
-//       will become a pointer member of shared_connect_options_t instead of an
-//       inline allocation, thus taking the minimal struct size down to 128B.
-//       Set this pointer to NULL when the connection is carried out
-//       sequentially, so that the lone worker thread knows that no decrement is
-//       necessary. And finally remove the fast path from countdown, which is
-//       not needed anymore.
+#ifdef UDIPE_BUILD_TESTS
+    /// Unit tests for \ref countdown_t
+    ///
+    /// This function runs all the unit tests for \ref countdown_t. It must be
+    /// called within the scope of with_logger().
+    void countdown_unit_tests();
+#endif

@@ -6,6 +6,7 @@
     #include "bit_array.h"
     #include "buffer.h"
     #include "command.h"
+    #include "countdown.h"
     #include "log.h"
 
     #include <stdio.h>
@@ -41,6 +42,7 @@
             bit_array_unit_tests();
             buffer_unit_tests();
             command_unit_tests();
+            countdown_unit_tests();
         });
     }
 
