@@ -85,6 +85,7 @@ set(udipe_relative_headers include/udipe.h
                            include/udipe/pointer.h
                            include/udipe/result.h
                            include/udipe/tests.h
+                           include/udipe/time.h
                            include/udipe/visibility.h)
 target_sources(udipe
                PUBLIC FILE_SET HEADERS

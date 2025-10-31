@@ -30,5 +30,6 @@
 #include "udipe/log.h"
 #include "udipe/pointer.h"
 #include "udipe/result.h"
-// Not including udipe/tests as it isn't meant for end user consumption
+// Not including udipe/tests.h as it isn't meant for end user consumption
+#include "udipe/time.h"
 #include "udipe/visibility.h"

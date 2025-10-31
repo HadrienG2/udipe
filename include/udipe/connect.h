@@ -8,6 +8,8 @@
 //! amount of related definitions, which have been extracted into this dedicated
 //! header the interest of code clarity.
 
+#include "time.h"
+
 #include <netinet/in.h>
 #include <stdint.h>
 #include <sys/socket.h>
@@ -75,23 +77,25 @@ typedef enum udipe_bool_with_default_e {
 /// other command messages which do fit in one cache line, connection options
 /// will therefore be passed to worker threads via a pointer indirection.
 typedef struct udipe_connect_options_s {
-    /// Default send timeout in nanoseconds, or 0 = no timeout
+    /// Default send timeout in nanoseconds or 0 = no timeout / wait forever
     ///
     /// This parameter must not be set if `direction` is \ref UDIPE_IN.
     ///
-    /// The default is for send commands to block forever.
+    /// The default is to wait indefinitely for datagrams to be sent. See \ref
+    /// udipe_duration_ns_t for more info on timeout semantics.
     //
     // TODO: Maps to SO_SNDTIMEO if set
-    uint64_t send_timeout_ns;
+    udipe_duration_ns_t send_timeout;
 
-    /// Default receive timeout in nanoseconds, or 0 = no timeout
+    /// Default receive timeout in nanoseconds or 0 = no timeout / wait forever
     ///
     /// This parameter must not be set if `direction` is UDIPE_OUT.
     ///
-    /// The default is for recv commands to block forever.
+    /// The default is to wait indefinitely for datagrams to be received. See
+    /// \ref udipe_duration_ns_t for more info on timeout semantics.
     //
     // TODO: Maps to SO_RCVTIMEO if set
-    uint64_t recv_timeout_ns;
+    udipe_duration_ns_t recv_timeout;
 
     /// Local interface
     ///
@@ -259,8 +263,8 @@ typedef struct udipe_connect_options_s {
     ///
     /// This option can only be set when `enable_gso` is set to \ref UDIPE_TRUE,
     /// as it makes little sense otherwise and can lead to dangerous judgment
-    /// errors where you think that your datagrams have one size but they
-    /// actually have another payload size.
+    /// errors where you will think that your datagrams will have one size when
+    /// they will actually have another payload size.
     ///
     /// By default, the GSO segment size is auto-tuned to the network path MTU
     /// that is estimated by the Linux kernel.
