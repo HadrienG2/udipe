@@ -1,6 +1,6 @@
 # The AlmaLinux image only contains the bare minimum needed to build Udipe. It
 # is used to check those minimal build requirements and to make sure that Udipe
-# remains compatible with the older software versions featured in Alma10.
+# remains compatible with the software versions featured in Alma.
 
 FROM docker.io/almalinux:10
 

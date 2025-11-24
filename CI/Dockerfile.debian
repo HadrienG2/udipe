@@ -1,0 +1,11 @@
+# The Debian image only contains the bare minimum needed to build Udipe. It
+# is used to check those minimal build requirements and to make sure that Udipe
+# remains compatible with the software versions featured in Debian.
+
+FROM docker.io/debian:12
+
+RUN export DEBIAN_FRONTEND=noninteractive  \
+    && apt update  \
+    && apt install --no-install-recommends -y  \
+                   cmake gcc libc6-dev libhwloc-dev make pkgconf  \
+    && rm -rf /var/lib/apt/lists/*
