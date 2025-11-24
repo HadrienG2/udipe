@@ -49,7 +49,7 @@ jobs:
     name: Build on Ubuntu with Doxygen
     needs: docker_image
     runs-on: ubuntu-latest
-    # FIXME: Can't use env here alas
+    # Can't use env here, alas
     container: ghcr.io/hadrieng2/udipe:ubuntu
     steps:
       - name: Checkout repository
@@ -67,7 +67,7 @@ jobs:
     strategy:
       matrix:
         distro: [alma, debian]
-    # FIXME: Can't use env here alas
+    # Can't use env here, alas
     container: ghcr.io/hadrieng2/udipe:${{ matrix.distro }}
     steps:
       - name: Checkout repository
@@ -81,7 +81,9 @@ jobs:
     name: Build on Windows
     runs-on: windows-latest
     env:
-      VCPKG_ROOT: ${{ env.VCPKG_INSTALLATION_ROOT }}
+      # Taken from Windows runner description here. Should ideally be taken
+      # from VCPKG_INSTALLATION_ROOT, but alas can't use env here either...
+      VCPKG_ROOT: 'C:\vcpkg'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
