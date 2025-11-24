@@ -111,9 +111,11 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: build-${{ matrix.distro }}
-          path: build/
       - name: Run all tests
-        run: cd build && ctest -j$(nproc)
+        run: |
+          tar -xvf build.tar
+          cd build
+          ctest -j$(nproc)
 
   package_bin:
     name: Generate binary package
@@ -129,9 +131,11 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: build-${{ matrix.distro }}
-          path: build/
       - name: Generate binary package
-        run: cd build && make package
+        run: |
+          tar -xvf build.tar
+          cd build
+          make package
       - name: Upload package
         uses: actions/upload-artifact@v5
         with:
@@ -150,9 +154,11 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: build-ubuntu
-          path: build/
       - name: Generate source package
-        run: cd build && make package_source
+        run:  |
+          tar -xvf build.tar
+          cd build
+          make package_source
       - name: Upload package
         uses: actions/upload-artifact@v5
         with:
@@ -176,7 +182,6 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: build-ubuntu
-          path: build/
       - name: Build the mdbook documentation
         run: mdbook build doc -d "$(pwd)/pages"
       - name: Integrate Doxygen render into mdbook
@@ -184,6 +189,7 @@ jobs:
           # mdBook does not currently copy the doxygen render correctly, but it may
           # do so in the future, so let's be cautious for now.
           if [[ -e pages/doxygen ]]; then rm -rf pages/doxygen; fi
+          tar -xvf build.tar
           mv build/html pages/doxygen
       - name: Generate and upload the artifact
         uses: actions/upload-pages-artifact@v4

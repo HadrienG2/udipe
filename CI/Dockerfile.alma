@@ -5,5 +5,5 @@
 FROM docker.io/almalinux:10
 
 RUN dnf install --nodocs --setopt=install_weak_deps=False -y  \
-                cmake gcc glibc-devel hwloc-devel make pkgconf  \
+                cmake gcc glibc-devel hwloc-devel make pkgconf tar  \
     && dnf clean all

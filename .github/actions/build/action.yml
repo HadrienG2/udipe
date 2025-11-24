@@ -30,9 +30,13 @@ runs:
       shell: bash
       run: cd build && cmake --build .
 
+    - name: Tar the build dir to preserve its permission
+      shell: bash
+      run: tar -cvf build.tar build/
+
     - name: Upload build directory
       uses: actions/upload-artifact@v5
       with:
         name: ${{ inputs.artifact-name }}
-        path: build/
+        path: build.tar
         retention-days: 2

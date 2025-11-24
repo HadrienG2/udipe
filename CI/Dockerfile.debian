@@ -7,5 +7,5 @@ FROM docker.io/debian:latest
 RUN export DEBIAN_FRONTEND=noninteractive  \
     && apt update  \
     && apt install --no-install-recommends -y  \
-                   cmake gcc libc6-dev libhwloc-dev make pkgconf  \
+                   cmake gcc libc6-dev libhwloc-dev make pkgconf tar  \
     && rm -rf /var/lib/apt/lists/*
