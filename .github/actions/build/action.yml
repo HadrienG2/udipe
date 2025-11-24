@@ -1,0 +1,40 @@
+name: 'Build udipe as an artifact'
+description: 'Build udipe and upload the build products to an artifact'
+
+inputs:
+  artifact-name:
+    description: 'Name of the artifact where the build directory will be uploaded'
+    required: true
+  extra-cmake-opts:
+    description: 'Extra CMake options beyond EXAMPLES, TESTS and WERROR'
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Setup build directory
+      shell: bash
+      run: mkdir build && cd build
+
+    - name: Configure the build w/o Doxygen
+      shell: bash
+      run: |
+        cmake ${{ inputs.extra-cmake-opts }}  \
+              -DUDIPE_BUILD_EXAMPLES=ON  \
+              -DUDIPE_BUILD_TESTS=ON  \
+              -DUDIPE_WERROR=ON  \
+              ..
+
+    - name: Build the library and tests
+      shell: bash
+      run: cmake --build .
+
+    - name: Upload build directory
+      uses: actions/upload-artifact@v5
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: build/
+        retention-days: 2
