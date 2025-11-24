@@ -41,4 +41,6 @@ from the `libudipe` source code under MPLv2.
 
 [^gnu-extensions]: ...with occasional use of GNU extensions supported by GCC and
                    clang in situations where standard C cannot express the
-                   desired semantics.
+                   desired semantics. MSVC compatibility is planned eventually,
+                   and will happen by either removing usage of these extensions
+                   or replacing them with MS equivalents.

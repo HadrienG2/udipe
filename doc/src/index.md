@@ -119,7 +119,9 @@ resource-constrained project, `udipe` opts to provide multiple tiers of support:
 
 [^gnu-extensions]: ...with occasional use of GNU extensions supported by GCC and
                    clang in situations where standard C cannot express the
-                   desired semantics.
+                   desired semantics. MSVC compatibility is planned eventually,
+                   and will happen by either removing usage of these extensions
+                   or replacing them with MS equivalents.
 
 [^udp-only]: Non-UDP primitive, e.g. filesystem I/O or signal handling helpers,
              may be provided to expose OS features like
