@@ -1,0 +1,9 @@
+# The AlmaLinux image only contains the bare minimum needed to build Udipe. It
+# is used to check those minimal build requirements and to make sure that Udipe
+# remains compatible with the older software versions featured in Alma10.
+
+FROM docker.io/almalinux:10
+
+RUN dnf install --nodocs --setopt=install_weak_deps=False -y  \
+                cmake gcc glibc-devel hwloc-devel make pkgconf  \
+    && dnf clean all

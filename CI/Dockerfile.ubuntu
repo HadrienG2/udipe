@@ -1,6 +1,7 @@
-FROM docker.io/ubuntu:24.04
+# The Ubuntu image is the main CI image that is used for most jobs
 
-ENV MDBOOK_VERSION=0.4.52
+FROM docker.io/ubuntu:24.04
+ARG MDBOOK_VERSION=0.5.1
 
 RUN export DEBIAN_FRONTEND=noninteractive  \
     && apt update  \
