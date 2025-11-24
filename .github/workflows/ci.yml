@@ -94,11 +94,12 @@ jobs:
           manifest-dir: ${{ github.workspace }}
           triplet: x64-windows-release
           token: ${{ github.token }}
-      - name: Build with vcpkg deps
-        uses: ./.github/actions/build
-        with:
-          artifact-name: build-windows
-          extra-cmake-opts: ${{ steps.vcpkg.outputs.vcpkg-cmake-config }}
+      # TODO: Resume effort here once VS2026 is available on windows-latest
+      # - name: Build with vcpkg deps
+      #   uses: ./.github/actions/build
+      #   with:
+      #     artifact-name: build-windows
+      #     extra-cmake-opts: ${{ steps.vcpkg.outputs.vcpkg-cmake-config }}
 
   # TODO: Now use those builds to implement the rest of the CI:
   #       - ubuntu should be used for everything including docs
