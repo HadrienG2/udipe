@@ -42,8 +42,8 @@ jobs:
           file: CI/Dockerfile.${{ matrix.distro }}
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.REPO_LOWERCASE }}:${{ matrix.distro }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.distro }}
+          cache-to: type=gha,scope=${{ matrix.distro }},mode=max
 
   build_ubuntu_doxygen:
     name: Build for Ubuntu with Doxygen
