@@ -134,7 +134,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: package-bin-${{ matrix.distro }}
-          path: *.tar.gz
+          path: '*.tar.gz'
           retention-days: 7
 
   package_src:
@@ -154,7 +154,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: package-src
-          path: *.tar.gz
+          path: '*.tar.gz'
           retention-days: 7
 
   build_pages:
