@@ -9,9 +9,9 @@
 //!
 //! This is the API reference documentation of `libudipe`, a library for
 //! high-performance UDP communication. It supplements the <a
-//! href="https://udipe-20b9cf.pages.in2p3.fr/">top-level udipe
-//! documentation</a>, which is mandatory reading, with extra information about
-//! the various types and functions exposed by `libudipe`.
+//! href="https://hadrieng2.github.io/udipe/">top-level udipe documentation</a>,
+//! which is mandatory reading, with extra information about the various types
+//! and functions exposed by `libudipe`.
 //!
 //! By default, it only covers the public API available to end users of the
 //! library, which corresponds to the header files available in the `include/`

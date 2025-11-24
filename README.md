@@ -16,7 +16,7 @@ on Linux. It is composed of two components that share a common configuration:
   `udipe-setup.service` systemd service that lets you automatically reapply this
   tuning on every system boot.
 
-Find out more in [the documentation](https://udipe-20b9cf.pages.in2p3.fr/).
+Find out more in [the documentation](https://hadrieng2.github.io/udipe).
 
 
 ## Licensing

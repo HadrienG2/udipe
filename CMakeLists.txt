@@ -9,7 +9,7 @@ cmake_minimum_required(VERSION 3.28.3..4.1.2)
 project(Udipe
         VERSION 1.0
         DESCRIPTION "Solving the riddle of high-throughput UDP"
-        HOMEPAGE_URL https://gitlab.in2p3.fr/grasland/udipe
+        HOMEPAGE_URL https://hadrieng2.github.io/udipe
         LANGUAGES C)
 
 set_property(GLOBAL PROPERTY C_STANDARD 11)
