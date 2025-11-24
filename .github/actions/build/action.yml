@@ -19,18 +19,16 @@ runs:
     - name: Configure the build w/o Doxygen
       shell: bash
       run: |
-        # TODO: Remove debug printout
-        ls -l .
-        ls -l ..
-        cmake ${{ inputs.extra-cmake-opts }}  \
-              -DUDIPE_BUILD_EXAMPLES=ON  \
-              -DUDIPE_BUILD_TESTS=ON  \
-              -DUDIPE_WERROR=ON  \
-              ..
+        cd build
+        && cmake ${{ inputs.extra-cmake-opts }}  \
+                 -DUDIPE_BUILD_EXAMPLES=ON  \
+                 -DUDIPE_BUILD_TESTS=ON  \
+                 -DUDIPE_WERROR=ON  \
+                 ..
 
     - name: Build the library and tests
       shell: bash
-      run: cmake --build .
+      run: cd build && cmake --build .
 
     - name: Upload build directory
       uses: actions/upload-artifact@v5
