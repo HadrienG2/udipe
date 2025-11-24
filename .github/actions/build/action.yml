@@ -19,6 +19,9 @@ runs:
     - name: Configure the build w/o Doxygen
       shell: bash
       run: |
+        # TODO: Remove debug printout
+        ls -l .
+        ls -l ..
         cmake ${{ inputs.extra-cmake-opts }}  \
               -DUDIPE_BUILD_EXAMPLES=ON  \
               -DUDIPE_BUILD_TESTS=ON  \

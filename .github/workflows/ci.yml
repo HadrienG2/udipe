@@ -61,7 +61,7 @@ jobs:
           extra-cmake-opts: '-DUDIPE_BUILD_DOXYGEN=ON'
 
   build_other_linux:
-    name: Build on non-Ubuntu distro
+    name: Build on other Linux
     needs: docker_image
     runs-on: ubuntu-latest
     strategy:
