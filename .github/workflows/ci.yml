@@ -36,7 +36,6 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Build and push Docker image
-        id: push
         uses: docker/build-push-action@v6
         with:
           file: CI/Dockerfile.${{ matrix.distro }}
