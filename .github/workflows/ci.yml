@@ -144,7 +144,7 @@ jobs:
         with:
           name: package-bin-${{ matrix.distro }}
           path: build/*.tar.gz
-          retention-days: 7
+          retention-days: 2
 
   package_src:
     name: Generate source package
@@ -169,7 +169,7 @@ jobs:
         with:
           name: package-src
           path: build/*.tar.gz
-          retention-days: 7
+          retention-days: 2
 
   build_pages:
     name: Build the project website
