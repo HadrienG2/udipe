@@ -112,7 +112,7 @@ jobs:
         with:
           name: build-${{ matrix.distro }}
       - name: Run all tests
-        run: ls -R && cd build && ctest -j$(nproc)
+        run: ctest -j$(nproc)
 
   package_bin:
     name: Generate binary package
@@ -129,12 +129,12 @@ jobs:
         with:
           name: build-${{ matrix.distro }}
       - name: Generate binary package
-        run: cd build && make package
+        run: make package
       - name: Upload package
         uses: actions/upload-artifact@v5
         with:
           name: package-bin-${{ matrix.distro }}
-          path: build/*.tar.gz
+          path: *.tar.gz
           retention-days: 7
 
   package_src:
@@ -147,14 +147,14 @@ jobs:
       - name: Download the build directory
         uses: actions/download-artifact@v5
         with:
-          name: build-${{ matrix.distro }}
+          name: build-ubuntu
       - name: Generate source package
-        run: cd build && make package_source
+        run: make package_source
       - name: Upload package
         uses: actions/upload-artifact@v5
         with:
           name: package-src
-          path: build/*.tar.gz
+          path: *.tar.gz
           retention-days: 7
 
   build_pages:
@@ -167,7 +167,8 @@ jobs:
       - name: Download the build directory
         uses: actions/download-artifact@v5
         with:
-          name: build-${{ matrix.distro }}
+          name: build-ubuntu
+          path: build/
       - name: Build the mdbook documentation
         run: mdbook build doc -d "$(pwd)/pages"
       - name: Integrate Doxygen render into mdbook
@@ -182,6 +183,7 @@ jobs:
           path: pages/
 
   deploy_pages:
+    name: Deploy the project website
     runs-on: ubuntu-latest
     if: ${{ github.ref == 'refs/heads/main' }}
     needs: build_pages
