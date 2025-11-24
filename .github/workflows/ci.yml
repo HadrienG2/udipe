@@ -7,6 +7,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
+env:
+  REGISTRY: ghcr.io
+
 jobs:
   # Build a container image
   docker:
@@ -38,7 +41,7 @@ jobs:
         with:
           file: CI/Dockerfile.${{ matrix.distro }}
           push: true
-          tags: ghcr.io/${{ github.repository }}:${{ matrix.distro }}
+          tags: ${{ env.REGISTRY }}/${{ github.repository }}:${{ matrix.distro }}
 
   # TODO: Now use those images to implement the rest of the CI:
   #       - ubuntu should be used for everything including docs
