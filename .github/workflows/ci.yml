@@ -13,7 +13,7 @@ env:
 
 jobs:
   docker_image:
-    name: Build docker images
+    name: Build docker image
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -99,7 +99,7 @@ jobs:
       # TODO: Once it builds, add a test_windows job that tests it
 
   test_linux:
-    name: Run tests on Linux
+    name: Test on Linux
     needs: [build_ubuntu_doxygen, build_other_linux]
     runs-on: ubuntu-latest
     strategy:
@@ -172,7 +172,7 @@ jobs:
           retention-days: 2
 
   build_pages:
-    name: Build project website
+    name: Build website
     needs: build_ubuntu_doxygen
     runs-on: ubuntu-latest
     # Can't use env here, alas
@@ -197,7 +197,7 @@ jobs:
           path: pages/
 
   deploy_pages:
-    name: Deploy project website
+    name: Deploy website
     runs-on: ubuntu-latest
     if: ${{ github.ref == 'refs/heads/main' }}
     needs: build_pages
