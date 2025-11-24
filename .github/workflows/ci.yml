@@ -80,10 +80,6 @@ jobs:
   build_windows:
     name: Build on Windows
     runs-on: windows-latest
-    env:
-      # Taken from Windows runner description here. Should ideally be taken
-      # from VCPKG_INSTALLATION_ROOT, but alas can't use env here either...
-      VCPKG_ROOT: 'C:\vcpkg'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
