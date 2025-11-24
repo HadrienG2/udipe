@@ -41,7 +41,7 @@ jobs:
         with:
           file: CI/Dockerfile.${{ matrix.distro }}
           push: true
-          tags: ${{ env.REGISTRY }}/${{ github.repository }}:${{ matrix.distro }}
+          tags: ${{ env.REGISTRY }}/hadrieng2/udipe:${{ matrix.distro }}
 
   # TODO: Now use those images to implement the rest of the CI:
   #       - ubuntu should be used for everything including docs
