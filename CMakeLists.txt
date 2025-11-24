@@ -15,13 +15,18 @@ project(Udipe
 set_property(GLOBAL PROPERTY C_STANDARD 11)
 set_property(GLOBAL PROPERTY C_STANDARD_REQUIRED ON)
 set_property(GLOBAL PROPERTY C_EXTENSIONS ON)
-set_property(GLOBAL PROPERTY C_VISIBILITY_PRESET hidden)
+if(NOT WIN32)
+    set_property(GLOBAL PROPERTY C_VISIBILITY_PRESET hidden)
+endif()
 
 include(GNUInstallDirs)
 
-add_compile_options(-Wall -Wextra -Wconversion -Wduplicated-cond
-                    -Wduplicated-branches -Wnull-dereference -Wdouble-promotion
-                    -Wno-sign-conversion -Wno-unused-value)
+if(NOT WIN32)
+    add_compile_options(-Wall -Wextra -Wconversion -Wduplicated-cond
+                        -Wduplicated-branches -Wnull-dereference
+                        -Wdouble-promotion -Wno-sign-conversion
+                        -Wno-unused-value)
+endif()
 
 
 ### Optional features ###
@@ -29,7 +34,7 @@ add_compile_options(-Wall -Wextra -Wconversion -Wduplicated-cond
 option(UDIPE_BUILD_DOXYGEN "Build the Doxygen documentation" OFF)
 
 option(UDIPE_WERROR "Treat GCC and doxygen warnings as errors" OFF)
-if (UDIPE_WERROR)
+if (UDIPE_WERROR AND NOT WIN32)
     add_compile_options(-Werror)
 endif()
 
