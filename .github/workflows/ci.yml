@@ -112,11 +112,86 @@ jobs:
         with:
           name: build-${{ matrix.distro }}
       - name: Run all tests
-        run: cd build && ctest -j$(nproc)
+        run: ls -R && cd build && ctest -j$(nproc)
 
-  # TODO: Now use those builds to implement the rest of the CI:
-  #       - ubuntu should be used for everything including docs
-  #       - alma should be used for builds and tests only
-  #       - Need a windows runner too, for builds and tests only, which will be
-  #         set up manually for now (try to cache later)
-  # TODO: Once the GitHub CI is finished, delete gitlab-ci.yml
+  package_bin:
+    name: Generate binary package
+    needs: [build_ubuntu_doxygen, build_other_linux]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        distro: [alma, debian, ubuntu]
+    # Can't use env here, alas
+    container: ghcr.io/hadrieng2/udipe:${{ matrix.distro }}
+    steps:
+      - name: Download the build directory
+        uses: actions/download-artifact@v5
+        with:
+          name: build-${{ matrix.distro }}
+      - name: Generate binary package
+        run: cd build && make package
+      - name: Upload package
+        uses: actions/upload-artifact@v5
+        with:
+          name: package-bin-${{ matrix.distro }}
+          path: build/*.tar.gz
+          retention-days: 7
+
+  package_src:
+    name: Generate source package
+    needs: build_ubuntu_doxygen
+    runs-on: ubuntu-latest
+    # Can't use env here, alas
+    container: ghcr.io/hadrieng2/udipe:ubuntu
+    steps:
+      - name: Download the build directory
+        uses: actions/download-artifact@v5
+        with:
+          name: build-${{ matrix.distro }}
+      - name: Generate source package
+        run: cd build && make package_source
+      - name: Upload package
+        uses: actions/upload-artifact@v5
+        with:
+          name: package-src
+          path: build/*.tar.gz
+          retention-days: 7
+
+  build_pages:
+    name: Build the project website
+    needs: build_ubuntu_doxygen
+    runs-on: ubuntu-latest
+    # Can't use env here, alas
+    container: ghcr.io/hadrieng2/udipe:ubuntu
+    steps:
+      - name: Download the build directory
+        uses: actions/download-artifact@v5
+        with:
+          name: build-${{ matrix.distro }}
+      - name: Build the mdbook documentation
+        run: mdbook build doc -d "$(pwd)/pages"
+      - name: Integrate Doxygen render into mdbook
+        run: |
+          # mdBook does not currently copy the doxygen render correctly, but it may
+          # do so in the future, so let's be cautious for now.
+          if [[ -e pages/doxygen ]]; then rm -rf pages/doxygen; fi
+          mv build/html pages/doxygen
+      - name: Generate and upload the artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: pages/
+
+  deploy_pages:
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' }}
+    needs: build_pages
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: pages
+        uses: actions/deploy-pages@v4
