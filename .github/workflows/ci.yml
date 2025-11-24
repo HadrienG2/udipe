@@ -9,6 +9,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
+  REPO_LOWERCASE: hadrieng2/udipe
 
 jobs:
   # Build a container image
@@ -40,7 +41,9 @@ jobs:
         with:
           file: CI/Dockerfile.${{ matrix.distro }}
           push: true
-          tags: ${{ env.REGISTRY }}/hadrieng2/udipe:${{ matrix.distro }}
+          tags: ${{ env.REGISTRY }}/${{ env.REPO_LOWERCASE }}:${{ matrix.distro }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # TODO: Now use those images to implement the rest of the CI:
   #       - ubuntu should be used for everything including docs
