@@ -184,16 +184,13 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: build-ubuntu
-      - name: Unpack the doxygen render
-        run: tar -xvf build.tar
+      - name: Unpack and relocate the doxygen render
+        run: |
+          tar -xvf build.tar
+          rm doc/src/doxygen
+          mv build/html doc/src/doxygen
       - name: Build the mdbook documentation
         run: mdbook build doc -d "$(pwd)/pages"
-      - name: Integrate Doxygen render into mdbook
-        run: |
-          # mdBook does not currently copy the doxygen render correctly, but it may
-          # do so in the future, so let's be cautious for now.
-          if [[ -e pages/doxygen ]]; then rm -rf pages/doxygen; fi
-          mv build/html pages/doxygen
       - name: Generate and upload the artifact
         uses: actions/upload-pages-artifact@v4
         with:
