@@ -127,6 +127,8 @@ jobs:
     # Can't use env here, alas
     container: ghcr.io/hadrieng2/udipe:${{ matrix.distro }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
       - name: Download the build directory
         uses: actions/download-artifact@v5
         with:
@@ -150,6 +152,8 @@ jobs:
     # Can't use env here, alas
     container: ghcr.io/hadrieng2/udipe:ubuntu
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
       - name: Download the build directory
         uses: actions/download-artifact@v5
         with:
@@ -175,9 +179,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-        with:
-          sparse-checkout: doc
-          sparse-checkout-cone-mode: false
       - name: Download the build directory
         uses: actions/download-artifact@v5
         with:
