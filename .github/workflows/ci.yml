@@ -46,7 +46,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   build_ubuntu_doxygen:
-    name: Build on Ubuntu with Doxygen
+    name: Build for Ubuntu with Doxygen
     needs: docker_image
     runs-on: ubuntu-latest
     # Can't use env here, alas
@@ -61,7 +61,7 @@ jobs:
           extra-cmake-opts: '-DUDIPE_BUILD_DOXYGEN=ON'
 
   build_other_linux:
-    name: Build on other Linux
+    name: Build for other Linux
     needs: docker_image
     runs-on: ubuntu-latest
     strategy:
@@ -78,7 +78,7 @@ jobs:
           artifact-name: build-${{ matrix.distro }}
 
   build_windows:
-    name: Build on Windows
+    name: Build for Windows
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -96,6 +96,23 @@ jobs:
       #   with:
       #     artifact-name: build-windows
       #     extra-cmake-opts: ${{ steps.vcpkg.outputs.vcpkg-cmake-config }}
+
+  test_linux:
+    name: Run tests on Linux
+    needs: [build_ubuntu_doxygen, build_other_linux]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        distro: [alma, debian, ubuntu]
+    # Can't use env here, alas
+    container: ghcr.io/hadrieng2/udipe:${{ matrix.distro }}
+    steps:
+      - name: Download the build directory
+        uses: actions/download-artifact@v5
+        with:
+          name: build-${{ matrix.distro }}
+      - name: Run all tests
+        run: cd build && ctest -j$(nproc)
 
   # TODO: Now use those builds to implement the rest of the CI:
   #       - ubuntu should be used for everything including docs
