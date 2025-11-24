@@ -52,5 +52,5 @@ jobs:
   #       - ubuntu should be used for everything including docs
   #       - alma should be used for builds and tests only
   #       - Need a windows runner too, for builds and tests only, which will be
-  #         set up manually for now
+  #         set up manually for now (try to cache later)
   # TODO: Once the GitHub CI is finished, delete gitlab-ci.yml
