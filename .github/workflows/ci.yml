@@ -96,6 +96,7 @@ jobs:
       #   with:
       #     artifact-name: build-windows
       #     extra-cmake-opts: ${{ steps.vcpkg.outputs.vcpkg-cmake-config }}
+      # TODO: Once it builds, add a test_windows job that tests it
 
   test_linux:
     name: Run tests on Linux
