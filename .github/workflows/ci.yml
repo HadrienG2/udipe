@@ -111,8 +111,9 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: build-${{ matrix.distro }}
+          path: build/
       - name: Run all tests
-        run: ctest -j$(nproc)
+        run: cd build && ctest -j$(nproc)
 
   package_bin:
     name: Generate binary package
@@ -128,13 +129,14 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: build-${{ matrix.distro }}
+          path: build/
       - name: Generate binary package
-        run: make package
+        run: cd build && make package
       - name: Upload package
         uses: actions/upload-artifact@v5
         with:
           name: package-bin-${{ matrix.distro }}
-          path: '*.tar.gz'
+          path: build/*.tar.gz
           retention-days: 7
 
   package_src:
@@ -148,13 +150,14 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: build-ubuntu
+          path: build/
       - name: Generate source package
-        run: make package_source
+        run: cd build && make package_source
       - name: Upload package
         uses: actions/upload-artifact@v5
         with:
           name: package-src
-          path: '*.tar.gz'
+          path: build/*.tar.gz
           retention-days: 7
 
   build_pages:
@@ -164,6 +167,11 @@ jobs:
     # Can't use env here, alas
     container: ghcr.io/hadrieng2/udipe:ubuntu
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: doc
+          sparse-checkout-cone-mode: false
       - name: Download the build directory
         uses: actions/download-artifact@v5
         with:
