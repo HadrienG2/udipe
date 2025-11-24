@@ -87,11 +87,18 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+      - name: Pre-build and cache vcpkg deps
+        id: vcpkg
+        uses: johnwason/vcpkg-action@v7
+        with:
+          manifest-dir: ${{ github.workspace }}
+          triplet: x64-windows-release
+          token: ${{ github.token }}
       - name: Build with vcpkg deps
         uses: ./.github/actions/build
         with:
           artifact-name: build-windows
-          extra-cmake-opts: '--preset=vcpkg'
+          extra-cmake-opts: ${{ steps.vcpkg.outputs.vcpkg-cmake-config }}
 
   # TODO: Now use those builds to implement the rest of the CI:
   #       - ubuntu should be used for everything including docs
