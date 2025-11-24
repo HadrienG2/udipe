@@ -2,7 +2,7 @@
 # is used to check those minimal build requirements and to make sure that Udipe
 # remains compatible with the software versions featured in Debian.
 
-FROM docker.io/debian:12
+FROM docker.io/debian:latest
 
 RUN export DEBIAN_FRONTEND=noninteractive  \
     && apt update  \
