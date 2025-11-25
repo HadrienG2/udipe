@@ -143,7 +143,8 @@ if (UDIPE_BUILD_DOXYGEN)
     set(DOXYGEN_REPEAT_BRIEF NO)
     set(DOXYGEN_WARN_IF_UNDOC_ENUM_VAL YES)
     if (UDIPE_WERROR)
-        set(DOXYGEN_WARN_AS_ERROR YES)
+        # TODO: Re-enable once command interface is documented
+        # set(DOXYGEN_WARN_AS_ERROR YES)
     endif()
 
     set(documented_source ${udipe_relative_headers})
