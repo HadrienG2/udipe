@@ -35,7 +35,9 @@ static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
         return "ERROR";
     case UDIPE_DEFAULT_LOG_LEVEL:
         if (allow_default) return "DEFAULT";
-        __attribute__ ((fallthrough));
+        #ifdef __GNUC__
+            __attribute__ ((fallthrough));
+        #endif
     default:
         fprintf(stderr,
                 "libudipe: Called log_level_name() with invalid level %d!\n",
@@ -48,7 +50,9 @@ static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
 ///
 /// Set upon default_log_callback() initialization. Used to decide whether
 /// stderr logs should use ANSI color highlighting.
-static atomic_bool stderr_is_tty;
+#ifdef __unix__
+    static atomic_bool stderr_is_tty;
+#endif
 
 /// Default log callback
 ///
@@ -67,37 +71,41 @@ static void default_log_callback(void* /* context */,
     // Translate log level into a textual representation
     const char* level_name = log_level_name(level, false);
 
-    // Give each log a color
-    const char* level_color;
-    const bool use_colors = atomic_load_explicit(&stderr_is_tty, memory_order_relaxed);
-    if (use_colors) {
-        switch(level) {
-        case UDIPE_TRACE:
-            level_color = "\033[36m";
-            break;
-        case UDIPE_DEBUG:
-            level_color = "\033[34m";
-            break;
-        case UDIPE_INFO:
-            level_color = "\033[32m";
-            break;
-        case UDIPE_WARNING:
-            level_color = "\033[93;1m";
-            break;
-        case UDIPE_ERROR:
-            level_color = "\033[91;1m";
-            break;
-        case UDIPE_DEFAULT_LOG_LEVEL:
-        default:
-            fprintf(stderr,
-                    "libudipe: Called default_log_callback() "
-                    "with invalid level %d!\n",
-                    level);
-            exit(EXIT_FAILURE);
+    // Give each log a color on Unix systems only
+    bool use_colors = false;
+    const char* level_color = "";
+    #ifdef __unix__
+        use_colors = atomic_load_explicit(&stderr_is_tty, memory_order_relaxed);
+        if (use_colors) {
+            switch(level) {
+            case UDIPE_TRACE:
+                level_color = "\033[36m";
+                break;
+            case UDIPE_DEBUG:
+                level_color = "\033[34m";
+                break;
+            case UDIPE_INFO:
+                level_color = "\033[32m";
+                break;
+            case UDIPE_WARNING:
+                level_color = "\033[93;1m";
+                break;
+            case UDIPE_ERROR:
+                level_color = "\033[91;1m";
+                break;
+            case UDIPE_DEFAULT_LOG_LEVEL:
+            default:
+                fprintf(stderr,
+                        "libudipe: Called default_log_callback() "
+                        "with invalid level %d!\n",
+                        level);
+                exit(EXIT_FAILURE);
+            }
         }
-    }
+    #endif
 
     // Query the current thread's name
+    // TODO: Add Windows version once Windows CI build is running
     char thread_name[16];
     int result = prctl(PR_GET_NAME, thread_name);
     assert(("No documented failure case", result == 0));
@@ -146,14 +154,20 @@ logger_t log_initialize(udipe_log_config_t config) {
     // Configure logging callback
     if (!config.callback) {
         config.callback = default_log_callback;
-        int result = isatty(STDERR_FILENO);
-        if (result == 1) {
-            atomic_store_explicit(&stderr_is_tty, true, memory_order_relaxed);
-        } else {
-            assert(("No other return value expected", result == 0));
-            assert(("No other error expected", errno == ENOTTY));
-            atomic_store_explicit(&stderr_is_tty, false, memory_order_relaxed);
-        }
+        #ifdef __unix__
+            int result = isatty(STDERR_FILENO);
+            if (result == 1) {
+                atomic_store_explicit(&stderr_is_tty,
+                                      true,
+                                      memory_order_relaxed);
+            } else {
+                assert(("No other return value expected", result == 0));
+                assert(("No other error expected", errno == ENOTTY));
+                atomic_store_explicit(&stderr_is_tty,
+                                      false,
+                                      memory_order_relaxed);
+            }
+        #endif
     }
     return config;
 }

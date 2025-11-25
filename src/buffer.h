@@ -124,11 +124,15 @@ void buffer_liberate(buffer_allocator_t* allocator, void* buffer);
 /// optimization and static analysis. None of these attributes is mandatory for
 /// correctness, so they can all be ifdef'd-out if portability to more compilers
 /// is needed someday.
-#define BUFFER_ALLOCATE_ATTRIBUTES  \
-    __attribute__((assume_aligned(MIN_PAGE_ALIGNMENT)  \
-                 , malloc  \
-                 , malloc(buffer_liberate, 2)  \
-                 , warn_unused_result))
+#ifdef __GNUC__
+    #define BUFFER_ALLOCATE_ATTRIBUTES  \
+        __attribute__((assume_aligned(MIN_PAGE_ALIGNMENT)  \
+                     , malloc  \
+                     , malloc(buffer_liberate, 2)  \
+                     , warn_unused_result))
+#else
+    #define BUFFER_ALLOCATE_ATTRIBUTES
+#endif
 
 /// Attempt to allocate a memory buffer
 ///

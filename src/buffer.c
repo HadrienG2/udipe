@@ -80,6 +80,7 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
 
 /// Get the system page size
 static size_t get_page_size() {
+    // TODO: Add Windows version once Windows CI build is running
     const long page_size_l = sysconf(_SC_PAGE_SIZE);
     if (page_size_l < 1) exit_after_c_error("Failed to query system page size!");
     return (size_t)page_size_l;
@@ -189,6 +190,8 @@ buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
     debug("Allocating the memory pool...");
     const size_t pool_size =
         allocator.config.buffer_size * allocator.config.buffer_count;
+    // TODO: Add Windows version once Windows CI build is running
+    //       + make a generic mmap/mlock abstraction.
     allocator.memory_pool = mmap(NULL,
                                  pool_size,
                                  PROT_READ | PROT_WRITE,
@@ -199,8 +202,12 @@ buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
     tracef("Allocated memory pool at location %p.", allocator.memory_pool);
 
     debug("Locking memory pages into RAM...");
-    exit_on_negative(mlock(allocator.memory_pool, pool_size),
-                     "Failed to lock memory pages into RAM!");
+    // TODO: Add Windows version once Windows CI build is running (see above)
+    if (mlock(allocator.memory_pool, pool_size) < 0) {
+        warn_on_errno();
+        warning("Failed to lock memory pages into RAM. This will degrade "
+                "performance when the system starts swapping.");
+    }
 
     debug("Initializing the availability bit array...");
     const bit_pos_t buffers_end = index_to_bit_pos(allocator.config.buffer_count);
@@ -226,6 +233,7 @@ void buffer_allocator_finalize(buffer_allocator_t allocator) {
                               index_to_bit_pos(allocator.config.buffer_count),
                               true)
     );
+    // TODO: Add Windows version once Windows CI build is running (see above)
     munmap(allocator.memory_pool,
            allocator.config.buffer_size * allocator.config.buffer_count);
 }

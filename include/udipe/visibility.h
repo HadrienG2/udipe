@@ -21,4 +21,8 @@
 ///
 /// This is used to annotate function declarations so that udipe can use them
 /// internally with optimal performance, yet external users can use them too.
-#define UDIPE_PUBLIC __attribute__((visibility("default")))
+#ifdef __GNUC__
+    #define UDIPE_PUBLIC __attribute__((visibility("default")))
+#else
+    #define UDIPE_PUBLIC
+#endif

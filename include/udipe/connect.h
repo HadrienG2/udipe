@@ -46,6 +46,9 @@ typedef enum udipe_direction_e {
 /// types features a `sa_family` internal tag that enables IPv4/IPv6/default
 /// disambiguation.
 typedef union ip_address_u {
+    // TODO: Once Windows CI is up, check if Windows has sockaddr, otherwise
+    //       define our own IP address + port tuple type that picks what we need
+    //       from the sockaddr types.
     struct sockaddr any;  ///< Used to safely query the `sa_family` field
     struct sockaddr_in v4;  ///< IPv4 address
     struct sockaddr_in6 v6;  ///< IPv6 address

@@ -11,7 +11,11 @@
 ///
 /// This may affect compiler optimizations, and is otherwise a useful
 /// documentation hint.
-#define UDIPE_NON_NULL_ARGS __attribute__((nonnull))
+#ifdef __GNUC__
+    #define UDIPE_NON_NULL_ARGS __attribute__((nonnull))
+#else
+    #define UDIPE_NON_NULL_ARGS
+#endif
 
 /// Assertion that some of a function's pointer arguments cannot be `NULL`
 ///
@@ -20,10 +24,18 @@
 ///
 /// This may affect compiler optimizations, and is otherwise a useful
 /// documentation hint.
-#define UDIPE_NON_NULL_SPECIFIC_ARGS(...) __attribute__((nonnull(__VA_ARGS__)))
+#ifdef __GNUC__
+    #define UDIPE_NON_NULL_SPECIFIC_ARGS(...) __attribute__((nonnull(__VA_ARGS__)))
+#else
+    #define UDIPE_NON_NULL_SPECIFIC_ARGS(...)
+#endif
 
 /// Assertion that a function's pointer result cannot be `NULL`
 ///
 /// This may affect compiler optimizations, and is otherwise a useful
 /// documentation hint.
-#define UDIPE_NON_NULL_RESULT __attribute__((returns_nonnull))
+#ifdef __GNUC__
+    #define UDIPE_NON_NULL_RESULT __attribute__((returns_nonnull))
+#else
+    #define UDIPE_NON_NULL_RESULT
+#endif

@@ -228,15 +228,32 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// \param logger_ptr must point to a `logger_t` that was previously initialized
 ///        by log_initialize(), and that is valid to use until the end of the
 ///        code scope delimited by the with_logger() macro.
-#define with_logger(logger_ptr, ...)  \
-    do {  \
-        const logger_t* udipe_prev_logger  \
-                        __attribute__((__cleanup__(restore_thread_logger)))  \
-                        = udipe_thread_logger;  \
-        udipe_thread_logger = (logger_ptr);  \
-        trace("Start of a with_logger() scope.");  \
-        do __VA_ARGS__ while(false);  \
-    } while(false)
+#ifdef __GNUC__
+    #define with_logger(logger_ptr, ...)  \
+        do {  \
+            const logger_t* udipe_prev_logger  \
+                            __attribute__((__cleanup__(restore_thread_logger)))  \
+                            = udipe_thread_logger;  \
+            udipe_thread_logger = (logger_ptr);  \
+            trace("Start of a with_logger() scope.");  \
+            do __VA_ARGS__ while(false);  \
+        } while(false)
+#elif defined(_MSC_VER)
+    #define with_logger(logger_ptr, ...)  \
+        do {  \
+            const logger_t* udipe_prev_logger = udipe_thread_logger;  \
+            __try {  \
+                udipe_thread_logger = (logger_ptr);  \
+                trace("Start of a with_logger() scope.");  \
+                do __VA_ARGS__ while(false);  \
+            }  \
+            __finally {  \
+                restore_thread_logger(&udipe_prev_logger);  \
+            }  \
+        } while(false)
+#else
+    #error "Sorry, we don't support your compiler yet. Please file a bug report about it!"
+#endif
 
 /// Set up the thread-local relative log level
 ///
@@ -259,17 +276,37 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// another situation. This most frequently comes up in unit tests.
 ///
 /// \param level must be set to \ref UDIPE_DEBUG or \ref UDIPE_TRACE.
-#define with_log_level(level, ...)  \
-    do {  \
-        const udipe_log_level_t udipe_prev_log_level  \
-            __attribute__((__cleanup__(restore_thread_log_level)))  \
+#ifdef __GNUC__
+    #define with_log_level(level, ...)  \
+        do {  \
+            const udipe_log_level_t udipe_prev_log_level  \
+                __attribute__((__cleanup__(restore_thread_log_level)))  \
+                    = udipe_thread_log_level;  \
+            udipe_thread_log_level = (level);  \
+            assert(udipe_thread_log_level == UDIPE_DEBUG  \
+                   || udipe_thread_log_level == UDIPE_TRACE);  \
+            trace("Start of a with_log_level() scope.");  \
+            do __VA_ARGS__ while(false);  \
+        } while(false)
+#elif defined(_MSC_VER)
+    #define with_logger(logger_ptr, ...)  \
+        do {  \
+            const udipe_log_level_t udipe_prev_log_level  \
                 = udipe_thread_log_level;  \
-        udipe_thread_log_level = (level);  \
-        assert(udipe_thread_log_level == UDIPE_DEBUG  \
-               || udipe_thread_log_level == UDIPE_TRACE);  \
-        trace("Start of a with_log_level() scope.");  \
-        do __VA_ARGS__ while(false);  \
-    } while(false)
+            __try {  \
+                udipe_thread_log_level = (level);  \
+                assert(udipe_thread_log_level == UDIPE_DEBUG  \
+                       || udipe_thread_log_level == UDIPE_TRACE);  \
+                trace("Start of a with_log_level() scope.");  \
+                do __VA_ARGS__ while(false);  \
+            }  \
+            __finally {  \
+                restore_thread_log_level(&udipe_prev_log_level);  \
+            }  \
+        } while(false)
+#else
+    #error "Sorry, we don't support your compiler yet. Please file a bug report about it!"
+#endif
 
 #ifdef UDIPE_BUILD_TESTS
     /// Save the current thread-local logging state to local variables with a
@@ -319,7 +356,11 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// This allows GCC to validate correct usage of this printf()-style function.
 /// Extracting it into a macro deduplicates definition/declaration and works
 /// around a bug in the doxygen parser.
-#define LOGF_IMPL_ATTRIBUTES __attribute__((format(printf, 3, 4)))
+#ifdef __GNUC__
+    #define LOGF_IMPL_ATTRIBUTES __attribute__((format(printf, 3, 4)))
+#else
+    #define LOGF_IMPL_ATTRIBUTES
+#endif
 
 /// Implementation of logf()
 ///
