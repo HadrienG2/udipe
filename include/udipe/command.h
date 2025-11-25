@@ -116,9 +116,9 @@ udipe_future_t* udipe_start_recv(udipe_context_t* context,
 
 // TODO: document
 //
-// TODO: Should have GSR-like semantics, i.e. if you give a large enough buffer
+// TODO: Should have GRO-like semantics, i.e. if you give a large enough buffer
 //       then multiple datagrams may be received, and there will be anciliary
-//       data telling you how large the inner segments are. If GSO is disabled,
+//       data telling you how large the inner segments are. If GRO is disabled,
 //       then it just receives a single datagram.
 static inline
 UDIPE_NON_NULL_ARGS
@@ -129,69 +129,4 @@ udipe_recv_result_t udipe_recv(udipe_context_t* context,
     udipe_result_t result = udipe_wait(future, 0);
     assert(result.command_id == UDIPE_RECV);
     return result.payload.recv;
-}
-
-// TODO: document and implement
-UDIPE_PUBLIC
-UDIPE_NON_NULL_ARGS
-UDIPE_NON_NULL_RESULT
-udipe_future_t* udipe_start_send_stream(udipe_context_t* context,
-                                        udipe_send_stream_options_t options);
-
-// TODO: document
-static inline
-UDIPE_NON_NULL_ARGS
-udipe_send_stream_result_t
-udipe_send_stream(udipe_context_t* context,
-                  udipe_send_stream_options_t options) {
-    udipe_future_t* future = udipe_start_send_stream(context, options);
-    assert(future);
-    udipe_result_t result = udipe_wait(future, 0);
-    assert(result.command_id == UDIPE_SEND_STREAM);
-    return result.payload.send_stream;
-}
-
-// TODO: document and implement
-UDIPE_PUBLIC
-UDIPE_NON_NULL_ARGS
-UDIPE_NON_NULL_RESULT
-udipe_future_t* udipe_start_recv_stream(udipe_context_t* context,
-                                        udipe_recv_stream_options_t options);
-
-// TODO: document
-static inline
-UDIPE_NON_NULL_ARGS
-udipe_recv_stream_result_t
-udipe_recv_stream(udipe_context_t* context,
-                  udipe_recv_stream_options_t options) {
-    udipe_future_t* future = udipe_start_recv_stream(context, options);
-    assert(future);
-    udipe_result_t result = udipe_wait(future, 0);
-    assert(result.command_id == UDIPE_RECV_STREAM);
-    return result.payload.recv_stream;
-}
-
-// TODO: document and implement
-// TODO: This is sort of the combination of a send_stream() and a
-//       recv_stream(). It combines an incoming and outgoing connection (which
-//       may be the same connection) in such a way that for each incoming
-//       datagram on one connection, you can send a datagram to the other
-//       connection, which is derived from the incoming one.
-UDIPE_PUBLIC
-UDIPE_NON_NULL_ARGS
-UDIPE_NON_NULL_RESULT
-udipe_future_t* udipe_start_reply_stream(udipe_context_t* context,
-                                         udipe_reply_stream_options_t options);
-
-// TODO: document
-static inline
-UDIPE_NON_NULL_ARGS
-udipe_reply_stream_result_t
-udipe_reply_stream(udipe_context_t* context,
-                   udipe_reply_stream_options_t options) {
-    udipe_future_t* future = udipe_start_reply_stream(context, options);
-    assert(future);
-    udipe_result_t result = udipe_wait(future, 0);
-    assert(result.command_id == UDIPE_REPLY_STREAM);
-    return result.payload.reply_stream;
 }*/

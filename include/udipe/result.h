@@ -25,10 +25,7 @@ typedef union udipe_result_payload_u {
     udipe_disconnect_result_t disconnect;  ///< Result of udipe_disconnect()
     // TODO: Add and implement
     /*udipe_send_result_t send;  ///< Result of udipe_send()
-    udipe_recv_result_t recv;  ///< Result of udipe_recv()
-    udipe_send_stream_result_t send_stream;  ///< Result of udipe_send_stream()
-    udipe_recv_stream_result_t recv_stream;  ///< Result of udipe_recv_stream()
-    udipe_reply_stream_result_t reply_stream;  ///< Result of udipe_reply_stream()*/
+    udipe_recv_result_t recv;  ///< Result of udipe_recv()*/
 } udipe_result_payload_t;
 
 /// Command identifier
@@ -46,10 +43,7 @@ typedef enum udipe_command_id_e {
     UDIPE_DISCONNECT,  ///< udipe_disconnect()
     // TODO: Add and implement
     /*UDIPE_SEND,  ///< udipe_send()
-    UDIPE_RECV,  ///< udipe_recv()
-    UDIPE_SEND_STREAM,  ///< udipe_send_stream()
-    UDIPE_RECV_STREAM,  ///< udipe_recv_stream()
-    UDIPE_REPLY_STREAM,  ///< udipe_reply_stream()*/
+    UDIPE_RECV,  ///< udipe_recv()*/
     UDIPE_NO_COMMAND = 0  ///< Sentinel value with no associated command
 } udipe_command_id_t;
 
