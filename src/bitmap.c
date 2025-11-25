@@ -16,7 +16,7 @@
     }
 
     /// Sub-test of test_bitmap_with_hole() that exercises bitmap_get()
-    static void check_bitmap_get(word_t bitmap[],
+    static void check_bitmap_get(const word_t bitmap[],
                                  size_t capacity,
                                  size_t hole_start,
                                  size_t hole_end,
@@ -40,7 +40,7 @@
     }
 
     /// Sub-test of test_bitmap_with_hole() that exercises bitmap_count()
-    static void check_bitmap_count(word_t bitmap[],
+    static void check_bitmap_count(const word_t bitmap[],
                                    size_t capacity,
                                    size_t hole_start,
                                    size_t hole_end,
@@ -56,7 +56,7 @@
     }
 
     /// Sub-test of test_bitmap_with_hole() that exercises bitmap_range_alleq()
-    static void check_bitmap_range_alleq(word_t bitmap[],
+    static void check_bitmap_range_alleq(const word_t bitmap[],
                                          size_t capacity,
                                          size_t hole_start,
                                          size_t hole_end,
@@ -172,7 +172,7 @@
     }
 
     /// Sub-test of test_bitmap_with_hole() that exercises bitmap_find_first()
-    static void check_bitmap_find_first(word_t bitmap[],
+    static void check_bitmap_find_first(const word_t bitmap[],
                                         size_t capacity,
                                         size_t hole_start,
                                         size_t hole_end,
@@ -203,13 +203,12 @@
         ensure_eq(result.offset, expected.offset);
     }
 
-    /// Sub-test of test_bitmap_with_hole() that exercises bitmap_find_next()
-    static void check_bitmap_find_next(word_t bitmap[],
-                                       size_t capacity,
-                                       size_t hole_start,
-                                       size_t hole_end,
-                                       bool main_value) {
-        const bool hole_value = !main_value;
+    /// Sub-test of check_bitmap_find_next() that searches the main value
+    static void check_bitmap_find_next_main(const word_t bitmap[],
+                                            size_t capacity,
+                                            size_t hole_start,
+                                            size_t hole_end,
+                                            bool main_value) {
         bit_pos_t result, expected;
 
         trace("Main value, without wraparound...");
@@ -263,6 +262,16 @@
             ensure_eq(result.word, expected.word);
             ensure_eq(result.offset, expected.offset);
         }
+    }
+
+    /// Sub-test of check_bitmap_find_next() that searches the hole value
+    static void check_bitmap_find_next_hole(const word_t bitmap[],
+                                            size_t capacity,
+                                            size_t hole_start,
+                                            size_t hole_end,
+                                            bool main_value) {
+        const bool hole_value = !main_value;
+        bit_pos_t result, expected;
 
         trace("Hole value, without wraparound...");
         for (size_t idx = 0; idx < capacity; ++idx) {
@@ -311,6 +320,24 @@
             ensure_eq(result.word, expected.word);
             ensure_eq(result.offset, expected.offset);
         }
+    }
+
+    /// Sub-test of test_bitmap_with_hole() that exercises bitmap_find_next()
+    static void check_bitmap_find_next(const word_t bitmap[],
+                                       size_t capacity,
+                                       size_t hole_start,
+                                       size_t hole_end,
+                                       bool main_value) {
+        check_bitmap_find_next_main(bitmap,
+                                    capacity,
+                                    hole_start,
+                                    hole_end,
+                                    main_value);
+        check_bitmap_find_next_hole(bitmap,
+                                    capacity,
+                                    hole_start,
+                                    hole_end,
+                                    main_value);
     }
 
     /// Sub-test of test_bitmap_with_hole() that exercises bitmap_set()

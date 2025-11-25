@@ -192,7 +192,7 @@ static inline bit_pos_t bitmap_end(size_t capacity) {
 /// \param bitmap must be a valid bitmap of capacity `capacity`
 /// \param capacity must be the bit storage capacity of `bitmap`
 /// \param bit must be a valid bit position inside of `bitmap`
-static inline bool bitmap_get(word_t bitmap[],
+static inline bool bitmap_get(const word_t bitmap[],
                               size_t capacity,
                               bit_pos_t bit) {
     assert(bit_pos_to_index(bit) < capacity);
@@ -224,7 +224,7 @@ static inline void bitmap_set(word_t bitmap[],
 /// \param bitmap must be a valid bitmap of capacity `capacity`
 /// \param capacity must be the bit storage capacity of `bitmap`
 /// \param value is the value whose occurences will be counted
-static inline size_t bitmap_count(word_t bitmap[],
+static inline size_t bitmap_count(const word_t bitmap[],
                                   size_t capacity,
                                   bool value) {
     const size_t num_full_words = capacity / BITS_PER_WORD;
@@ -418,7 +418,7 @@ static inline void bitmap_range_set(word_t bitmap[],
 /// \param value is the bit value that will be searched within the bitmap.
 /// \returns The position of the first bit that has the desired value, or
 ///          \ref NO_BIT_POS to indicate absence of the desired value.
-static inline bit_pos_t bitmap_find_first(word_t bitmap[],
+static inline bit_pos_t bitmap_find_first(const word_t bitmap[],
                                           size_t capacity,
                                           bool value) {
     // Quickly skip over words where the value isn't present
@@ -476,7 +476,7 @@ static inline bit_pos_t bitmap_find_first(word_t bitmap[],
 /// \returns The position of the first bit after `previous` (including possible
 ///          search wraparound) that has the desired value, or \ref NO_BIT_POS
 ///          to indicate absence of the desired value.
-static inline bit_pos_t bitmap_find_next(word_t bitmap[],
+static inline bit_pos_t bitmap_find_next(const word_t bitmap[],
                                          size_t capacity,
                                          bit_pos_t previous,
                                          bool wraparound,
