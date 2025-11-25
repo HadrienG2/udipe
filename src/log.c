@@ -212,7 +212,7 @@ thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_LOG_INFO;
                     "libudipe: Called validate_log() with invalid level %d!\n",
                     level);
             exit(EXIT_FAILURE);
-        };
+        }
     }
 #endif  // NDEBUG
 
