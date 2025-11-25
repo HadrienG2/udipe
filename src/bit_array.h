@@ -81,14 +81,31 @@ static inline word_t bit_broadcast(bool value) {
 ///
 /// \param word must not be zero
 static inline size_t count_trailing_zeros(word_t word) {
-    return __builtin_ctzll(word);
+    assert(word != (size_t)0);
+    #ifdef __GNUC__
+        return __builtin_ctzll(word);
+    #else
+        for (size_t bit = 0; bit < sizeof(word_t) * 8; ++bit) {
+            if (word & (size_t)1) return bit;
+            word >>= 1;
+        }
+    #endif
 }
 
 /// Count the number of bits that are set to 1 in a \ref word_t
 ///
 /// \returns the word's population count aka Hamming weight
 static inline size_t population_count(word_t word) {
-    return __builtin_popcountll(word);
+    #ifdef __GNUC__
+        return __builtin_popcountll(word);
+    #else
+        size_t population = 0;
+        for (size_t bit = 0; bit < sizeof(word_t) * 8; ++bit) {
+            population += word & (size_t)1;
+            word >>= 1;
+        }
+        return population;
+    #endif
 }
 
 /// \}
