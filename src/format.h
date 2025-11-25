@@ -10,8 +10,6 @@
 ///
 /// This macro takes an expression as input and generates an appropriate
 /// printf() format specifier for this expression.
-//
-// TODO: Expand list of supported types as needed
 #define format_for(x) _Generic((x),  \
                                          const char*: "%s",  \
                                                char*: "%s",  \
