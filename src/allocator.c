@@ -35,7 +35,7 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
         assert(("Caches should have attributes", cache->attr));
         assert(cache->attr->cache.size < (uint64_t)SIZE_MAX);
         size_t cache_size = (size_t)cache->attr->cache.size;
-        tracef("Requested cache can hold %zu bytes.", cache_size)
+        tracef("Requested cache can hold %zu bytes.", cache_size);
 
         trace("Determining cache cpuset...");
         assert(("Caches should have a cpuset", cache->cpuset));
