@@ -300,7 +300,7 @@ void* allocate(allocator_t* allocator) {
 
         trace("Backing up initial allocator configuration...");
         const udipe_thread_allocator_config_t config = allocator.config;
-        const void* const memory_pool = allocator.memory_pool;
+        void* const memory_pool = allocator.memory_pool;
 
         trace("Checking memory pool pointer...");
         ensure((bool)allocator.memory_pool);
