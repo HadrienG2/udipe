@@ -141,7 +141,7 @@ static inline bool log_enabled(udipe_log_level_t level);
                       (format),  \
                       __VA_ARGS__);  \
         }  \
-    } while(false);
+    } while(false)
 
 /// Log a \link #UDIPE_LOG_TRACE `TRACE` \endlink formatted message
 ///
