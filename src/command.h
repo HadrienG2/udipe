@@ -79,9 +79,7 @@ typedef struct command_s {
         udipe_disconnect_options_t disconnect;
         // TODO: Add and implement
         /*udipe_send_options_t send;
-        udipe_recv_options_t recv;
-        udipe_send_stream_options_t send_stream;
-        udipe_recv_stream_options_t recv_stream;*/
+        udipe_recv_options_t recv;*/
     };
 
     // TODO: Consider some kind of QoS infrastructure so that e.g. IPBus slow
