@@ -104,11 +104,13 @@ static void default_log_callback(void* /* context */,
     // Display the log on stderr
     if (use_colors) {
         fprintf(stderr,
-                "[%1$5zu.%2$06zu %7$s%3$5s\033[0m] \033[33m%4$s %5$s: %7$s%6$s\033[0m\n",
-                secs, microsecs, level_name, thread_name, location, message, level_color);
+                "[%5zu.%06zu %s%5s\033[0m] \033[33m%s %s: "
+                "%s%s\033[0m\n",
+                secs, microsecs, level_color, level_name, thread_name, location,
+                level_color, message);
     } else {
         fprintf(stderr,
-                "[%1$5zu.%2$06zu %3$5s] %4$s %5$s: %6$s\n",
+                "[%5zu.%06zu %5s] %s %s: %s\n",
                 secs, microsecs, level_name, thread_name, location, message);
     }
 }
