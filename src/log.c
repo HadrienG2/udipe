@@ -5,14 +5,19 @@
 
 #include <assert.h>
 #include <errno.h>
+// TODO: Replace with sys.h once thread name abstraction is ready
 #include <linux/prctl.h>
 #include <stdarg.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
+// TODO: Replace with sys.h once thread name abstraction is ready
 #include <sys/prctl.h>
 #include <time.h>
-#include <unistd.h>
+
+#ifdef __unix__
+    #include <unistd.h>
+#endif
 
 
 /// Name of a certain log level

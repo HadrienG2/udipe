@@ -87,7 +87,7 @@ static_assert(sizeof(shared_connect_options_t) == 2 * FALSE_SHARING_GRANULARITY,
 /// requests have been processed;
 #define NUM_CONNECT_OPTIONS ((size_t)32)
 static_assert(NUM_CONNECT_OPTIONS <= 32,
-              "Imposed by Linux futex limitations + simple bit arraya design");
+              "Imposed by Linux futex limitations + simple bit array design");
 
 /// Simple allocator for \ref shared_connect_options_t
 ///

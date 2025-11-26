@@ -10,9 +10,11 @@
 
 #include "time.h"
 
+// TODO: Check if this is the right include for windows, else add ifdef
 #include <netinet/in.h>
 #include <stdbool.h>
 #include <stdint.h>
+// TODO: Check if this is the right include for windows, else add ifdef
 #include <sys/socket.h>
 
 

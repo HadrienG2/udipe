@@ -64,3 +64,10 @@ void* network_alloc(size_t size);
 // TODO: Add and document network_free() function that frees up memory
 
 // TODO: Modify buffer.h and context.c to use network_alloc() and network_free().
+
+// TODO: Add a function to get/set the current thread name on posix and the
+//       thread description on Windows + replace prctl to get thread name in
+//       logger.
+
+// TODO: Add a function for futex wait/wake and the Windows equivalent + replace
+//       futex syscalls here and there.
