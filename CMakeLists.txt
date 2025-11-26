@@ -122,7 +122,8 @@ target_sources(udipe
                        src/future.h
                        src/log.c
                        src/log.h
-                       src/tests.c)
+                       src/tests.c
+                       src/visibility.h)
 if (UDIPE_BUILD_TESTS)
     target_compile_definitions(udipe PUBLIC UDIPE_BUILD_TESTS)
     target_link_libraries(udipe PRIVATE OpenMP::OpenMP_C)

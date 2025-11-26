@@ -124,7 +124,7 @@ static void default_log_callback(void* /* context */,
     }
 }
 
-UDIPE_PUBLIC const char* udipe_log_level_name(udipe_log_level_t level) {
+DEFINE_PUBLIC const char* udipe_log_level_name(udipe_log_level_t level) {
     return log_level_name(level, true);
 }
 

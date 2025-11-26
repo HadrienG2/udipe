@@ -9,7 +9,7 @@
 #include <stdlib.h>
 
 
-UDIPE_PUBLIC
+DEFINE_PUBLIC
 UDIPE_NON_NULL_RESULT
 udipe_context_t* udipe_initialize(udipe_config_t config) {
     logger_t logger = log_initialize(config.log);
@@ -34,7 +34,7 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
     return context;
 }
 
-UDIPE_PUBLIC
+DEFINE_PUBLIC
 UDIPE_NON_NULL_ARGS
 void udipe_finalize(udipe_context_t* context) {
     with_logger(&context->logger, {
