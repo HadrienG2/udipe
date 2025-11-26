@@ -6,10 +6,12 @@
 
 #include <assert.h>
 #include <errno.h>
+// TODO: Replace with sys.h once futex abstraction is ready
 #include <linux/futex.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+// TODO: Replace both with sys.h once futex abstraction is ready
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -56,6 +58,7 @@ connect_options_allocate(connect_options_allocator_t* allocator,
     do {
         while (availability == 0) {
             trace("All options are in use, waiting for some to free up...");
+            // TODO: Add Windows version once Windows CI build is running
             long result = syscall(SYS_futex,
                                   &allocator->availability,
                                   FUTEX_WAIT_PRIVATE,
@@ -141,6 +144,7 @@ void connect_options_deallocate(connect_options_allocator_t* allocator,
     if (previous_availability == 0) {
         debug("All connect options were in use, let's wake up "
               "one of the worker threads awaiting some (if any)");
+        // TODO: Add Windows version once Windows CI build is running
         long result = syscall(SYS_futex,
                               &allocator->availability,
                               FUTEX_WAKE_PRIVATE,

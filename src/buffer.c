@@ -4,6 +4,7 @@
 #include "log.h"
 
 #include <stdint.h>
+// TODO: Replace both with sys.h once mmap/etc wrapper is ready
 #include <sys/mman.h>
 #include <unistd.h>
 
