@@ -8,6 +8,7 @@
     #include "command.h"
     #include "countdown.h"
     #include "log.h"
+    #include "visibility.h"
 
     #include <stdio.h>
     #include <stdlib.h>
@@ -15,7 +16,7 @@
     #include <strings.h>
 
 
-    UDIPE_PUBLIC void udipe_unit_tests() {
+    DEFINE_PUBLIC void udipe_unit_tests() {
         udipe_log_config_t log_config;
         memset(&log_config, 0, sizeof(udipe_log_config_t));
 
