@@ -7,7 +7,7 @@
 //! annotation on the function definition. This header defines that annotation.
 
 
-/// Annotate a function definition for \ref UDIP_PUBLIC visibility.
+/// Annotate a function definition for \ref UDIPE_PUBLIC visibility.
 ///
 /// This is the proper annotation for the definition of a function that has been
 /// declared with \ref UDIPE_PUBLIC visibility.

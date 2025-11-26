@@ -1,6 +1,7 @@
 #include "log.h"
 
 #include "error.h"
+#include "visibility.h"
 
 #include <assert.h>
 #include <errno.h>
