@@ -4,6 +4,7 @@
 
 #include "error.h"
 #include "log.h"
+#include "visibility.h"
 
 #include <errno.h>
 #include <stdlib.h>
