@@ -6,15 +6,60 @@
 //! This code module provides a few primitives that abstract away differences
 //! between supported operating systems.
 
+#include <udipe/pointer.h>
+
 #include <stddef.h>
 
 
-// TODO: Extract some of the GNU attributes from buffer.h into a common macro
-//       that also applies here
-
 // TODO: Add a way to query the system page size and allocation granularity
 
-/// Allocate memory optimized for use by network threads
+/// Liberate a memory buffer previously allocated via realtime_allocate()
+///
+/// After this is done, the buffer must not be used again for any purpose.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param buffer points to a buffer that has previously been allocated using
+///               realtime_allocate() and hasn't been liberated via
+///               realtime_liberate() yet.
+//
+// TODO: Implement using munmap() or VirtualFree().
+UDIPE_NON_NULL_ARGS
+void realtime_liberate(void* buffer);
+
+/// GNU attributes of page-aligned memory allocation functions
+///
+/// These attributes are used to let the compiler know that a certain function
+/// allocates memory at page granularity, which enables better compiler
+/// performance optimizations and static analysis.
+///
+/// They are best completed with the malloc(liberate...) attribute to indicate
+/// what function is used to liberate the memory later on. For infaillible
+/// allocators, UDIPE_NON_NULL_RESULT can be used as well.
+#ifdef __GNUC__
+    #define PAGE_ALLOCATOR_ATTRIBUTES  \
+        __attribute__((assume_aligned(MIN_PAGE_ALIGNMENT)  \
+                     , malloc  \
+                     , warn_unused_result))
+#else
+    #define PAGE_ALLOCATOR_ATTRIBUTES
+#endif
+
+/// GNU attributes of the realtime_allocate() functions
+///
+/// These attributes are used to let GCC and clang know that realtime_allocate()
+/// is a memory allocator that provides certain guarantees and is meant to be
+/// used in a certain way. These compilers can leverage that information to
+/// optimize code better and provide higher quality static analysis.
+#ifdef __GNUC__
+    #define REALTIME_ALLOCATE_ATTRIBUTES  \
+        PAGE_ALLOCATOR_ATTRIBUTES  \
+        __attribute__((malloc(realtime_liberate)))
+#else
+    #define REALTIME_ALLOCATE_ATTRIBUTES PAGE_ALLOCATOR_ATTRIBUTES
+#endif
+
+/// Allocate memory optimized for use by timing-sensitive network threads
 ///
 /// Compared to standard malloc(), this memory allocation function takes a few
 /// extra precautions that can benefit networking performance.
@@ -47,9 +92,17 @@
 ///   you should try to request as few of these allocations as possible by
 ///   allocating large blocks and logically splitting them into smaller ones.
 /// - The allocation that comes out of this function cannot be freed using
-///   normal free(), it **must** be freed using network_free().
+///   normal free(), it must be freed using realtime_liberate().
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param size sets a lower bound on the size of the buffer that will be
+///             returned, in bytes. Due to granularity constraints of the
+///             underlying OS APIs, the amount of actually allocated memory may
+///             be higher than what was requested.
+/// \returns a buffer of `size` bytes or more. Failure is handled by aborting
+///          the host program with exit().
 //
-// TODO: Add proper GNU attributes
 // TODO: Implement as directed below
 // TODO: On linux, mmap() then try mlock() and if it fails due to a permission
 //       error warn() then simply prefault, using a page size readout that is
@@ -59,9 +112,9 @@
 //       bump the process working set size with a mutex to avoid inter-thread
 //       race, then allocate with reserve|commit, then try to lock and prefault
 //       if it fails as on Linux.
-void* network_alloc(size_t size);
-
-// TODO: Add and document network_free() function that frees up memory
+UDIPE_NON_NULL_RESULT
+REALTIME_ALLOCATE_ATTRIBUTES
+void* realtime_allocate(size_t size);
 
 // TODO: Modify buffer.h and context.c to use network_alloc() and network_free().
 
