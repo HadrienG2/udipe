@@ -122,6 +122,7 @@ target_sources(udipe
                        src/future.h
                        src/log.c
                        src/log.h
+                       src/sys.c
                        src/sys.h
                        src/tests.c
                        src/visibility.h)
