@@ -6,7 +6,7 @@
 
 #ifdef __unix__
     #include <unistd.h>
-#elif defined(_MSC_VER)
+#elif defined(_WIN32)
     #include <sysinfoapi.h>
 #endif
 
@@ -38,13 +38,13 @@ static void read_system_config() {
         if (page_size_l < 1) exit_after_c_error("Failed to query system page size!");
         system_page_size = (size_t)page_size_l;
         system_allocation_granularity = system_page_size;
-    #elif defined(_MSC_VER)
+    #elif defined(_WIN32)
         SYSTEM_INFO info;
         GetSystemInfo(&info);
         system_page_size = info.dwPageSize;
         system_allocation_granularity = info.dwAllocationGranularity;
     #else
-        #error "Sorry, we don't support your compiler yet. Please file a bug report about it!"
+        #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
     infof("Will use memory pages of size %zu (%#zx) bytes.",
           system_page_size, system_page_size);
