@@ -39,10 +39,10 @@ size_t get_page_size();
 /// \param buffer points to a buffer that has previously been allocated using
 ///               realtime_allocate() and hasn't been liberated via
 ///               realtime_liberate() yet.
-//
-// TODO: Implement using munmap() or VirtualFree().
+/// \param size must be the `size` parameter that was passed to
+///             realtime_allocate() when this buffer was allocated.
 UDIPE_NON_NULL_ARGS
-void realtime_liberate(void* buffer);
+void realtime_liberate(void* buffer, size_t size);
 
 /// GNU attributes of page-aligned memory allocation functions
 ///
@@ -119,16 +119,6 @@ void realtime_liberate(void* buffer);
 ///             be higher than what was requested.
 /// \returns a buffer of `size` bytes or more. Failure is handled by aborting
 ///          the host program with exit().
-//
-// TODO: Implement as directed below
-// TODO: On linux, mmap() then try mlock() and if it fails due to a permission
-//       error warn() then simply prefault, using a page size readout that is
-//       only performed once.
-// TODO: On windows, get system info once to know page size and allocation
-//       granularity, then round up to allocation granularity multiple, then
-//       bump the process working set size with a mutex to avoid inter-thread
-//       race, then allocate with reserve|commit, then try to lock and prefault
-//       if it fails as on Linux.
 UDIPE_NON_NULL_RESULT
 REALTIME_ALLOCATE_ATTRIBUTES
 void* realtime_allocate(size_t size);
