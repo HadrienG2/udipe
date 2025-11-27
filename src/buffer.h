@@ -12,6 +12,7 @@
 
 #include "arch.h"
 #include "bit_array.h"
+#include "sys.h"
 
 #include <hwloc.h>
 
@@ -111,27 +112,22 @@ void buffer_allocator_finalize(buffer_allocator_t allocator);
 ///                  using buffer_allocator_initialize() and hasn't been
 ///                  destroyed with buffer_allocator_finalize() yet.
 /// \param buffer points to a buffer that has previously been allocated from
-///               `allocator` using buffer_allocate() and hasn't been destroyed
-///               through buffer_liberate() yet.
+///               `allocator` using buffer_allocate() and hasn't been liberated
+///               via buffer_liberate() yet.
 UDIPE_NON_NULL_ARGS
 void buffer_liberate(buffer_allocator_t* allocator, void* buffer);
 
 /// GNU attributes of the buffer_allocate() functions
 ///
-/// These attributes are used to let the compiler know that buffer_allocate() is
-/// a memory allocator that provides certain guarantees and expects certain
-/// usage requirements, in order to enjoy higher-quality performance
-/// optimization and static analysis. None of these attributes is mandatory for
-/// correctness, so they can all be ifdef'd-out if portability to more compilers
-/// is needed someday.
+/// These attributes are used to let GCC and clang know that buffer_allocate()
+/// is a memory allocator that provides certain guarantees and is meant to be
+/// used in a certain way. These compilers can leverage that information to
+/// optimize code better and provide higher quality static analysis.
 #ifdef __GNUC__
     #define BUFFER_ALLOCATE_ATTRIBUTES  \
-        __attribute__((assume_aligned(MIN_PAGE_ALIGNMENT)  \
-                     , malloc  \
-                     , malloc(buffer_liberate, 2)  \
-                     , warn_unused_result))
+        PAGE_ALLOCATOR_ATTRIBUTES __attribute__((malloc(buffer_liberate, 2)))
 #else
-    #define BUFFER_ALLOCATE_ATTRIBUTES
+    #define BUFFER_ALLOCATE_ATTRIBUTES PAGE_ALLOCATOR_ATTRIBUTES
 #endif
 
 /// Attempt to allocate a memory buffer
@@ -139,6 +135,9 @@ void buffer_liberate(buffer_allocator_t* allocator, void* buffer);
 /// Returns `NULL` if no buffer is available, in which case the caller should
 /// wait for some network requests to complete (and thus liberate the associated
 /// data buffer) before trying again.
+///
+/// If this method returns a non-`NULL` buffer, then it must later be liberated
+/// using the buffer_liberate() function.
 ///
 /// This function must be called within the scope of with_logger().
 ///
