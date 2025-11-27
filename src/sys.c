@@ -46,6 +46,7 @@ static void read_system_config() {
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
+
     infof("Will use memory pages of size %zu (%#zx) bytes.",
           system_page_size, system_page_size);
     assert(system_page_size >= MIN_PAGE_ALIGNMENT);
