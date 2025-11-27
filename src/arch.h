@@ -69,7 +69,7 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
 /// lower bound, and failure to meet it will result in undefined behavior. Which
 /// is why on CPU architectures where the page size isn't known, a very
 /// pessimistic guess is taken.
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(_M_X64)
     #define MIN_PAGE_ALIGNMENT ((size_t)4096)
 #else
     #warning "Compiling on an unknown CPU architectures, will take a " \
