@@ -123,8 +123,8 @@ void* realtime_allocate(size_t size) {
         // - RLIMIT_MEMLOCK soft limit exceeded
         case ENOMEM:
             errno = 0;
-            trace("Failed to lock memory, but there may be a soft limit. "
-                  "Let's try to raise the limit...");
+            trace("Failed to lock memory, but it may come from a soft limit. "
+                  "Let's try to raise the limit before giving up...");
             break;
         // Some or all of the specified address range could not be locked for
         // unspecified reasons.
@@ -169,7 +169,7 @@ prefault_and_return:
     }
 
 log_and_return:
-    debugf("Done allocating memory at virtual location %p.", result);
+    debugf("Done allocating memory at address %p.", result);
     return result;
 }
 
@@ -179,22 +179,25 @@ void realtime_liberate(void* buffer, size_t size) {
            size, buffer);
     size = allocation_size(size);
 
-    // Note that none of these code paths decrease RLIMIT_MEMLOCK or the process
-    // working set size. While somewhat meh from a "telling the kernel the whole
-    // truth" perspective, this still seems like the right move for the
-    // following reasons:
+    // Note that neither code path decreases RLIMIT_MEMLOCK (Unix) or the
+    // process working set size (Windows). While this is obviously meh from a
+    // "telling the OS kernel the whole truth" perspective, it still feels like
+    // the right move for the following reasons:
     //
-    // - We don't increase the limit on the allocation size if we don't need to
-    //   so this is not a strict resource leak, merely giving the kernel a bad
-    //   upper bound on our actual resource usage.
+    // - We don't increase the limit if we don't need to, so this is not a
+    //   strict resource leak where the limit keeps increasing indefinitely.
+    //   We're merely keeping the limit at our maximal resource usage so far,
+    //   which is a (possibly bad) upper bound on our actual resource usage.
     // - If we decrease the limit when an allocation is liberated, then we need
     //   to increase it again when we allocate again, so every
     //   allocation/liberation call will come with extra limit adjustement
     //   syscalls, which is bad for runtime perf. In contrast, if we don't
     //   decrease the limit, it should eventually converge to a correct upper
-    //   bound that doesn't need tweaking.
-    // - By avoiding limit-setting syscalls in the long run, we also avoid the
-    //   intrinsic race condition that comes with it, which is also good.
+    //   bound that doesn't need adjusting anymorre.
+    // - By avoiding limit-setting syscalls in the long run, we also reduce the
+    //   risk of associated race conditions, which is also good, though it would
+    //   obviously be better if POSIX and Windows limit-adjustment syscalls
+    //   weren't racy by design...
     #ifdef __unix__
         exit_on_negative(munmap(buffer, size), "Failed to liberate memory");
     #elif defined(_WIN32)
