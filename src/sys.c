@@ -201,7 +201,7 @@ void realtime_liberate(void* buffer, size_t size) {
     #ifdef __unix__
         exit_on_negative(munmap(buffer, size), "Failed to liberate memory");
     #elif defined(_WIN32)
-        // TODO: Implement using VirtualFree()
+        // TODO: Implement using VirtualFree() with MEM_RELEASE and size=0
         // TODO: Add GetLastError() support to error.h
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
