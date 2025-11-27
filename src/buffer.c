@@ -2,11 +2,11 @@
 
 #include "error.h"
 #include "log.h"
+#include "sys.h"
 
 #include <stdint.h>
-// TODO: Replace both with sys.h once mmap/etc wrapper is ready
+// TODO: Remove after switch to sys.h mmap/mlock/munmap wrapper
 #include <sys/mman.h>
-#include <unistd.h>
 
 
 /// Determine the smallest cache capacity available at a certain cache level
@@ -79,14 +79,6 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
     return (8 * min_size) / 10;
 }
 
-/// Get the system page size
-static size_t get_page_size() {
-    // TODO: Add Windows version once Windows CI build is running
-    const long page_size_l = sysconf(_SC_PAGE_SIZE);
-    if (page_size_l < 1) exit_after_c_error("Failed to query system page size!");
-    return (size_t)page_size_l;
-}
-
 /// Apply defaults and page rounding to a \ref udipe_buffer_config_t
 ///
 /// This prepares the config struct for use within the actual allocator by
@@ -95,10 +87,7 @@ static size_t get_page_size() {
 UDIPE_NON_NULL_ARGS
 static void finish_configuration(udipe_buffer_config_t* config,
                                  hwloc_topology_t topology) {
-    debug("Querying system page size...");
     const size_t page_size = get_page_size();
-    debugf("System page size is %1$zu (%1$#zx) bytes.", page_size);
-
     hwloc_cpuset_t thread_cpuset = NULL;
     if ((config->buffer_size == 0) || (config->buffer_count == 0)) {
         debug("Allocating thread cpuset...");

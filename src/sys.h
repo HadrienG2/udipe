@@ -8,10 +8,27 @@
 
 #include <udipe/pointer.h>
 
+#include "arch.h"
+
 #include <stddef.h>
 
 
-// TODO: Add a way to query the system page size and allocation granularity
+/// Page size used for memory allocations
+///
+/// This is the alignment and size granularity of several important system
+/// memory management processes including swapping and NUMA migrations.
+/// Logically distinct activities (e.g. traffic associated with different
+/// network connections) should thus take place in buffers that are aligned on
+/// a page boundary and whose size is a multiple of the page size.
+///
+/// That property is implicitly ensured by realtime_allocate() for the buffer
+/// that it returns. But if you intend to later suballocate that buffer into
+/// smaller buffers, as you should, then you must be careful to round up the
+/// sub-buffer size that you use to compute the total `size` that you pass down
+/// to realtime_allocate() to a multiple of this quantity.
+///
+/// This function must be called within the scope of with_logger().
+size_t get_page_size();
 
 /// Liberate a memory buffer previously allocated via realtime_allocate()
 ///
@@ -116,7 +133,7 @@ UDIPE_NON_NULL_RESULT
 REALTIME_ALLOCATE_ATTRIBUTES
 void* realtime_allocate(size_t size);
 
-// TODO: Modify buffer.h and context.c to use network_alloc() and network_free().
+// TODO: Modify buffer.h and context.c to use realtime_allocate() and realtime_liberate().
 
 // TODO: Add a function to get/set the current thread name on posix and the
 //       thread description on Windows + replace prctl to get thread name in
