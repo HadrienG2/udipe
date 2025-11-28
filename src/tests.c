@@ -10,10 +10,7 @@
     #include "log.h"
     #include "visibility.h"
 
-    #include <stdio.h>
-    #include <stdlib.h>
     #include <string.h>
-    #include <strings.h>
 
 
     DEFINE_PUBLIC void udipe_unit_tests() {
