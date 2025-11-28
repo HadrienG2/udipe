@@ -4,12 +4,16 @@
 #include "log.h"
 
 #include <errno.h>
+#include <stdbool.h>
 #include <threads.h>
 
 #ifdef __unix__
     #include <sys/mman.h>
+    #include <sys/resource.h>
     #include <unistd.h>
 #elif defined(_WIN32)
+    #include <memoryapi.h>
+    #include <processthreadsapi.h>
     #include <sysinfoapi.h>
 #endif
 
@@ -28,6 +32,15 @@ static size_t system_page_size;
 /// initialized in a thread-safe manner.
 static size_t system_allocation_granularity;
 
+#ifdef _WIN32
+    /// Pseudo-handle to the current process
+    ///
+    /// This variable is constant after initialization, but you must call
+    /// expect_system_config() before accessing it in order to ensure that it is
+    /// initialized in a thread-safe manner.
+    static HANDLE system_current_process;
+#endif
+
 /// Implementation of expect_system_config()
 ///
 /// This is the call_once() callback that expect_system_config() uses in order
@@ -36,6 +49,9 @@ static size_t system_allocation_granularity;
 ///
 /// This function must be called within the scope of with_logger().
 static void read_system_config() {
+    debug("Reading OS configuration...");
+
+    trace("Reading memory management properties...");
     #ifdef __unix__
         const long page_size_l = sysconf(_SC_PAGE_SIZE);
         if (page_size_l < 1) exit_after_c_error("Failed to query system page size!");
@@ -46,6 +62,9 @@ static void read_system_config() {
         GetSystemInfo(&info);
         system_page_size = info.dwPageSize;
         system_allocation_granularity = info.dwAllocationGranularity;
+
+        trace("Reading current process pseudo handle...");
+        system_current_process = GetCurrentProcess();
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
@@ -74,7 +93,11 @@ size_t get_page_size() {
     return system_page_size;
 }
 
-/// Round an allocation size up to the next multiple of the OS granularity
+/// Round an allocation size up to the next multiple of the OS kernel's memory
+/// allocator granularity
+///
+/// The granularity is just the page size on Unix systems, but it can be larger
+/// on other operating systems like Windows.
 static size_t allocation_size(size_t size) {
     expect_system_config();
     const size_t trailing_bytes = size % system_allocation_granularity;
@@ -83,6 +106,149 @@ static size_t allocation_size(size_t size) {
         tracef("Rounded allocation size up to %zu (%#zx) bytes.", size, size);
     }
     return size;
+}
+
+/// Mutex that protects the OS kernel's memory locking limit
+///
+/// Unfortunately, the kernel APIs that must be used to adjust this limit are
+/// thread unsafe on both Linux or Windows, because they only expose read/write
+/// transactions and not increment/decrement transactions. This mutex handles
+/// the associated race condition hazard when multiple udipe threads allocate
+/// locked memory, but it cannot help with race conditions from non-udipe
+/// threads concurrently adjusting the budget.
+///
+/// To reduce the underlying race condition risk and improve memory allocation
+/// performance, we increase the memory locking budget via exponential doubling
+/// as long as the OS kernel will allow us to do so.
+static mtx_t mlock_budget_mutex;
+
+/// Initialize mlock_budget_mutex (implementation detail of try_increase_mlock_budget)
+void init_mlock_budget_mutex() {
+    debug("Initializing mlock_budget_mutex");
+    const int result = mtx_init(&mlock_budget_mutex, mtx_plain);
+    if (result == thrd_success) return;
+    exit_after_c_error("Failed to initialize mlock_budget_mutex!");
+}
+
+/// Increase the OS kernel's memory locking limit to accomodate a new allocation
+/// of `size` bytes, if possible.
+///
+/// For performance and correctness reasons, the actual kernel memory locking
+/// budget will be increased in a super-linear fashion, meaning that that this
+/// function should not need to be called once per realtime_allocate() call.
+///
+/// \returns `true` if the operation succeeded, `false` if it failed. Underlying
+///          OS errors (errno values etc) are logged as warnings since failure
+///          to lock memory is not fatal in udipe.
+static bool try_increase_mlock_budget(size_t size) {
+    trace("Will now attempt to increase the memory locking limit to accomodate "
+          "for %zu more locked bytes.");
+    static once_flag mutex_initialized = ONCE_FLAG_INIT;
+    call_once(&mutex_initialized, init_mlock_budget_mutex);
+    mtx_lock(&mlock_budget_mutex);
+
+    bool result = false;
+    trace("Querying initial memory locking limit...");
+    // RLIMIT_MEMLOCK is a Linux/BSD thing whose broader support is unknown, add
+    // support for other OSes as needed after checking they do support it and
+    // that they use the same errno logic.
+    #ifdef __linux__
+        struct rlimit mlock_limit;
+        exit_on_negative(
+            getrlimit(RLIMIT_MEMLOCK, &mlock_limit),
+            "Failed to query the current locking limit for unknown reasons"
+        );
+        tracef("Current memory locking limit is %zu/%zu bytes",
+               (size_t)mlock_limit.rlim_cur, (size_t)mlock_limit.rlim_max);
+
+        const size_t initial_cur = mlock_limit.rlim_cur;
+        const size_t initial_max = mlock_limit.rlim_max;
+        while ((size_t)mlock_limit.rlim_cur < initial_cur + size) {
+            // Normally we follow a simple limit doubling strategy for
+            // performance and data race avoidance reasons.
+            mlock_limit.rlim_cur *= 2;
+        }
+        if (mlock_limit.rlim_cur > mlock_limit.rlim_max) {
+            if (mlock_limit.rlim_max - initial_cur >= size) {
+                // If this gets us above the hard limit but the hard limit is
+                // high enough, then better saturate at the hard limit.
+                mlock_limit.rlim_cur = mlock_limit.rlim_max;
+            } else {
+                // Otherwise we have no choice but to try increasing the hard
+                // limit (which will fail if the process is not privileged).
+                mlock_limit.rlim_max = mlock_limit.rlim_cur;
+            }
+        }
+        tracef("Will attempt to raise the limit to %zu/%zu bytes",
+               (size_t)mlock_limit.rlim_cur, (size_t)mlock_limit.rlim_max);
+
+        if (setrlimit(RLIMIT_MEMLOCK, &mlock_limit) == 0) {
+            trace("Successfully raised the memory locking limit.");
+            result = true;
+            goto unlock_and_return;
+        }
+
+        switch (errno) {
+        // A pointer argument points to a location outside the accessible
+        // address space.
+        case EFAULT:
+        // The value specified in resource is not valid or rlim->rlim_cur was
+        // greater than rlim->rlim_max.
+        case EINVAL:
+            exit_after_c_error("These cases should never be encountered!");
+        case EPERM:
+            errno = 0;
+            assert((size_t)mlock_limit.rlim_max > initial_max);
+            warning("Failed to raise the hard memory locking limit. Please "
+                    "raise the memory locking limit for the calling user/group "
+                    "or give this process the CAP_SYS_RESOURCE capability");
+            result = false;
+            goto unlock_and_return;
+        default:
+            warn_on_errno();
+            warning("Failed to raise the memory locking limit for unknown reasons!");
+            result = false;
+            goto unlock_and_return;
+        }
+    #elif defined (_WIN32)
+        expect_system_config();
+        size_t min_working_set, max_working_set;
+        win32_exit_on_zero(
+            GetProcessWorkingSetSize(system_current_process,
+                                     &min_working_set,
+                                     &max_working_set),
+            "Failed to retrieve the working set sizes of the current process!"
+        );
+        tracef("Current process working set size is %zu/%zu bytes.",
+               min_working_set, max_working_set);
+
+        const size_t initial_min = min_working_set;
+        while (min_working_set < initial_min + size) {
+            min_working_set *= 2;
+        }
+        max_working_set += min_working_set - initial_min;
+        tracef("Will attempt to increase the working set to %zu/%zu bytes.",
+               min_working_set, max_working_set);
+
+        if (SetProcessWorkingSetSize(system_current_process,
+                                     min_working_set,
+                                     max_working_set)) {
+            trace("Successfully increased the process working set.");
+            result = true;
+            goto unlock_and_return;
+        }
+
+        win32_warn_on_error();
+        warning("Failed to increase the process working set!");
+        result = false;
+        goto unlock_and_return;
+    #else
+        #warning "Sorry, we don't fully support your operating system yet. Please file a bug report about it!"
+    #endif
+
+unlock_and_return:
+    mtx_unlock(&mlock_budget_mutex);
+    return result;
 }
 
 UDIPE_NON_NULL_RESULT
@@ -95,28 +261,32 @@ void* realtime_allocate(size_t size) {
     size = allocation_size(size);
     assert(size % page_size == 0);
 
-    void* result;
+    void* result = NULL;
     const char* mlock_failure_msg =
         "Failed to lock memory in an unrecoverable manner. "
         "This isn't fatal but creates a new realtime performance hazard, "
         "namely the OS kernel taking bad swapping decisions.";
     #ifdef __unix__
+        // Allocate virtual memory pages
         result = mmap(NULL,
                       size,
                       PROT_READ | PROT_WRITE,
                       MAP_PRIVATE | MAP_ANONYMOUS,
                       -1,
                       0);
-        if (result == MAP_FAILED) exit_after_c_error("Failed to allocate memory");
+        if (result == MAP_FAILED) exit_after_c_error("Failed to allocate memory!");
         tracef("Allocated memory pages at virtual location %p.", result);
         assert((size_t)result % page_size == 0);
 
-        trace("First attempt to lock memory pages into RAM...");
-        if (mlock(result, size) == 0) goto log_and_return;
+        trace("Now, let's try to lock allocated pages into RAM...");
+        if (mlock(result, size) == 0) {
+            trace("mlock() succeeded on first try.");
+            goto log_and_return;
+        }
         switch (errno) {
         // Either addr+size overflows or addr is not aligned to the page size
         case EINVAL:
-            exit_after_c_error("That's impossible if mmap() works correctly");
+            exit_after_c_error("Cannot happen if mmap() works correctly!");
         // This can mean several different things:
         // - Not in process address space (impossible if mmap() works correctly)
         // - Maximal number of memory mappings exceeded
@@ -139,23 +309,47 @@ void* realtime_allocate(size_t size) {
             goto prefault_and_return;;
         }
 
-        // TODO: The following logic for expanding RLIMIT_MEMLOCK should be
-        //       extracted into a separate function.
-        // TODO: Under protection of a mutex, with a warning about how this
-        //       doesn't protect from other threads manipulating the limit, use
-        //       a getrlimit/setrlimit of RLIMIT_MEMLOCK to double the soft
-        //       limit, raise it to the hard limit if lower than this double, or
-        //       fail if the soft limit is already at the hard limit. Then
-        //       attempt mlock again, and this time treat any failure as fatal
-        //       with a warning and goto prefault_and_return.
+        // If the first mlock failed, try to increase the underlying rlimit
+        if (!try_increase_mlock_budget(size)) goto prefault_and_return;
+
+        // If mlock fails again after adjusting the rlimit, then give up
+        if (mlock(result, size) == 0) {
+            trace("mlock() succeeded after raising the rlimit.");
+            goto log_and_return;
+        }
+        warn_on_errno();
+        warning(mlock_failure_msg);
+        goto prefault_and_return;
     #elif defined(_WIN32)
-        // TODO: Basically translate the above Unix logic to windows vocabulary:
-        //       - First, add zero return and GetLastError() support to error.h
-        //       - mmap() becomes VirtualAlloc() with MEM_COMMIT | MEM_RESERVE and PAGE_READWRITE
-        //       - mlock() becomes VirtualLock()
-        //       - getrlimit()/setrlimit() of RLIMIT_MEMLOCK becomes
-        //         GetProcessWorkingSetSize()/SetProcessWorkingSetSize() with a
-        //         bump to both the min and max working set size.
+        // Allocate virtual memory pages
+        result = VirtualAlloc(NULL,
+                              size,
+                              MEM_COMMIT | MEM_RESERVE,
+                              PAGE_READWRITE);
+        win32_exit_on_zero(result);
+        tracef("Allocated memory pages at virtual location %p.", result);
+        assert((size_t)result % page_size == 0);
+
+        trace("Now, let's try to lock allocated pages into RAM...");
+        if (VirtualLock(result, size) == 0) {
+            trace("VirtualLock() succeeded on first try.");
+            goto log_and_return;
+        }
+        win32_warn_on_error();
+        trace("Failed to lock memory, but maybe it's just that the process "
+              "working set is too low. Try to raise it before giving up...");
+
+        // If the first mlock failed, try to increase the underlying rlimit
+        if (!try_increase_mlock_budget(size)) goto prefault_and_return;
+
+        // If mlock fails again after adjusting the rlimit, then give up
+        if (VirtualLock(result, size) == 0) {
+            trace("VirtualLock() succeeded after raising the working set.");
+            goto log_and_return;
+        }
+        win32_warn_on_error();
+        warning(mlock_failure_msg);
+        goto prefault_and_return;
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
@@ -201,8 +395,8 @@ void realtime_liberate(void* buffer, size_t size) {
     #ifdef __unix__
         exit_on_negative(munmap(buffer, size), "Failed to liberate memory");
     #elif defined(_WIN32)
-        // TODO: Implement using VirtualFree() with MEM_RELEASE and size=0
-        // TODO: Add GetLastError() support to error.h
+        win32_exit_on_zero(VirtualFree(buffer, 0, MEM_RELEASE),
+                           "Failed to liberate memory");
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif

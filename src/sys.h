@@ -123,11 +123,11 @@ UDIPE_NON_NULL_RESULT
 REALTIME_ALLOCATE_ATTRIBUTES
 void* realtime_allocate(size_t size);
 
-// TODO: Modify buffer.h and context.c to use realtime_allocate() and realtime_liberate().
-
 // TODO: Add a function to get/set the current thread name on posix and the
 //       thread description on Windows + replace prctl to get thread name in
 //       logger.
 
 // TODO: Add a function for futex wait/wake and the Windows equivalent + replace
 //       futex syscalls here and there.
+
+// TODO: Add unit tests
