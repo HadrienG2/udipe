@@ -4,6 +4,7 @@
 
 #include "error.h"
 #include "log.h"
+#include "sys.h"
 #include "visibility.h"
 
 #include <errno.h>
@@ -17,8 +18,7 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
     udipe_context_t* context = NULL;
     with_logger(&logger, {
         debug("Allocating a libudipe context...");
-        // TODO: This should be an mmap/mlock, abstract it for Windows compat
-        context = malloc(sizeof(udipe_context_t));
+        context = realtime_allocate(sizeof(udipe_context_t));
         exit_on_null(context, "Failed to allocate libudipe context!");
         memset(context, 0, sizeof(udipe_context_t));
         context->logger = logger;
@@ -38,12 +38,12 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
 DEFINE_PUBLIC
 UDIPE_NON_NULL_ARGS
 void udipe_finalize(udipe_context_t* context) {
-    with_logger(&context->logger, {
+    logger_t logger = context->logger;
+    with_logger(&logger, {
         debug("Destroying the hwloc topology...");
         hwloc_topology_destroy(context->topology);
 
         debug("Freeing the udipe_context_t...");
+        realtime_liberate(context, sizeof(udipe_context_t));
     });
-    // TODO: This should be munmap, abstract it for Windows compat
-    free(context);
 }

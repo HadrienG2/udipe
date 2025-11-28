@@ -5,8 +5,6 @@
 #include "sys.h"
 
 #include <stdint.h>
-// TODO: Remove after switch to sys.h mmap/mlock/munmap wrapper
-#include <sys/mman.h>
 
 
 /// Determine the smallest cache capacity available at a certain cache level
@@ -180,24 +178,9 @@ buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
     debug("Allocating the memory pool...");
     const size_t pool_size =
         allocator.config.buffer_size * allocator.config.buffer_count;
-    // TODO: Add Windows version once Windows CI build is running
-    //       + make a generic mmap/mlock abstraction.
-    allocator.memory_pool = mmap(NULL,
-                                 pool_size,
-                                 PROT_READ | PROT_WRITE,
-                                 MAP_PRIVATE | MAP_ANONYMOUS,
-                                 -1,
-                                 0);
+    allocator.memory_pool = realtime_allocate(pool_size);
     exit_on_null(allocator.memory_pool, "Failed to allocate memory pool!");
     tracef("Allocated memory pool at location %p.", allocator.memory_pool);
-
-    debug("Locking memory pages into RAM...");
-    // TODO: Add Windows version once Windows CI build is running (see above)
-    if (mlock(allocator.memory_pool, pool_size) < 0) {
-        warn_on_errno();
-        warning("Failed to lock memory pages into RAM. This will degrade "
-                "performance when the system starts swapping.");
-    }
 
     debug("Initializing the availability bit array...");
     const bit_pos_t buffers_end = index_to_bit_pos(allocator.config.buffer_count);
@@ -223,9 +206,10 @@ void buffer_allocator_finalize(buffer_allocator_t allocator) {
                               index_to_bit_pos(allocator.config.buffer_count),
                               true)
     );
-    // TODO: Add Windows version once Windows CI build is running (see above)
-    munmap(allocator.memory_pool,
-           allocator.config.buffer_size * allocator.config.buffer_count);
+    realtime_liberate(
+        allocator.memory_pool,
+        allocator.config.buffer_size * allocator.config.buffer_count
+    );
 }
 
 UDIPE_NON_NULL_ARGS

@@ -59,6 +59,30 @@ void warn_on_errno();
         if (!udipe_result) exit_after_c_error(error_message);  \
     } while(false)
 
+#ifdef _WIN32
+    /// If the thread last-error code is currently set to a non-zero value, log
+    /// a warning with its current value, then clear it back to 0.
+    ///
+    /// This function must be called within the scope of with_logger().
+    void win32_warn_on_error();
+
+    /// Exit if a Windows API function returns a zero result, logging the
+    /// associated error code.
+    ///
+    /// This macro handles situations where all of the following is true:
+    ///
+    /// - A Win32 API function is known to have previously failed.
+    /// - None of the known error cases can or should be recovered from.
+    /// - exit_with_error() preconditions are fulfilled.
+    #define win32_exit_on_zero(result, error_message)  \
+        do {  \
+            if (!(result)) {  \
+                win32_warn_on_error();  \
+                exit_with_error(error_message);  \
+            }  \
+        } while(false)
+#endif
+
 /// \}
 
 

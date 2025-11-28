@@ -10,6 +10,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef _WIN32
+    #include <errhandlingapi.h>
+#endif
+
 
 // Important note: This function is used on the error path of the formatted
 //                 logging macros. It must therefore not use said macros, only
@@ -79,6 +83,24 @@ void warn_on_errno() {
     warning(output);
     errno = 0;
 }
+
+
+#ifdef _WIN32
+    void win32_warn_on_error() {
+        unsigned last_error = GetLastError();
+        if (last_error == 0) return;
+        // TODO: Print out the textual description using FormatMessage() as in
+        //       the errno case instead of simply printing the numerical error
+        //       code as this code currently does.
+        //
+        //       For now, please refer to the "Debug system error codes" MSDN
+        //       page which provides a table of Windows error codes and some
+        //       tools to automatically look them up:
+        //       https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes
+        warning("Got thread last-error code %u", last_error);
+        SetLastError(0);
+    }
+#endif
 
 void ensure_comparison_failure(const char* format_template,
                                const char* x_format,
