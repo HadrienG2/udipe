@@ -271,7 +271,7 @@ void* realtime_allocate(size_t size) {
         result = mmap(NULL,
                       size,
                       PROT_READ | PROT_WRITE,
-                      MAP_PRIVATE | MAP_ANONYMOUS,
+                      MAP_PRIVATE | MAP_ANON,
                       -1,
                       0);
         if (result == MAP_FAILED) exit_after_c_error("Failed to allocate memory!");
