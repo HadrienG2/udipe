@@ -11,6 +11,7 @@
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <strings.h>
 // TODO: Replace with sys.h once thread name abstraction is ready
 #include <sys/prctl.h>
 #include <time.h>
@@ -144,11 +145,29 @@ logger_t log_initialize(udipe_log_config_t config) {
     case UDIPE_ERROR:
         break;
     case UDIPE_DEFAULT_LOG_LEVEL:
-        #ifdef NDEBUG
-            config.min_level = UDIPE_INFO;
-        #else
-            config.min_level = UDIPE_DEBUG;
-        #endif
+        const char* level_str = getenv("UDIPE_LOG");
+        if (level_str) {
+            if (strcasecmp(level_str, "ERROR") == 0) {
+                config.min_level = UDIPE_ERROR;
+            } else if (strcasecmp(level_str, "WARNING") == 0) {
+                config.min_level = UDIPE_WARNING;
+            } else if (strcasecmp(level_str, "INFO") == 0) {
+                config.min_level = UDIPE_INFO;
+            } else if (strcasecmp(level_str, "DEBUG") == 0) {
+                config.min_level = UDIPE_DEBUG;
+            } else if (strcasecmp(level_str, "TRACE") == 0) {
+                config.min_level = UDIPE_TRACE;
+            } else {
+                fprintf(stderr, "Error: Invalid UDIPE_LOG %s\n", level_str);
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            #ifdef NDEBUG
+                config.min_level = UDIPE_INFO;
+            #else
+                config.min_level = UDIPE_DEBUG;
+            #endif
+        }
         break;
     default:
         fprintf(stderr,
