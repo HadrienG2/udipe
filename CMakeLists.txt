@@ -114,8 +114,6 @@ target_sources(udipe
                        src/connect.c
                        src/context.c
                        src/context.h
-                       src/countdown.c
-                       src/countdown.h
                        src/error.c
                        src/error.h
                        src/format.h
