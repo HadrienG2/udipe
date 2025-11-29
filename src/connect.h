@@ -6,10 +6,8 @@
 //! The \ref udipe_connect_options_t type is very large compared to other
 //! command option types, so we do not want to store it inline inside of a \ref
 //! command_t. Instead, we have a pool of these within the \ref udipe_context_t
-//! that we dynamically allocate on user demand, using a reference counting
-//! mechanism to avoid allocating multiple ones when the same command is sent to
-//! multiple worker threads. This requires a bit of infrastructure, which is
-//! defined here.
+//! that we dynamically allocate on user demand. This requires a bit of
+//! infrastructure, which is defined here.
 
 #include <udipe/connect.h>
 #include <udipe/pointer.h>
@@ -21,7 +19,7 @@
 #include <stdalign.h>
 
 
-/// Reference-counted connection options
+/// Shared connection options
 ///
 /// \ref udipe_connect_options_t is rather large, and it unfortunately has to be
 /// because IPv6 addresses are huge. We would rather not have this big struct
@@ -33,43 +31,25 @@
 /// connection options struct that is a bit less optimal from a performance or
 /// liveness perspective.
 ///
-/// We therefore use a small pool of preallocated reference-counted connection
-/// options within \ref udipe_context_t such that...
-///
-/// - Each connection attempt from a client thread takes one of these structs if
-///   available, or blocks if none is available, using the synchronization
-///   protocol described in the internal documentation of \ref udipe_context_t.
-/// - If this is a parallel connection that is destined to be serviced by
-///   multiple worker threads, then a shared struct is allocated for all of
-///   them, and reference counting is used to synchronize worker threads with
-///   each other in the subsequent struct liberation process.
+/// We therefore use a small pool of preallocated connection options within \ref
+/// udipe_context_t; such that each connection attempt from a client thread
+/// takes one of these structs if available, or blocks if none is available,
+/// using the synchronization protocol described in the internal documentation
+/// of \ref udipe_context_t.
 typedef struct shared_connect_options_s {
     /// Connection options
     ///
-    /// If `reference_count` is greater than 1, this struct is visible by
-    /// multiple worker threads and must not be modified. This means that
-    /// default values must be normalized into final settings within the client
-    /// thread before this struct is sent to worker threads.
+    /// Should be aligned on a false sharing granule boundary because different
+    /// options may be written to by different client threads and it's important
+    /// to avoid false sharing interference across these client threads + reduce
+    /// interference between them and the worker threads.
     alignas(FALSE_SHARING_GRANULARITY) udipe_connect_options_t options;
-
-    /// Reference count
-    ///
-    /// This should be zero upon allocation if correct synchronization was used
-    /// by prior worker threads. It is initialized to the number of worker
-    /// threads that will consume this struct (1 for sequential connections, >=
-    /// 1 for parallel connections) and will go down until it reaches zero.
-    ///
-    /// It is aligned to the false sharing granularity to ensure that worker
-    /// threads that decrement the reference count do not accidentally steal the
-    /// `options` cache line from other threads that are still working.
-    alignas(FALSE_SHARING_GRANULARITY) atomic_size_t reference_count;
 } shared_connect_options_t;
 static_assert(alignof(shared_connect_options_t) == FALSE_SHARING_GRANULARITY,
               "Different options may belong to different client threads and "
               "should thus reside in their own false sharing granules");
-static_assert(sizeof(shared_connect_options_t) == 2 * FALSE_SHARING_GRANULARITY,
-              "Need to split read-only and writable into different "
-              "false sharing granules for optimal read-mostly performance.");
+static_assert(sizeof(shared_connect_options_t) == FALSE_SHARING_GRANULARITY,
+              "Options should not need more than one false sharing granule.");
 
 /// Number of \ref shared_connect_options_t within a \ref
 /// connect_options_allocator_t
@@ -105,7 +85,6 @@ typedef struct connect_options_allocator_s {
     /// indicate that it is currently used as part of some outstanding
     /// connection request to worker threads.
     ///
-    ///
     /// A worker thread that is done using some options struct and figures out
     /// that is was its last user must liberate it as follows:
     ///
@@ -129,8 +108,7 @@ typedef struct connect_options_allocator_s {
 /// connect_options_allocator_t.
 connect_options_allocator_t connect_options_allocator_initialize();
 
-/// Set up a \ref shared_connect_options_t for use by `num_target_workers`
-/// worker threads.
+/// Set up a \ref shared_connect_options_t for use by a worker thread.
 ///
 /// If none is currently available, this method will block until another thread
 /// liberates one using connect_options_liberate().
@@ -138,27 +116,23 @@ connect_options_allocator_t connect_options_allocator_initialize();
 /// \param allocator must be a \ref connection_options_allocator_t that has
 ///                  previously been initialized using
 ///                  connect_options_allocator_initialize().
-/// \param num_target_workers indicates how many worker threads the resulting
-///                           \ref shared_connect_options_t will be sent to.
 ///
-/// \returns a \ref shared_connect_options_t that each worker thread must
+/// \returns a \ref shared_connect_options_t that the worker thread must
 ///          liberate after use via connect_options_liberate().
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 shared_connect_options_t*
-connect_options_allocate(connect_options_allocator_t* allocator,
-                         size_t num_target_workers);
+connect_options_allocate(connect_options_allocator_t* allocator);
 
 /// Indicate that a worker thread is done with some \ref
-/// shared_connect_options_t
+/// shared_connect_options_t.
 ///
 /// \param allocator must be a \ref connection_options_allocator_t that has
 ///                  previously been initialized using
 ///                  connect_options_allocator_initialize().
 /// \param options must be a \ref shared_connect_options_t that has previously
 ///                been allocated using connect_options_allocate() and has not
-///                yet been liberated more than the initially specified number
-///                of target workers allows.
+///                yet been liberated.
 UDIPE_NON_NULL_ARGS
 void connect_options_liberate(connect_options_allocator_t* allocator,
                               shared_connect_options_t* options);
