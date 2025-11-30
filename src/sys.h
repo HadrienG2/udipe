@@ -13,6 +13,9 @@
 #include <stddef.h>
 
 
+/// \name Memory management
+/// \{
+
 /// Page size used for memory allocations
 ///
 /// This is the alignment and size granularity of several important system
@@ -111,6 +114,8 @@ void realtime_liberate(void* buffer, size_t size);
 /// - The allocation that comes out of this function cannot be freed using
 ///   normal free(), it must be freed using realtime_liberate().
 ///
+/// As with standard malloc(), `size` must not be 0.
+///
 /// This function must be called within the scope of with_logger().
 ///
 /// \param size sets a lower bound on the size of the buffer that will be
@@ -123,11 +128,26 @@ UDIPE_NON_NULL_RESULT
 REALTIME_ALLOCATE_ATTRIBUTES
 void* realtime_allocate(size_t size);
 
+/// \}
+
+
 // TODO: Add a function to get/set the current thread name on posix and the
-//       thread description on Windows + replace prctl to get thread name in
-//       logger.
+//       thread description on Windows + unit tests + replace prctl to get
+//       thread name in logger.
 
-// TODO: Add a function for futex wait/wake and the Windows equivalent + replace
-//       futex syscalls here and there.
+// TODO: Add a function for futex wait/wake and the Windows equivalent + unit
+//       tests + replace futex syscalls here and there.
 
-// TODO: Add unit tests
+
+/// \name Unit tests
+/// \{
+
+#ifdef UDIPE_BUILD_TESTS
+    /// Unit tests for OS-specific functionality
+    ///
+    /// This function runs all the unit tests for OS-specific functionality. It
+    /// must be called within the scope of with_logger().
+    void sys_unit_tests();
+#endif
+
+/// \}
