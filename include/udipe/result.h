@@ -18,8 +18,8 @@
 /// \internal
 ///
 /// The size of this union should be kept such that \ref udipe_future_t fits in
-/// one single cache line on all CPU platforms of interest. This currently
-/// amounts to a size limit of 60B.
+/// one single cache line on all CPU platforms of interest. With the current
+/// implementation, this amounts to a size limit of 60B.
 typedef union udipe_result_payload_u {
     udipe_connect_result_t connect;  ///< Result of udipe_connect()
     udipe_disconnect_result_t disconnect;  ///< Result of udipe_disconnect()
