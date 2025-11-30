@@ -21,8 +21,8 @@
 /// of buffers will fail.
 ///
 /// If automatic configuration logic determines that the optimal amount of
-/// buffers is above this limit, then it will log a warning and stick with
-/// `UDIPE_MAX_BUFFERS` buffers.
+/// buffers is above this limit, then it will log a warning and stick with this
+/// amount of buffers.
 #define UDIPE_MAX_BUFFERS ((size_t)64)
 
 /// Tunable buffering parameters for one worker thread
