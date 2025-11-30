@@ -34,17 +34,46 @@ typedef union udipe_result_payload_u {
 /// used to build types like \ref udipe_result_t that are generic over multiple
 /// command types.
 ///
-/// The zero sentinel variant \ref UDIPE_NO_COMMAND serves a dual purpose: it
-/// enables zero-initialization and makes it possible to signal an absence of
-/// result in situations where this is appropriate (like e.g. if a wait command
-/// had a timeout and it passed without an operation completion notification).
+/// It also has two sentinel values, \ref UDIPE_COMMAND_INVALID and \ref
+/// UDIPE_COMMAND_PENDING, whose presence should be checked as appropriate. See
+/// the documentation of these sentinel values for more info.
 typedef enum udipe_command_id_e {
     UDIPE_CONNECT = 1,  ///< udipe_connect()
     UDIPE_DISCONNECT,  ///< udipe_disconnect()
     // TODO: Add and implement
     /*UDIPE_SEND,  ///< udipe_send()
     UDIPE_RECV,  ///< udipe_recv()*/
-    UDIPE_NO_COMMAND = 0  ///< Sentinel value with no associated command
+
+    /// Invalid command identifier
+    ///
+    /// Every freshly zero-initialized command identifier gets this sentinel
+    /// value and every allocatable struct that contains a command identifier
+    /// sets it back to this value upon liberation.
+    ///
+    /// This helps with the detection of several kinds of invalid struct usage:
+    ///
+    /// - Incorrectly initialized struct (every initialized struct should have
+    ///   its command ID set to a different value).
+    /// - Use-after-free (a freed struct's command ID gets back to this value)
+    /// - Double allocation (after allocation, a struct's command ID gets
+    ///   configured to a different value).
+    ///
+    /// These checks are typically reserved to Debug builds, but for operations
+    /// that are not critical to runtime performance they can be performed in
+    /// Release builds too.
+    UDIPE_COMMAND_INVALID = 0,
+
+    /// Incomplete asynchronous command identifier
+    ///
+    /// Wait operations that can return before a particular command is done
+    /// executing (e.g. due to a timeout) set the command identifier of the
+    /// associated result to this value, which indicates that...
+    ///
+    /// - The associated command is not done executing and has not yielded a
+    ///   result yet, and the associated \ref udipe_result_t is therefore
+    ///   invalid and should be discarded without looking up its payload.
+    /// - The associated future is still valid and can be awaited again.
+    UDIPE_COMMAND_PENDING = -1
 } udipe_command_id_t;
 
 /// Generic result type
@@ -58,8 +87,8 @@ typedef struct udipe_result_s {
     /// which command produced that result.
     udipe_result_payload_t payload;
 
-    /// Command that returned this result, or \ref UDIPE_NO_COMMAND to denote an
-    /// absence of result
+    /// Command that returned this result, or sentinel value that indicates that
+    /// this result is invalid and its payload shouldn't be processed.
     ///
     /// Even when one is using infaillible wait commands such as udipe_wait()
     /// with a `timeout` of 0, this field can be useful for debug assertions
