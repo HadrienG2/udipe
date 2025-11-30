@@ -75,7 +75,7 @@ typedef struct command_s {
     ///
     /// The value of `id` indicates which of this union's variants is valid.
     union {
-        shared_connect_options_t* connect;
+        udipe_connect_options_t* connect;
         udipe_disconnect_options_t disconnect;
         // TODO: Add and implement
         /*udipe_send_options_t send;
