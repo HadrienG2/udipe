@@ -40,6 +40,9 @@ UDIPE_NON_NULL_ARGS
 void udipe_finalize(udipe_context_t* context) {
     logger_t logger = context->logger;
     with_logger(&logger, {
+        debug("Finalizing the connection options allocator...");
+        connect_options_allocator_finalize(&context->connect_options);
+
         debug("Destroying the hwloc topology...");
         hwloc_topology_destroy(context->topology);
 

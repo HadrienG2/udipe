@@ -18,7 +18,7 @@
 
 /// Initial value of \ref connect_options_allocator_t::availability
 ///
-/// This indicates that all inner \ref shared_connect_options_t are initially
+/// This indicates that all inner \ref udipe_connect_options_t are initially
 /// available and ready to be allocated.
 ///
 /// It can also be used in unit tests to turn a random availability mask into a
@@ -41,9 +41,22 @@ connect_options_allocator_initialize() {
     return allocator;
 }
 
+void connect_options_allocator_finalize(connect_options_allocator_t* allocator) {
+    debug("Finalizing the allocator...");
+    const uint32_t current_availability =
+        atomic_load_explicit(&allocator->availability, memory_order_relaxed);
+    if (current_availability != initial_availability_mask()) {
+        exit_with_error("Finalized allocator while options were allocated");
+    }
+
+    atomic_store_explicit(&allocator->availability, 0, memory_order_relaxed);
+    debug("Poisoned allocator with a fully-allocated state so that "
+          "post-finalization allocation attempts deadlock.");
+}
+
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
-shared_connect_options_t*
+udipe_connect_options_t*
 connect_options_allocate(connect_options_allocator_t* allocator) {
     debug("Looking for unused options that we can allocate...");
     uint32_t availability = atomic_load_explicit(&allocator->availability,
@@ -103,7 +116,7 @@ connect_options_allocate(connect_options_allocator_t* allocator) {
     // deallocated these options.
     atomic_thread_fence(memory_order_acquire);
 
-    shared_connect_options_t* const result = &allocator->options[option_idx];
+    udipe_connect_options_t* const result = &allocator->options[option_idx];
     debugf("Successfully allocated options[%zu] @ %p.",
            option_idx, result);
     return result;
@@ -111,7 +124,7 @@ connect_options_allocate(connect_options_allocator_t* allocator) {
 
 UDIPE_NON_NULL_ARGS
 void connect_options_liberate(connect_options_allocator_t* allocator,
-                              shared_connect_options_t* options) {
+                              udipe_connect_options_t* options) {
     tracef("Marking worker thread as done with options @ %p...", options);
     const size_t options_idx = options - allocator->options;
     const uint32_t bit = 1 << options_idx;
