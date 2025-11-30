@@ -36,6 +36,10 @@ typedef udipe_log_config_t logger_t;
 ///
 /// \return A logger that can be passed to with_logger() as long as the
 ///         surrounding \ref udipe_context_t has not been finalized.
+//
+// TODO: Add finalizer that checks that the logger is not finalized while it
+//       is in the process of being used and makes sure that future usage
+//       crashes by nullifying the inner callback pointer.
 logger_t log_initialize(udipe_log_config_t config);
 
 ///@}

@@ -100,6 +100,10 @@ buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
 /// \param allocator points to an allocator that has previously been set up
 ///                  using allocator_initialize() and hasn't been destroyed
 ///                  through allocator_finalize() yet.
+//
+// TODO: Refactor to take a pointer and put the allocator in an invalid state
+//       that rejects all allocations and/or segfaults upon allocation, so that
+//       invalid usage can be caught.
 void buffer_allocator_finalize(buffer_allocator_t allocator);
 
 /// Liberate a memory buffer previously allocated via buffer_allocate()
