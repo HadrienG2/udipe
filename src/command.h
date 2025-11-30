@@ -88,8 +88,13 @@ typedef struct command_s {
 
     /// Type of work that was requested from the worker thread
     ///
-    /// On a correctly initialized command, it will never have the placeholder
-    /// value \ref UDIPE_NO_COMMAND.
+    /// It is initially set to \ref UDIPE_COMMAND_INVALID (possibly via
+    /// zero-initialization), set to a valid command ID when a command is sent
+    /// to a worker thread, and reset to \ref UDIPE_COMMAND_INVALID after the
+    /// command has been processed.
+    ///
+    /// Worker threads should check that this command ID does not take any
+    /// sentinel values, at least in Debug builds.
     udipe_command_id_t id;
 } command_t;
 static_assert(alignof(command_t) == FALSE_SHARING_GRANULARITY,

@@ -5,9 +5,9 @@
 //!
 //! Under the hood, futures are implemented using a type that is isomorphic to
 //! \ref udipe_result_t, but uses a futex instead of a dumb enum value. This
-//! futex leverages the existence of the \ref UDIPE_NO_COMMAND sentinel value of
-//! the \ref udipe_command_id_t result tag in order to let threads efficiently
-//! wait for the result to come up.
+//! futex leverages the existence of the \ref UDIPE_COMMAND_PENDING sentinel
+//! value of the \ref udipe_command_id_t result tag in order to let threads
+//! efficiently wait for the result to come up.
 
 #include <udipe/future.h>
 #include <udipe/result.h>
@@ -30,10 +30,15 @@ struct udipe_future_s {
 
     /// Futex that can be used to wait for the command to run to completion
     ///
-    /// It is initialized to \ref UDIPE_NO_COMMAND and used as follows:
+    /// It is zero-initializd to \ref UDIPE_COMMAND_INVALID and reset to this
+    /// value when the future is liberated after use in order to help with the
+    /// detection of invalid future usage.
+    ///
+    /// When it gets assigned to a particular asynchronous operation, the futex
+    /// gets set to \ref UDIPE_COMMAND_PENDING and is then used as follows:
     ///
     /// - The client thread waits for it to move away from \ref
-    ///   UDIPE_NO_COMMAND, with acquire ordering upon completion.
+    ///   UDIPE_COMMAND_PENDING, with acquire ordering upon completion.
     /// - Once the worker thread is done, it sets `payload` to the command's
     ///   result, then this futex to the appropriate \ref udipe_command_id_t
     ///   with release ordering, and finally it wakes the futex.

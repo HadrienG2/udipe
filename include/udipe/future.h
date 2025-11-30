@@ -71,9 +71,9 @@ bool udipe_done(const udipe_future_t* future);
 /// not be used again.
 ///
 /// If the asynchronous operation takes longer than the specified timeout to
-/// complete, then this function will return an invalid result (with
-/// `command_id` set to \ref UDIPE_NO_COMMAND). In this case the future remains
-/// valid and can be awaited again.
+/// complete, then this function will return a pending result (with `command_id`
+/// set to \ref UDIPE_COMMAND_PENDING). In this case the future remains valid
+/// and can be awaited again.
 ///
 /// It is possible to await a future on a thread other than the one which
 /// started the asynchronous operation, however that will come at the expense of
@@ -92,9 +92,10 @@ bool udipe_done(const udipe_future_t* future);
 ///                indefinitely for something to happens". See \ref
 ///                udipe_duration_ns_t for more information.
 ///
-/// \returns The result of the asynchronous operation if it completes, or an
-///          invalid result (with `command_id` set to \ref UDIPE_NO_COMMAND) if
-///          the operation did not complete before the timeout was reached.
+/// \returns The result of the asynchronous operation if it completes, or a
+///          pending result (with `command_id` set to \ref
+///          UDIPE_COMMAND_PENDING) if the operation did not complete before the
+///          timeout was reached.
 //
 // TODO: Wait for an asynchronous task to finish and fetch its result.
 //       Recycle the future into the host thread's local cache.
@@ -117,7 +118,7 @@ udipe_result_t udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout);
 /// operations reached completion, then you must check each entry of `result` to
 /// see which operations have completed. By the same logic as udipe_wait(),
 /// those operations that have **not** completed will have the `command_id`
-/// field of their \ref udipe_result_t set to \ref UDIPE_NO_COMMAND.
+/// field of their \ref udipe_result_t set to \ref UDIPE_COMMAND_PENDING.
 ///
 /// As a reminder, futures associated with operations that have completed have
 /// been liberated and must not be used again.
