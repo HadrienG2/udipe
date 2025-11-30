@@ -7,6 +7,7 @@
     #include "buffer.h"
     #include "command.h"
     #include "log.h"
+    #include "sys.h"
     #include "visibility.h"
 
     #include <string.h>
@@ -18,6 +19,7 @@
 
         logger_t logger = log_initialize(log_config);
         with_logger(&logger, {
+            sys_unit_tests();
             bit_array_unit_tests();
             buffer_unit_tests();
             command_unit_tests();

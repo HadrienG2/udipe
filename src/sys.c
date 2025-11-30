@@ -1,5 +1,6 @@
 #include "sys.h"
 
+#include "arch.h"
 #include "error.h"
 #include "log.h"
 
@@ -123,7 +124,7 @@ static size_t allocation_size(size_t size) {
 static mtx_t mlock_budget_mutex;
 
 /// Initialize mlock_budget_mutex (implementation detail of try_increase_mlock_budget)
-void init_mlock_budget_mutex() {
+static void init_mlock_budget_mutex() {
     debug("Initializing mlock_budget_mutex");
     const int result = mtx_init(&mlock_budget_mutex, mtx_plain);
     if (result == thrd_success) return;
@@ -254,6 +255,8 @@ unlock_and_return:
 UDIPE_NON_NULL_RESULT
 REALTIME_ALLOCATE_ATTRIBUTES
 void* realtime_allocate(size_t size) {
+    ensure_gt(size, (size_t)0);
+
     expect_system_config();
     const size_t page_size = system_page_size;
 
@@ -369,7 +372,7 @@ log_and_return:
 
 UDIPE_NON_NULL_ARGS
 void realtime_liberate(void* buffer, size_t size) {
-    debugf("Liberating %zu previously allocated bytes at address %p...",
+    debugf("Liberating %zu previously allocated byte(s) at address %p...",
            size, buffer);
     size = allocation_size(size);
 
@@ -393,7 +396,8 @@ void realtime_liberate(void* buffer, size_t size) {
     //   obviously be better if POSIX and Windows limit-adjustment syscalls
     //   weren't racy by design...
     #ifdef __unix__
-        exit_on_negative(munmap(buffer, size), "Failed to liberate memory");
+        exit_on_negative(munmap(buffer, size),
+                         "Failed to liberate memory");
     #elif defined(_WIN32)
         win32_exit_on_zero(VirtualFree(buffer, 0, MEM_RELEASE),
                            "Failed to liberate memory");
@@ -401,3 +405,68 @@ void realtime_liberate(void* buffer, size_t size) {
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
 }
+
+
+#ifdef UDIPE_BUILD_TESTS
+
+    /// Run the unit tests for system configuration checks
+    static void test_system_config() {
+        info("Testing system configuration readout & consistency...");
+        with_log_level(UDIPE_DEBUG, {
+            expect_system_config();
+            ensure_eq(get_page_size(), system_page_size);
+            ensure_ge(system_page_size, MIN_PAGE_ALIGNMENT);
+            ensure_ge(system_page_size, EXPECTED_MIN_PAGE_SIZE);
+            ensure_eq(system_allocation_granularity % system_page_size, (size_t)0);
+        });
+    }
+
+    /// Test memory management functions with a certain allocation size
+    static void check_allocation_size(size_t size) {
+        volatile unsigned char* alloc = (volatile unsigned char*)realtime_allocate(size);
+        tracef("Allocated memory at address %p", (void*)alloc);
+        ensure_ne((size_t)alloc, (size_t)0);
+
+        const size_t page_size = get_page_size();
+        size_t min_size = size;
+        if (size % page_size != 0) min_size += page_size - (size % page_size);
+        tracef("Allocation should be at least %zu bytes large.", min_size);
+
+        trace("Writing and checking each of the expected bytes...");
+        for (size_t byte = 0; byte < min_size; ++byte) {
+            unsigned char value = (unsigned char)(byte % 255 + 1);
+            alloc[byte] = value;
+            ensure_eq(alloc[byte], value);
+        }
+
+        trace("Liberating the allocation");
+        realtime_liberate((void*)alloc, size);
+    }
+
+    /// Run the unit tests for memory management functions
+    static void test_memory_management() {
+        info("Testing memory management functions...");
+        with_log_level(UDIPE_DEBUG, {
+            const size_t page_size = get_page_size();
+            const size_t alloc_sizes[] = {
+                1,
+                page_size - 1, page_size, page_size + 1,
+                2*page_size - 1, 2*page_size, 2*page_size + 1
+            };
+            for (size_t i = 0; i < sizeof(alloc_sizes)/sizeof(size_t); ++i) {
+                const size_t alloc_size = alloc_sizes[i];
+                debugf("Exercising an allocation size of %zu bytes...", alloc_size);
+                with_log_level(UDIPE_TRACE, {
+                    check_allocation_size(alloc_size);
+                });
+            }
+        });
+    }
+
+    void sys_unit_tests() {
+        test_system_config();
+        test_memory_management();
+        // TODO: Test more functionality as it comes
+    }
+
+#endif  // UDIPE_BUILD_TESTS
