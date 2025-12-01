@@ -158,7 +158,7 @@ void* realtime_allocate(size_t size);
 /// whose semantics are further detailed via logging.
 ///
 /// For example, a backend that spawns one thread per connection could name its
-/// threads something like `udp.cx.89ABCDEF`, with a 32 bit hex identifier at
+/// threads something like `udp_cx_89ABCDEF`, with a 32 bit hex identifier at
 /// the end which is just the index of the connexion thread in some internal
 /// table. When the connection thread is created, it emits an `INFO` log message
 /// announcing that it is in charge of handling a connexion with certain
@@ -168,7 +168,7 @@ void* realtime_allocate(size_t size);
 /// If the user decides to be difficult by using multiple udipe contexts at the
 /// same time, we must detect this and switch to a less optimal naming
 /// convention that handles multiple contexts like one that is based on TID
-/// (`udp.th.89ABCDEF`), otherwise we'll get multiple threads with the same name
+/// (`udp_th_89ABCDEF`), otherwise we'll get multiple threads with the same name
 /// which is quite bad for ergonomics.
 ///
 /// This function must be called within the scope of with_logger().
@@ -193,7 +193,7 @@ void set_thread_name(const char* name);
 /// constraint denominator used by udipe.
 ///
 /// \returns the name of the current thread, or a stringified hexadecimal TID
-///          like `tid.89ABCDEF` if the current thread is not named. This name
+///          like `tid_89ABCDEF` if the current thread is not named. This name
 ///          string cannot be modified and may only be used until the next call
 ///          to \ref get_thread_name().
 //
