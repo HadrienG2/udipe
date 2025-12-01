@@ -197,31 +197,45 @@ buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
     return allocator;
 }
 
-void buffer_allocator_finalize(buffer_allocator_t allocator) {
-    debug("Finalizing the buffer allocator");
-    assert(
-        bit_array_range_alleq(allocator.buffer_availability,
+void buffer_allocator_finalize(buffer_allocator_t* allocator) {
+    debug("Finalizing the buffer allocator...");
+    const bool all_liberated =
+        bit_array_range_alleq(allocator->buffer_availability,
                               UDIPE_MAX_BUFFERS,
                               BIT_ARRAY_START,
-                              index_to_bit_pos(allocator.config.buffer_count),
-                              true)
-    );
+                              index_to_bit_pos(allocator->config.buffer_count),
+                              true);
+    if (!all_liberated) {
+        exit_with_error("Attempted to liberate a buffer allocator when some "
+                        "buffers were still allocated!");
+    }
     realtime_liberate(
-        allocator.memory_pool,
-        allocator.config.buffer_size * allocator.config.buffer_count
+        allocator->memory_pool,
+        allocator->config.buffer_size * allocator->config.buffer_count
     );
+
+    debug("Poisoning the finalized allocator so that any later (invalid) "
+          "allocation attempt deadlocks or fails...");
+    bit_array_range_set(allocator->buffer_availability,
+                        UDIPE_MAX_BUFFERS,
+                        BIT_ARRAY_START,
+                        index_to_bit_pos(allocator->config.buffer_count),
+                        false);
+    allocator->memory_pool = NULL;
+    allocator->config.buffer_size = 0;
+    allocator->config.buffer_count = 0;
 }
 
 UDIPE_NON_NULL_ARGS
 void buffer_liberate(buffer_allocator_t* allocator, void* buffer) {
-    assert(allocator);
-    assert(buffer);
-
     tracef("Liberating buffer with address %p...", buffer);
+    assert(allocator->memory_pool);
     assert(buffer >= allocator->memory_pool);
     const size_t buffer_offset = (char*)buffer - (char*)allocator->memory_pool;
+    assert(allocator->config.buffer_size > 0);
     assert(buffer_offset % allocator->config.buffer_size == 0);
     const size_t buffer_idx = buffer_offset / allocator->config.buffer_size;
+    assert(allocator->config.buffer_count > 0);
     assert(buffer_idx < allocator->config.buffer_count);
     const bit_pos_t buffer_bit = index_to_bit_pos(buffer_idx);
     assert(!bit_array_get(allocator->buffer_availability,
@@ -236,9 +250,8 @@ void buffer_liberate(buffer_allocator_t* allocator, void* buffer) {
 UDIPE_NON_NULL_ARGS
 BUFFER_ALLOCATE_ATTRIBUTES
 void* buffer_allocate(buffer_allocator_t* allocator) {
-    assert(allocator);
-
     trace("Starting buffer allocation...");
+    assert(allocator->config.buffer_count > 0);
     const bit_pos_t buffer_bit =
         bit_array_find_first(allocator->buffer_availability,
                              UDIPE_MAX_BUFFERS,
@@ -255,6 +268,7 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
                   false);
     const size_t buffer_idx = bit_pos_to_index(buffer_bit);
     const size_t buffer_offset = buffer_idx * allocator->config.buffer_size;
+    assert(allocator->memory_pool);
     void* buffer = (void*)((char*)allocator->memory_pool + buffer_offset);
     tracef("Allocated buffer #%zu with address %p.", buffer_idx, buffer);
     return buffer;
@@ -358,7 +372,10 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
         }
 
         trace("Finalizing the allocator...");
-        buffer_allocator_finalize(allocator);
+        buffer_allocator_finalize(&allocator);
+        ensure_eq(allocator.memory_pool, NULL);
+        ensure_eq(allocator.config.buffer_size, (size_t)0);
+        ensure_eq(allocator.config.buffer_count, (size_t)0);
     }
 
     /// Configuration callback that applies a predefined configuration
