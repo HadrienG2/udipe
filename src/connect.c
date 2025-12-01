@@ -74,9 +74,13 @@ connect_options_allocate(connect_options_allocator_t* allocator) {
                                   NULL);
             if (result == -1) {
                 switch (errno) {
+                // Availability changed between the check and FUTEX_WAIT call
                 case EAGAIN:
+                // The operation was interrupted by a signal
                 case EINTR:
                     break;
+                // All of the following concern timeout handling and therefore
+                // should not apply here as no timeout is set.
                 case EFAULT:
                 case EINVAL:
                 case ETIMEDOUT:
@@ -147,6 +151,8 @@ void connect_options_liberate(connect_options_allocator_t* allocator,
                               FUTEX_WAKE_PRIVATE,
                               1);
         assert(result == 0 || result == 1);
+        // There is only one known error case at the time of writing, and it
+        // concerns priority inheritance futexes which we aren't using here.
         exit_on_negative((int) result,
                          "Unexpected FUTEX_WAKE_PRIVATE failure");
     }
