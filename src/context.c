@@ -14,7 +14,7 @@
 DEFINE_PUBLIC
 UDIPE_NON_NULL_RESULT
 udipe_context_t* udipe_initialize(udipe_config_t config) {
-    logger_t logger = log_initialize(config.log);
+    logger_t logger = logger_initialize(config.log);
     udipe_context_t* context = NULL;
     with_logger(&logger, {
         debug("Allocating a libudipe context...");
@@ -49,4 +49,5 @@ void udipe_finalize(udipe_context_t* context) {
         debug("Freeing the udipe_context_t...");
         realtime_liberate(context, sizeof(udipe_context_t));
     });
+    logger_finalize(&logger);
 }

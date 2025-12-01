@@ -7,6 +7,7 @@
 //! various events throughout the library execution lifecycle.
 
 #include <udipe/log.h>
+#include <udipe/pointer.h>
 
 #include <stdbool.h>
 #include <threads.h>
@@ -17,7 +18,7 @@
 
 /// Message logger
 ///
-/// This struct is created by log_initialize() and contains all information
+/// This struct is created by logger_initialize() and contains all information
 /// needed to perform logging using the primitives from `src/log.h`.
 ///
 /// For now, this is just a typedef of \ref udipe_log_config_t which encodes the
@@ -25,7 +26,7 @@
 /// corresponding default values.
 typedef udipe_log_config_t logger_t;
 
-/// Set up logging
+/// Initialize a logger
 ///
 /// This should be done as early as possible during the `libudipe`
 /// initialization process in order to minimize the amount of code that cannot
@@ -40,7 +41,19 @@ typedef udipe_log_config_t logger_t;
 // TODO: Add finalizer that checks that the logger is not finalized while it
 //       is in the process of being used and makes sure that future usage
 //       crashes by nullifying the inner callback pointer.
-logger_t log_initialize(udipe_log_config_t config);
+logger_t logger_initialize(udipe_log_config_t config);
+
+/// Finalize a logger
+///
+/// The logger cannot be used again after this is done.
+///
+/// This should be done as late as possible during the `libudipe` finalization
+/// process in order to minimize the amount of code that cannot perform logging.
+///
+/// \param logger should be a logger that has been set up via
+///               logger_initialize() and hasn't been finalized yet.
+UDIPE_NON_NULL_ARGS
+void logger_finalize(logger_t* logger);
 
 ///@}
 
@@ -230,12 +243,13 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// point, and early on inside the main function of every worker thread.
 ///
 /// \param logger_ptr must point to a `logger_t` that was previously initialized
-///        by log_initialize(), and that is valid to use until the end of the
-///        code scope delimited by the with_logger() macro.
+///        by logger_initialize(), hasn't been finalized yet and that is valid
+///        to use until the end of the code scope delimited by the with_logger()
+///        macro.
 #ifdef __GNUC__
     #define with_logger(logger_ptr, ...)  \
         do {  \
-            const logger_t* udipe_prev_logger  \
+            logger_t* const udipe_prev_logger  \
                             __attribute__((__cleanup__(restore_thread_logger)))  \
                             = udipe_thread_logger;  \
             udipe_thread_logger = (logger_ptr);  \
@@ -245,7 +259,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 #elif defined(_MSC_VER)
     #define with_logger(logger_ptr, ...)  \
         do {  \
-            const logger_t* udipe_prev_logger = udipe_thread_logger;  \
+            logger_t* const udipe_prev_logger = udipe_thread_logger;  \
             __try {  \
                 udipe_thread_logger = (logger_ptr);  \
                 trace("Start of a with_logger() scope.");  \
@@ -328,8 +342,8 @@ static inline bool log_enabled(udipe_log_level_t level);
     /// macro attempts to generate an omp parallel block surrounded by any code
     /// construct that the author of this macro thought about trying.
     #define save_thread_logger_state(state)  \
-        const logger_t* const state ## _logger = udipe_thread_logger;  \
-        const udipe_log_level_t const state ## _log_level = udipe_thread_log_level;
+        logger_t* const state ## _logger = udipe_thread_logger;  \
+        const udipe_log_level_t state ## _log_level = udipe_thread_log_level;
 
     /// Restore thread-local logging state that was saved by
     /// save_thread_logger_state()
@@ -386,7 +400,7 @@ extern thread_local udipe_log_level_t udipe_thread_log_level;
 ///
 /// This thread-local variable is used by with_logger() in order to locally
 /// enable a lightweight log syntax.
-extern thread_local const logger_t* udipe_thread_logger;
+extern thread_local logger_t* udipe_thread_logger;
 
 /// Reinterprete the specified log level according to surrounding
 /// with_log_level() scopes
@@ -422,7 +436,7 @@ static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_le
 ///
 /// This helper function enables with_logger() to clean up after itself through
 /// the GNU `__cleanup__` attribute.
-static inline void restore_thread_logger(const logger_t** prev_logger) {
+static inline void restore_thread_logger(logger_t* const * prev_logger) {
     trace("End of a with_logger() scope.");
     udipe_thread_logger = *prev_logger;
 }
