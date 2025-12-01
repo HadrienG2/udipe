@@ -46,6 +46,7 @@ static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
             __attribute__ ((fallthrough));
         #endif
     default:
+        // Cannot log here because this is part of the logging logic
         fprintf(stderr,
                 "libudipe: Called log_level_name() with invalid level %d!\n",
                 level);
@@ -102,6 +103,7 @@ static void default_log_callback(void* /* context */,
                 break;
             case UDIPE_DEFAULT_LOG_LEVEL:
             default:
+                // Cannot log here because this is part of the logging logic
                 fprintf(stderr,
                         "libudipe: Called default_log_callback() "
                         "with invalid level %d!\n",
@@ -158,6 +160,7 @@ logger_t logger_initialize(udipe_log_config_t config) {
             } else if (strcasecmp(level_str, "TRACE") == 0) {
                 config.min_level = UDIPE_TRACE;
             } else {
+                // Cannot log before logger is initialized
                 fprintf(stderr, "Error: Invalid UDIPE_LOG %s\n", level_str);
                 exit(EXIT_FAILURE);
             }
@@ -170,6 +173,7 @@ logger_t logger_initialize(udipe_log_config_t config) {
         }
         break;
     default:
+        // Cannot log before logger is initialized
         fprintf(stderr,
                 "libudipe: Called logger_initialize() with invalid min_level %d!\n",
                 config.min_level);
@@ -262,6 +266,7 @@ thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_INFO;
         case UDIPE_ERROR:
             break;
         default:
+            // Cannot log here because this is part of the logging logic
             fprintf(stderr,
                     "libudipe: Called validate_log() with invalid level %d!\n",
                     level);

@@ -145,7 +145,7 @@ static void finish_configuration(udipe_buffer_config_t* config,
             config->buffer_count = UDIPE_MAX_BUFFERS;
         }
     } else if (config->buffer_count > UDIPE_MAX_BUFFERS) {
-        exit_with_error("Cannot have more than UDIPE_MAX_BUFFERS buffers!");
+        exit_with_error("Cannot have buffer_count > UDIPE_MAX_BUFFERS!");
     }
 
     if (thread_cpuset) hwloc_bitmap_free(thread_cpuset);
