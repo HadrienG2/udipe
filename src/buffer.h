@@ -100,6 +100,7 @@ buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
 /// \param allocator points to an allocator that has previously been set up
 ///                  using allocator_initialize() and hasn't been destroyed
 ///                  through allocator_finalize() yet.
+UDIPE_NON_NULL_ARGS
 void buffer_allocator_finalize(buffer_allocator_t* allocator);
 
 /// Liberate a memory buffer previously allocated via buffer_allocate()

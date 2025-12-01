@@ -17,13 +17,14 @@
         udipe_log_config_t log_config;
         memset(&log_config, 0, sizeof(udipe_log_config_t));
 
-        logger_t logger = log_initialize(log_config);
+        logger_t logger = logger_initialize(log_config);
         with_logger(&logger, {
             sys_unit_tests();
             bit_array_unit_tests();
             buffer_unit_tests();
             command_unit_tests();
         });
+        logger_finalize(&logger);
     }
 
 #endif  // UDIPE_BUILD_TESTS

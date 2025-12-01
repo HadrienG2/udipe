@@ -41,6 +41,7 @@ connect_options_allocator_initialize() {
     return allocator;
 }
 
+UDIPE_NON_NULL_ARGS
 void connect_options_allocator_finalize(connect_options_allocator_t* allocator) {
     debug("Finalizing the allocator...");
     const uint32_t current_availability =

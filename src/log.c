@@ -135,7 +135,7 @@ DEFINE_PUBLIC const char* udipe_log_level_name(udipe_log_level_t level) {
     return log_level_name(level, true);
 }
 
-logger_t log_initialize(udipe_log_config_t config) {
+logger_t logger_initialize(udipe_log_config_t config) {
     // Select and configure log level
     switch (config.min_level) {
     case UDIPE_TRACE:
@@ -171,7 +171,7 @@ logger_t log_initialize(udipe_log_config_t config) {
         break;
     default:
         fprintf(stderr,
-                "libudipe: Called log_initialize() with invalid min_level %d!\n",
+                "libudipe: Called logger_initialize() with invalid min_level %d!\n",
                 config.min_level);
         exit(EXIT_FAILURE);
     }
@@ -195,6 +195,20 @@ logger_t log_initialize(udipe_log_config_t config) {
         #endif
     }
     return config;
+}
+
+UDIPE_NON_NULL_ARGS
+void logger_finalize(logger_t* logger) {
+    logger_t* curr_logger = udipe_thread_logger;
+    with_logger(logger, {
+        debug("Liberating logger, which should not be in use...");
+        ensure_ne((void*)curr_logger, (void*)logger);
+
+        debug("Poisoning logger so that further (invalid) use fails...");
+    });
+    logger->callback = NULL;
+    logger->context = NULL;
+    logger->min_level = UDIPE_TRACE;
 }
 
 LOGF_IMPL_ATTRIBUTES
@@ -231,7 +245,7 @@ void logf_impl(udipe_log_level_t level,
                                     message);
 }
 
-thread_local const logger_t* udipe_thread_logger = NULL;
+thread_local logger_t* udipe_thread_logger = NULL;
 
 thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_INFO;
 

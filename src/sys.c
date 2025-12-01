@@ -24,14 +24,14 @@
 /// This variable is constant after initialization, but you must call
 /// expect_system_config() before accessing it in order to ensure that it is
 /// initialized in a thread-safe manner.
-static size_t system_page_size;
+static size_t system_page_size = 0;
 
 /// Buffer size granularity of the system allocator
 ///
 /// This variable is constant after initialization, but you must call
 /// expect_system_config() before accessing it in order to ensure that it is
 /// initialized in a thread-safe manner.
-static size_t system_allocation_granularity;
+static size_t system_allocation_granularity = 0;
 
 #ifdef _WIN32
     /// Pseudo-handle to the current process
@@ -39,7 +39,7 @@ static size_t system_allocation_granularity;
     /// This variable is constant after initialization, but you must call
     /// expect_system_config() before accessing it in order to ensure that it is
     /// initialized in a thread-safe manner.
-    static HANDLE system_current_process;
+    static HANDLE system_current_process = NULL;
 #endif
 
 /// Implementation of expect_system_config()

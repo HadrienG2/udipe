@@ -197,6 +197,7 @@ buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
     return allocator;
 }
 
+UDIPE_NON_NULL_ARGS
 void buffer_allocator_finalize(buffer_allocator_t* allocator) {
     debug("Finalizing the buffer allocator...");
     const bool all_liberated =

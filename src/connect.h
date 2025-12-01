@@ -87,8 +87,8 @@ connect_options_allocator_t connect_options_allocator_initialize();
 
 /// Finalize a \ref connect_options_allocator_t
 ///
-/// At the time of writing, this method is only here for sanity checks, but they
-/// are important sanity checks.
+/// The allocator cannot be used again after this is done.
+UDIPE_NON_NULL_ARGS
 void connect_options_allocator_finalize(connect_options_allocator_t* allocator);
 
 /// Allocate a \ref udipe_connect_options_t struct for the purpose of sending

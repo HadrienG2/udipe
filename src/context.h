@@ -41,7 +41,4 @@ struct udipe_context_s {
     ///
     /// See \ref connect.h for more info on how this works and how to use it.
     connect_options_allocator_t connect_options;
-
-    // TODO: Add a state machine atomic that can be used to detect invalid usage
-    //       of incompletely initialized or partially liberated contexts.
 };
