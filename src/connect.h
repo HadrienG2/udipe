@@ -47,7 +47,7 @@ static_assert(NUM_CONNECT_OPTIONS <= 32,
 /// order to establish a new UDP connection.
 ///
 /// Unlike most other structs from `libudipe`, this struct **must** be
-/// initialized using a method, which is connect_options_allocator_initialize().
+/// initialized using a function, namely connect_options_allocator_initialize().
 ///
 /// Members of this struct are not overaligned for false sharing avoidance or
 /// other CPU cache layout optimization because connection setup should only
@@ -81,7 +81,7 @@ typedef struct connect_options_allocator_s {
 /// Initialize a \ref connect_options_allocator_t
 ///
 /// Unfortunately, the C11 atomics specification disallows zero initialization
-/// of atomics, so you must call this method in order to initialize a \ref
+/// of atomics, so you must call this function in order to initialize a \ref
 /// connect_options_allocator_t.
 connect_options_allocator_t connect_options_allocator_initialize();
 
@@ -94,7 +94,7 @@ void connect_options_allocator_finalize(connect_options_allocator_t* allocator);
 /// Allocate a \ref udipe_connect_options_t struct for the purpose of sending
 /// connection options from a client thread to a worker thread.
 ///
-/// If no such struct is currently available, this method will block until a
+/// If no such struct is currently available, this function will block until a
 /// worker thread liberates a struct using connect_options_liberate().
 ///
 /// \param allocator must be a \ref connection_options_allocator_t that has

@@ -137,8 +137,8 @@ void buffer_liberate(buffer_allocator_t* allocator, void* buffer);
 /// wait for some network requests to complete (and thus liberate the associated
 /// data buffer) before trying again.
 ///
-/// If this method returns a non-`NULL` buffer, then it must later be liberated
-/// using the buffer_liberate() function.
+/// If this function returns a non-`NULL` buffer, then it must later be
+/// liberated using the buffer_liberate() function.
 ///
 /// This function must be called within the scope of with_logger().
 ///
