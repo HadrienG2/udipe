@@ -4,7 +4,7 @@
 //! \brief Core context
 //!
 //! This code module defines \ref udipe_context_t, the core API context of
-//! `libudipe`, along with its basic lifecycle methods udipe_initialize() and
+//! `libudipe`, along with its basic lifecycle functions udipe_initialize() and
 //! udipe_finalize(). Most other `libudipe` functions use this struct to access
 //! core `libudipe` state like the message logger, the network thread pool, etc.
 
@@ -24,11 +24,11 @@
 struct udipe_context_s {
     /// Message logger
     ///
-    /// Any public `libudipe` method or network thread should begin by using the
-    /// with_logger() macro to set up a logging scope with this logger. This
-    /// allows logging methods to subsequently be used in order to report normal
-    /// and suspicious events throughout the application lifecycle for the sake
-    /// of easier application and `libudipe` debugging.
+    /// Any public `libudipe` function or network thread should begin by using
+    /// the with_logger() macro to set up a logging scope with this logger. This
+    /// allows logging functions to subsequently be used in order to report
+    /// normal and suspicious events throughout the application lifecycle for
+    /// the sake of easier application and `libudipe` debugging.
     logger_t logger;
 
     /// hwloc topology
