@@ -139,7 +139,7 @@ void* realtime_allocate(size_t size);
 ///
 /// See set_thread_name() for more information about the various restrictions
 /// that apply to thread names.
-#define MAX_THREAD_NAME_LEN ((size_t)16)
+#define MAX_THREAD_NAME_LEN ((size_t)15)
 
 /// Set the name of the calling thread
 ///
@@ -150,7 +150,7 @@ void* realtime_allocate(size_t size);
 /// - Only use printable ASCII code points except for the trailing NUL. No
 ///   Unicode tricks allowed here.
 /// - Feature exactly one occurence of NUL at the end, like all C strings.
-/// - Be no longer than \ref MAX_THREAD_NAME_LEN bytes, including the
+/// - Be no longer than \ref MAX_THREAD_NAME_LEN bytes, excluding the
 ///   aforementioned trailing NUL.
 ///
 /// Since \ref MAX_THREAD_NAME_LEN is very short (only 15 useful ASCII chars on
@@ -174,10 +174,6 @@ void* realtime_allocate(size_t size);
 /// This function must be called within the scope of with_logger().
 ///
 /// \param name is a thread name that must follow the constraints listed above.
-//
-// TODO: Implement. On windows, we can leverage the fact that length is bounded
-//       to 16 ASCII-only chars by simply stack-allocating an array of 16
-//       wchars which will be used for MultiByteToWideChar().
 UDIPE_NON_NULL_ARGS
 void set_thread_name(const char* name);
 
@@ -193,18 +189,11 @@ void set_thread_name(const char* name);
 /// constraint denominator used by udipe.
 ///
 /// \returns the name of the current thread, or a stringified hexadecimal TID
-///          like `tid_89ABCDEF` if the current thread is not named. This name
-///          string cannot be modified and may only be used until the next call
-///          to \ref get_thread_name().
-//
-// TODO: Implement. To handle the unpredictable name length, allocate a
-//       thread-local buffer whose size grows as much as needed, with a
-//       thread-local key destructor that liberates the buffer.
+///          like `pthread_89ABCDEF` if the current thread is not named. This
+///          name string cannot be modified and may only be used until the next
+///          call to \ref get_thread_name() or the exit of the current thread.
 UDIPE_NON_NULL_RESULT
 const char* get_thread_name();
-
-// TODO: Add unit tests for these functions, then replace prctl for thread name
-//       in logger
 
 /// \}
 
