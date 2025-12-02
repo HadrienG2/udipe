@@ -405,6 +405,11 @@ extern thread_local logger_t* udipe_thread_logger;
 /// Reinterprete the specified log level according to surrounding
 /// with_log_level() scopes
 static inline udipe_log_level_t thread_log_level(udipe_log_level_t level) {
+    // WARNING: This function is called by the logger implementation and must
+    //          therefore not perform any logging. Normal events and non-fatal
+    //          errors should not be signaled at all, fatal errors should be
+    //          signalled on stderr before exiting.
+
     validate_log(level);
     switch (level) {
     case UDIPE_DEBUG:
@@ -457,6 +462,11 @@ void trace_expr_impl(const char* format_template,
 
 // Implementation of log_enabled (see docs above)
 static inline bool log_enabled(udipe_log_level_t level) {
+    // WARNING: This function is called by the logger implementation and must
+    //          therefore not perform any logging. Normal events and non-fatal
+    //          errors should not be signaled at all, fatal errors should be
+    //          signalled on stderr before exiting.
+
     validate_log(level);
     return level >= udipe_thread_logger->min_level;
 }
