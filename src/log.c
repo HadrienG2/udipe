@@ -1,19 +1,16 @@
 #include "log.h"
 
 #include "error.h"
+#include "sys.h"
 #include "visibility.h"
 
 #include <assert.h>
 #include <errno.h>
-// TODO: Replace with sys.h once thread name abstraction is ready
-#include <linux/prctl.h>
 #include <stdarg.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <strings.h>
-// TODO: Replace with sys.h once thread name abstraction is ready
-#include <sys/prctl.h>
 #include <time.h>
 
 #ifdef __unix__
@@ -124,10 +121,8 @@ static void default_log_callback(void* /* context */,
     #endif
 
     // Query the current thread's name
-    // TODO: Add Windows version once Windows CI build is running
-    char thread_name[16];
-    int result = prctl(PR_GET_NAME, thread_name);
-    assert(("No documented failure case", result == 0));
+    const char* thread_name = get_thread_name();;
+    assert(thread_name);
 
     // Display the log on stderr
     if (use_colors) {
