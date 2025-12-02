@@ -89,10 +89,12 @@ static void expect_system_config() {
     call_once(&config_was_read, read_system_config);
 }
 
+
 size_t get_page_size() {
     expect_system_config();
     return system_page_size;
 }
+
 
 /// Round an allocation size up to the next multiple of the OS kernel's memory
 /// allocator granularity
@@ -108,6 +110,7 @@ static size_t allocation_size(size_t size) {
     }
     return size;
 }
+
 
 /// Mutex that protects the OS kernel's memory locking limit
 ///
@@ -252,6 +255,7 @@ unlock_and_return:
     return result;
 }
 
+
 UDIPE_NON_NULL_RESULT
 REALTIME_ALLOCATE_ATTRIBUTES
 void* realtime_allocate(size_t size) {
@@ -369,6 +373,7 @@ log_and_return:
     debugf("Done allocating memory at address %p.", result);
     return result;
 }
+
 
 UDIPE_NON_NULL_ARGS
 void realtime_liberate(void* buffer, size_t size) {
