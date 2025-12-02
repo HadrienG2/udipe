@@ -127,7 +127,7 @@ static size_t allocation_size(size_t size) {
 static mtx_t mlock_budget_mutex;
 
 /// Initialize mlock_budget_mutex (implementation detail of try_increase_mlock_budget)
-static void init_mlock_budget_mutex() {
+static void mlock_budget_mutex_initialize() {
     debug("Initializing mlock_budget_mutex");
     const int result = mtx_init(&mlock_budget_mutex, mtx_plain);
     if (result == thrd_success) return;
@@ -148,7 +148,7 @@ static bool try_increase_mlock_budget(size_t size) {
     trace("Will now attempt to increase the memory locking limit to accomodate "
           "for %zu more locked bytes.");
     static once_flag mutex_initialized = ONCE_FLAG_INIT;
-    call_once(&mutex_initialized, init_mlock_budget_mutex);
+    call_once(&mutex_initialized, mlock_budget_mutex_initialize);
     mtx_lock(&mlock_budget_mutex);
 
     bool result = false;
@@ -248,6 +248,8 @@ static bool try_increase_mlock_budget(size_t size) {
         goto unlock_and_return;
     #else
         #warning "Sorry, we don't fully support your operating system yet. Please file a bug report about it!"
+        warning("Don't know how to increase the memory locking budget on this "
+                "operating system, so won't do it...");
     #endif
 
 unlock_and_return:
