@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <pthread.h>
+#include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
