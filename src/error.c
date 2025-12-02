@@ -98,7 +98,7 @@ void warn_on_errno() {
         //       page which provides a table of Windows error codes and some
         //       tools to automatically look them up:
         //       https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes
-        warning("Got thread last-error code %u", last_error);
+        warningf("Got thread last-error code %u", last_error);
         SetLastError(0);
     }
 #endif
