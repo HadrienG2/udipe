@@ -29,6 +29,11 @@
 /// latter case it is not a valid input. We differentiate between these two
 /// cases using the `allow_default` parameter.
 static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
+    // WARNING: This function is called by the logger implementation and must
+    //          therefore not perform any logging. Normal events and non-fatal
+    //          errors should not be signaled at all, fatal errors should be
+    //          signalled on stderr before exiting.
+
     switch(level) {
     case UDIPE_TRACE:
         return "TRACE";
@@ -70,6 +75,11 @@ static void default_log_callback(void* /* context */,
                                  udipe_log_level_t level,
                                  const char location[],
                                  const char message[]) {
+    // WARNING: This function is called by the logger implementation and must
+    //          therefore not perform any logging. Normal events and non-fatal
+    //          errors should not be signaled at all, fatal errors should be
+    //          signalled on stderr before exiting.
+
     // Compute log timestamp and its display representation
     clock_t timestamp = clock();
     assert(timestamp >= 0);
@@ -138,6 +148,11 @@ DEFINE_PUBLIC const char* udipe_log_level_name(udipe_log_level_t level) {
 }
 
 logger_t logger_initialize(udipe_log_config_t config) {
+    // WARNING: This function is called before the logger is ready and must
+    //          therefore not perform any logging. Normal events and non-fatal
+    //          errors should not be signaled at all, fatal errors should be
+    //          signalled on stderr before exiting.
+
     // Select and configure log level
     switch (config.min_level) {
     case UDIPE_TRACE:
@@ -220,6 +235,11 @@ void logf_impl(udipe_log_level_t level,
                const char* location,
                const char* format,
                ...) {
+    // WARNING: This function is part of the formated logging implementation and
+    //          must therefore not perform any formated logging (directly or
+    //          indirectly invoke a logging macro whose name ends with f). Basic
+    //          static string logging is fine.
+
     // Get two copies of the variadic arguments
     va_list args1, args2;
     va_start(args1, format);
@@ -255,6 +275,11 @@ thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_INFO;
 
 #ifndef NDEBUG
     void validate_log(udipe_log_level_t level) {
+        // WARNING: This function is called by the logger implementation and
+        //          must therefore not perform any logging. Normal events and
+        //          non-fatal errors should not be signaled at all, fatal errors
+        //          should be signalled on stderr before exiting.
+
         assert(("Should not make logging calls "
                 "outside a with_logger() scope",
                 udipe_thread_logger));

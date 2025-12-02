@@ -15,11 +15,12 @@
 #endif
 
 
-// Important note: This function is used on the error path of the formatted
-//                 logging macros. It must therefore not use said macros, only
-//                 the basic macros that log a pre-existing message string.
-//                 Which is why it does all the formatting itself.
 void warn_on_errno() {
+    // WARNING: This function is used on the error path of the formated logging
+    //          implementation and must therefore not perform any formated
+    //          logging (directly or indirectly invoke a logging macro whose
+    //          name ends with f). Basic static string logging is fine.
+
     // No errno, no output
     if (errno == 0) return;
     const int initial_errno = errno;
