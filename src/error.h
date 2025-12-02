@@ -10,6 +10,10 @@
 
 #include <stdlib.h>
 
+#ifdef _WIN32
+    #include <winerror.h>
+#endif
+
 
 /// \name External error handling
 /// \{
@@ -71,13 +75,30 @@ void warn_on_errno();
     ///
     /// This macro handles situations where all of the following is true:
     ///
-    /// - A Win32 API function is known to have previously failed.
+    /// - A Win32 API function signals errors by returning a value that is
+    ///   zero-like (can be a NULL pointer) and setting up GetLastError().
     /// - None of the known error cases can or should be recovered from.
     /// - exit_with_error() preconditions are fulfilled.
     #define win32_exit_on_zero(result, error_message)  \
         do {  \
             if (!(result)) {  \
                 win32_warn_on_error();  \
+                exit_with_error(error_message);  \
+            }  \
+        } while(false)
+
+    /// Exit if a Windows API function returns a failed HRESULT, logging the
+    /// associated error code.
+    ///
+    /// This macro handles situations where all of the following is true:
+    ///
+    /// - A Win32 API function signals errors by returning a failed HRESULT.
+    /// - None of the known error cases can or should be recovered from.
+    /// - exit_with_error() preconditions are fulfilled.
+    #define win32_exit_on_failed_hresult(hr, error_message)  \
+        do {  \
+            if (FAILED(hr)) {  \
+                warningf("Got failed HRESULT %u!", hr);  \
                 exit_with_error(error_message);  \
             }  \
         } while(false)
