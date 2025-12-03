@@ -7,7 +7,8 @@
     #include "buffer.h"
     #include "command.h"
     #include "log.h"
-    #include "sys.h"
+    #include "sys/memory.h"
+    #include "sys/thread_name.h"
     #include "visibility.h"
 
     #include <string.h>
@@ -19,7 +20,10 @@
 
         logger_t logger = logger_initialize(log_config);
         with_logger(&logger, {
-            sys_unit_tests();
+            // Tests are ordered such that a piece of code is tested before
+            // other pieces of code that may depend on it
+            thread_name_unit_tests();
+            memory_unit_tests();
             bit_array_unit_tests();
             buffer_unit_tests();
             command_unit_tests();

@@ -6,12 +6,12 @@
 
 #include <assert.h>
 #include <errno.h>
-// TODO: Replace with sys.h once futex abstraction is ready
+// TODO: Replace with sys/futex.h once futex abstraction is ready
 #include <linux/futex.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-// TODO: Replace both with sys.h once futex abstraction is ready
+// TODO: Replace both with sys/futex.h once futex abstraction is ready
 #include <sys/syscall.h>
 #include <unistd.h>
 
