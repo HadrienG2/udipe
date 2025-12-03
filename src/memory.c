@@ -2,9 +2,9 @@
 
 #include <udipe/pointer.h>
 
-#include "../arch.h"
-#include "../error.h"
-#include "../log.h"
+#include "arch.h"
+#include "error.h"
+#include "log.h"
 
 #include <assert.h>
 #include <errno.h>

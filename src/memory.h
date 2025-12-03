@@ -8,7 +8,7 @@
 
 #include <udipe/pointer.h>
 
-#include "../arch.h"
+#include "arch.h"
 
 #include <stddef.h>
 

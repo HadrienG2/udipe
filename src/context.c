@@ -4,7 +4,7 @@
 
 #include "error.h"
 #include "log.h"
-#include "sys/memory.h"
+#include "memory.h"
 #include "visibility.h"
 
 #include <errno.h>
