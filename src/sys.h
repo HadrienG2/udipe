@@ -180,8 +180,8 @@ void set_thread_name(const char* name);
 /// Get the name of the calling thread
 ///
 /// Although udipe names its worker threads under the constraints spelled out in
-/// the documentation of \ref set_thread_name(), callers of this function should
-/// be ready for names that do not follow these constraints when it is called on
+/// the documentation of set_thread_name(), callers of this function should be
+/// ready for names that do not follow these constraints when it is called on
 /// client threads not spawned by udipe.
 ///
 /// Indeed, these client threads may have been named by the application on an
