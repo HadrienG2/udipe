@@ -202,15 +202,10 @@ const char* get_thread_name();
 //       tests + replace futex syscalls here and there.
 
 
-/// \name Unit tests
-/// \{
-
 #ifdef UDIPE_BUILD_TESTS
-    /// Unit tests for OS-specific functionality
+    /// Unit tests
     ///
-    /// This function runs all the unit tests for OS-specific functionality. It
-    /// must be called within the scope of with_logger().
+    /// This function runs all the unit tests for this module. It must be called
+    /// within the scope of with_logger().
     void sys_unit_tests();
 #endif
-
-/// \}
