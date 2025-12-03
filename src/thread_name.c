@@ -1,7 +1,7 @@
 #include "thread_name.h"
 
-#include "../error.h"
-#include "../log.h"
+#include "error.h"
+#include "log.h"
 
 #include <assert.h>
 #include <pthread.h>

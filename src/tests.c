@@ -7,8 +7,8 @@
     #include "buffer.h"
     #include "command.h"
     #include "log.h"
-    #include "sys/memory.h"
-    #include "sys/thread_name.h"
+    #include "memory.h"
+    #include "thread_name.h"
     #include "visibility.h"
 
     #include <string.h>

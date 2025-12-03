@@ -120,11 +120,11 @@ target_sources(udipe
                        src/future.h
                        src/log.c
                        src/log.h
-                       src/sys/memory.c
-                       src/sys/memory.h
-                       src/sys/thread_name.c
-                       src/sys/thread_name.h
+                       src/memory.c
+                       src/memory.h
                        src/tests.c
+                       src/thread_name.c
+                       src/thread_name.h
                        src/visibility.h)
 if (UDIPE_BUILD_TESTS)
     target_compile_definitions(udipe PUBLIC UDIPE_BUILD_TESTS)
