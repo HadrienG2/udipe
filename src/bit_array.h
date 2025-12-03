@@ -579,15 +579,10 @@ static inline bit_pos_t bit_array_find_next(const word_t bit_array[],
 /// \}
 
 
-/// \name Unit tests
-/// \{
-
 #ifdef UDIPE_BUILD_TESTS
-    /// Unit tests for bit arrays
+    /// Unit tests
     ///
-    /// This function runs all the unit tests for bit arrays. It must be called
+    /// This function runs all the unit tests for this module. It must be called
     /// within the scope of with_logger().
     void bit_array_unit_tests();
 #endif
-
-/// \}

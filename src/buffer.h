@@ -153,10 +153,11 @@ UDIPE_NON_NULL_ARGS
 BUFFER_ALLOCATE_ATTRIBUTES
 void* buffer_allocate(buffer_allocator_t* allocator);
 
+
 #ifdef UDIPE_BUILD_TESTS
-    /// Unit tests for buffer management
+    /// Unit tests
     ///
-    /// This function runs all the unit tests for buffer allocators. It must be
-    /// called within the scope of with_logger().
+    /// This function runs all the unit tests for this module. It must be called
+    /// within the scope of with_logger().
     void buffer_unit_tests();
 #endif
