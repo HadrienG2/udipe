@@ -2,7 +2,7 @@
 
 #include "error.h"
 #include "log.h"
-#include "sys.h"
+#include "sys/memory.h"
 
 #include <stdint.h>
 

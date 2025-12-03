@@ -12,7 +12,7 @@
 
 #include "arch.h"
 #include "bit_array.h"
-#include "sys.h"
+#include "sys/memory.h"
 
 #include <hwloc.h>
 

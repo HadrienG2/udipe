@@ -120,8 +120,10 @@ target_sources(udipe
                        src/future.h
                        src/log.c
                        src/log.h
-                       src/sys.c
-                       src/sys.h
+                       src/sys/memory.c
+                       src/sys/memory.h
+                       src/sys/thread_name.c
+                       src/sys/thread_name.h
                        src/tests.c
                        src/visibility.h)
 if (UDIPE_BUILD_TESTS)

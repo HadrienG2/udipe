@@ -1,7 +1,7 @@
 #include "log.h"
 
 #include "error.h"
-#include "sys.h"
+#include "sys/thread_name.h"
 #include "visibility.h"
 
 #include <assert.h>
