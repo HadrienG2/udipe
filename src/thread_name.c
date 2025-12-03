@@ -144,16 +144,23 @@ thread_name_t* ensure_thread_name_capacity(size_t capacity) {
     return thread_name;
 }
 
+/// First printable ASCII char
+#define FIRST_PRINTABLE_ASCII (char)0x21
+
+/// Last printable ASCII char
+#define LAST_PRINTABLE_ASCII (char)0x7e
+
 UDIPE_NON_NULL_ARGS
 void set_thread_name(const char* name) {
     debugf("Asked to rename current thread to %s.", name);
 
     trace("Validating that name is printable ASCII and under maximum length...");
     size_t name_len = strlen(name);
+    ensure_gt(name_len, (size_t)0);
     ensure_le(name_len, MAX_THREAD_NAME_LEN);
     for (size_t i = 0; i < name_len; ++i) {
-        ensure_ge((uint8_t)name[i], 0x21);
-        ensure_le((uint8_t)name[i], 0x7e);
+        ensure_ge((uint8_t)name[i], (uint8_t)FIRST_PRINTABLE_ASCII);
+        ensure_le((uint8_t)name[i], (uint8_t)LAST_PRINTABLE_ASCII);
     }
 
     trace("Setting the thread name...");
@@ -324,7 +331,47 @@ const char* get_thread_name() {
 #ifdef UDIPE_BUILD_TESTS
 
     void thread_name_unit_tests() {
-        // TODO: Add unit test for thread name functionality
+        // Since get_thread_name() is used by the logger, sanity-check it before
+        // the first log instead of starting with a log as usual.
+        fprintf(stderr, "Checking initial thread name before first log...\n");
+        const char* actual_thread_name = get_thread_name();
+        ensure(actual_thread_name);
+        ensure_gt(strlen(actual_thread_name), (size_t)0);
+        char* initial_thread_name = strdup(actual_thread_name);
+
+        info("Testing thread naming primitives with set/get round trips...");
+        with_log_level(UDIPE_DEBUG, {
+            char expected_thread_name[MAX_THREAD_NAME_SIZE];
+            for (size_t len = 1; len <= MAX_THREAD_NAME_LEN; ++len) {
+                for (size_t i = 0; i < len; ++i) {
+                    int printable_range = (int)(LAST_PRINTABLE_ASCII - FIRST_PRINTABLE_ASCII) + 1;
+                    int printable_start = (int)FIRST_PRINTABLE_ASCII;
+                    expected_thread_name[i] =
+                        (char)(rand() % printable_range + printable_start);
+                }
+                expected_thread_name[len] = '\0';
+                debugf("Testing name of length %zu: %s", len, expected_thread_name);
+
+                with_log_level(UDIPE_TRACE, {
+                    trace("Setting thread name...");
+                    set_thread_name(expected_thread_name);
+
+                    trace("Checking thread name...");
+                    actual_thread_name = get_thread_name();
+                    ensure(actual_thread_name);
+
+                    tracef("Got name %s", actual_thread_name);
+                    ensure_eq(strcmp(expected_thread_name, actual_thread_name), 0);
+                });
+            }
+        });
+
+        debugf("Resetting thread name to %s", initial_thread_name);
+        with_log_level(UDIPE_TRACE, {
+            set_thread_name(initial_thread_name);
+            free(initial_thread_name);
+            initial_thread_name = NULL;
+        });
     }
 
 #endif  // UDIPE_BUILD_TESTS
