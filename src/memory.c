@@ -423,7 +423,7 @@ void realtime_liberate(void* buffer, size_t size) {
 
     /// Run the unit tests for system configuration checks
     static void test_system_config() {
-        info("Testing system configuration readout & consistency...");
+        info("Running system configuration unit tests...");
         with_log_level(UDIPE_DEBUG, {
             expect_system_config();
             ensure_eq(get_page_size(), system_page_size);
@@ -457,7 +457,7 @@ void realtime_liberate(void* buffer, size_t size) {
 
     /// Run the unit tests for memory allocation functions
     static void test_allocator() {
-        info("Testing memory allocation functions...");
+        info("Running system memory allocator unit tests...");
         with_log_level(UDIPE_DEBUG, {
             const size_t page_size = get_page_size();
             const size_t alloc_sizes[] = {

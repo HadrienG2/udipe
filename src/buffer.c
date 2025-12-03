@@ -387,7 +387,7 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
     }
 
     void buffer_unit_tests() {
-        info("Running allocator unit tests...");
+        info("Running buffer allocator unit tests...");
         with_log_level(UDIPE_DEBUG, {
             debug("Setting up an hwloc topology...");
             hwloc_topology_t topology;

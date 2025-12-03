@@ -24,6 +24,7 @@
 /// that thread names will not be mangled by any of them, said names must
 /// honor the following restrictions:
 ///
+/// - A thread name cannot be empty (but does not need to be unique)
 /// - Only use printable ASCII code points except for the trailing NUL. No
 ///   Unicode tricks allowed here.
 /// - Feature exactly one occurence of NUL at the end, like all C strings.

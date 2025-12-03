@@ -27,6 +27,7 @@
             bit_array_unit_tests();
             buffer_unit_tests();
             command_unit_tests();
+            info("All tests completed successfully!");
         });
         logger_finalize(&logger);
     }
