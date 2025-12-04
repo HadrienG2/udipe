@@ -102,6 +102,7 @@ target_sources(udipe
                       BASE_DIRS include
                       FILES ${udipe_relative_headers}
                PRIVATE src/arch.h
+                       src/atomic_wait.h
                        src/bit_array.h
                        src/bit_array.c
                        src/buffer.c
