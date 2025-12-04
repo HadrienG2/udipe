@@ -16,11 +16,12 @@
 #include <udipe/pointer.h>
 
 #include <stdatomic.h>
+#include <stdint.h>
 
 
 /// Wait for a 32-bit integer to change, a notification or spurious wakeup
 ///
-/// ## Semantics
+/// ## Basic contract
 ///
 /// This function begins by checking if `atom` currently has value `expected`.
 /// If not, it returns immediately without any further processing.
@@ -37,6 +38,12 @@
 /// Checking and waiting is performed as a single atomic transaction, in the
 /// sense that if the value changes as the thread begins to wait, its wait will
 /// immediately abort, no notification needed.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param atom is the atomic variable used to synchronize threads
+/// \param expected is the value that this variable is initially expected to
+///                 have, if this is true the active thread will block.
 ///
 /// ## Usage guidance
 ///
@@ -130,10 +137,6 @@
 /// optimization in situations where releasing all threads at once creates a
 /// "thundering herd" situation where all threads proceed to immediately put
 /// pressure on a limited or serialized resource like a mutex or an I/O device.
-///
-/// \param atom is the atomic variable used to synchronize threads
-/// \param expected is the value that this variable is initially expected to
-///                 have, if this is true the active thread will block.
 UDIPE_NON_NULL_ARGS
 void udipe_atomic_wait(_Atomic uint32_t* atom, uint32_t expected);
 
@@ -175,4 +178,10 @@ UDIPE_NON_NULL_ARGS
 void udipe_atomic_notify_one(_Atomic uint32_t* atom);
 
 
-// TODO: Implementation, unit tests
+#ifdef UDIPE_BUILD_TESTS
+    /// Unit tests
+    ///
+    /// This function runs all the unit tests for this module. It must be called
+    /// within the scope of with_logger().
+    void atomic_wait_unit_tests();
+#endif
