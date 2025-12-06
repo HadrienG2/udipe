@@ -66,12 +66,12 @@ typedef enum udipe_command_id_e {
     /// Incomplete asynchronous command identifier
     ///
     /// Wait operations that can return before a particular command is done
-    /// executing (e.g. due to a timeout) set the command identifier of the
-    /// associated result to this value, which indicates that...
+    /// executing set the command identifier of the associated result to this
+    /// value, which indicates that...
     ///
     /// - The associated command is not done executing and has not yielded a
     ///   result yet, and the associated \ref udipe_result_t is therefore
-    ///   invalid and should be discarded without looking up its payload.
+    ///   invalid and should be discarded without using its payload.
     /// - The associated future is still valid and can be awaited again.
     UDIPE_COMMAND_PENDING = -1
 } udipe_command_id_t;
@@ -90,9 +90,9 @@ typedef struct udipe_result_s {
     /// Command that returned this result, or sentinel value that indicates that
     /// this result is invalid and its payload shouldn't be processed.
     ///
-    /// Even when one is using infaillible wait commands such as udipe_wait()
-    /// with a `timeout` of 0, this field can be useful for debug assertions
-    /// that a result is associated with the expected command type. It also
-    /// enables having generic utilities that can handle all types of results.
+    /// Even when one is using infaillible wait commands, this field can be
+    /// useful for debug assertions that a result is associated with the
+    /// expected command type. It also enables having generic utilities that can
+    /// handle all types of results.
     udipe_command_id_t command_id;
 } udipe_result_t;
