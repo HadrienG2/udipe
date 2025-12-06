@@ -340,7 +340,7 @@ const char* get_thread_name() {
         ensure_gt(strlen(actual_thread_name), (size_t)0);
         char* initial_thread_name = strdup(actual_thread_name);
 
-        info("Testing thread naming primitives with set/get round trips...");
+        info("Running thread name manipulation unit tests...");
         with_log_level(UDIPE_DEBUG, {
             char expected_thread_name[MAX_THREAD_NAME_SIZE];
             for (size_t len = 1; len <= MAX_THREAD_NAME_LEN; ++len) {
