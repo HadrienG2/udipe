@@ -147,13 +147,6 @@ typedef void (*udipe_log_callback_t)(void* /*context */,
 /// configuration data structures, it is designed such that zero-initializing it
 /// should result in sane defaults for many applications.
 typedef struct udipe_log_config_s {
-    /// Minimal log level/priority to be reported
-    ///
-    /// If this is left at \link #UDIPE_DEFAULT_LOG_LEVEL `DEFAULT`\endlink
-    /// (`0`), `udipe` will emit logs of priority >= `INFO` in all builds and
-    /// additionally emit logs of priority `DEBUG` in `Debug` builds.
-    udipe_log_level_t min_level;
-
     /// User logging callback
     ///
     /// This is where you can plug `udipe` logs into your pre-existing logging
@@ -179,6 +172,12 @@ typedef struct udipe_log_config_s {
     /// or C++ lambda, this is where is where its self/this pointer should go.
     ///
     /// If you do not specify a callback or if your callback does not need any
-    /// supplementary state, you should leave this at `NULL` for clarity.
+    /// supplementary state, then you should leave this at `NULL`.
     void* context;
+
+    /// Minimal log level/priority to be reported
+    ///
+    /// See \ref UDIPE_DEFAULT_LOG_LEVEL for more information about what happens
+    /// when you leave this configuration at its default value.
+    udipe_log_level_t min_level;
 } udipe_log_config_t;
