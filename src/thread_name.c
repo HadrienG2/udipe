@@ -68,7 +68,8 @@ static void thread_name_finalize(void* thread_name) {
     assert(("C11 guarantees that NULL pointers won't be destroyed", name));
 
     if (name->capacity == 0) {
-        fprintf(stderr, "Asked to destroy invalid buffer with zero capacity!\n");
+        fprintf(stderr,
+                "libudipe: Tried to destroy an invalid thread name buffer!\n");
         exit(EXIT_FAILURE);
     }
     name->capacity = 0;
@@ -87,7 +88,7 @@ static void thread_name_initialize() {
     //          signalled on stderr before exiting.
 
     if (tss_create(&thread_name_key, thread_name_finalize) != thrd_success) {
-        fprintf(stderr, "Failed to set up thread name storage!\n");
+        fprintf(stderr, "libudipe: Failed to set up thread name storage!\n");
         exit(EXIT_FAILURE);
     }
 }
@@ -125,7 +126,8 @@ thread_name_t* ensure_thread_name_capacity(size_t capacity) {
         if (!new_thread_name) {
             // No need to free old buffer, we're exiting anyway
             // Can't log, this is used in the logger implementation.
-            fprintf(stderr, "Failed to allocate thread name buffer!\n");
+            fprintf(stderr,
+                    "libudipe: Failed to allocate thread name buffer!\n");
             exit(EXIT_FAILURE);
         }
 
@@ -133,7 +135,8 @@ thread_name_t* ensure_thread_name_capacity(size_t capacity) {
         if (new_thread_name != thread_name) {
             if (tss_set(thread_name_key, new_thread_name) != thrd_success) {
                 // Can't log, this is used in the logger implementation.
-                fprintf(stderr, "Failed to save thread name buffer to TLS!\n");
+                fprintf(stderr,
+                        "libudipe: Failed to save thread name buffer to TLS!\n");
                 exit(EXIT_FAILURE);
             }
             thread_name = (thread_name_t*)new_thread_name;
@@ -228,7 +231,7 @@ const char* get_thread_name() {
         assert(thread_name->capacity >= MAX_THREAD_NAME_SIZE);
         if (prctl(PR_GET_NAME, &thread_name->bytes) < 0) {
             // Can't log, this is used in the logger implementation.
-            fprintf(stderr, "Failed to query thread name!\n");
+            fprintf(stderr, "libudipe: Failed to query thread name!\n");
             exit(EXIT_FAILURE);
         }
     #elif defined(_WIN32)
@@ -238,7 +241,8 @@ const char* get_thread_name() {
         if (FAILED(hr)) {
             // Can't log, this is used in the logger implementation.
             fprintf(stderr,
-                    "Failed to query thread description with HRESULT %u!\n",
+                    "libudipe: Failed to query thread description "
+                    "with HRESULT %u!\n",
                     hr);
             exit(EXIT_FAILURE);
         }
@@ -256,7 +260,8 @@ const char* get_thread_name() {
         if (size == 0) {
             // Can't log, this is used in the logger implementation.
             fprintf(stderr,
-                    "Failed to evaluate UTF-8 size with error code %u!\n",
+                    "libudipe: Failed to evaluate UTF-8 size of thread "
+                    "description with error code %u!\n",
                     GetLastError());
             exit(EXIT_FAILURE);
         }
@@ -279,7 +284,8 @@ const char* get_thread_name() {
         if (size == 0) {
             // Can't log, this is used in the logger implementation.
             fprintf(stderr,
-                    "Failed to convert to UTF-8 with error code %u!\n",
+                    "libudipe: Failed to convert thread description to UTF-8 "
+                    "with error code %u!\n",
                     GetLastError());
             exit(EXIT_FAILURE);
         }
@@ -289,7 +295,8 @@ const char* get_thread_name() {
         if (LocalFree(name_utf16)) {
             // Can't log, this is used in the logger implementation.
             fprintf(stderr,
-                    "Failed to liberate UTF-16 string with error code %u!\n",
+                    "libudipe: Failed to liberate UTF-16 thread description "
+                    "with error code %u!\n",
                     GetLastError());
             exit(EXIT_FAILURE);
         }
@@ -334,7 +341,8 @@ const char* get_thread_name() {
     void thread_name_unit_tests() {
         // Since get_thread_name() is used by the logger, sanity-check it before
         // the first log instead of starting with a log as usual.
-        fprintf(stderr, "Checking initial thread name before first log...\n");
+        fprintf(stderr,
+                "libudipe: Checking initial thread name before first log...\n");
         const char* actual_thread_name = get_thread_name();
         ensure(actual_thread_name);
         ensure_gt(strlen(actual_thread_name), (size_t)0);
