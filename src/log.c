@@ -311,6 +311,18 @@ void logf_impl(udipe_log_level_t level,
                                     message);
 }
 
+logger_state_t logger_backup() {
+    return (logger_state_t){
+        .logger = udipe_thread_logger,
+        .log_level = udipe_thread_log_level
+    };
+}
+
+void logger_restore(const logger_state_t* state) {
+    udipe_thread_logger = state->logger;
+    udipe_thread_log_level = state->log_level;
+}
+
 thread_local logger_t* udipe_thread_logger = NULL;
 
 thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_INFO;

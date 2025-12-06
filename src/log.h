@@ -322,33 +322,42 @@ static inline bool log_enabled(udipe_log_level_t level);
     #error "Sorry, we don't support your compiler yet. Please file a bug report about it!"
 #endif
 
-#ifdef UDIPE_BUILD_TESTS
-    /// Save the current thread-local logging state to local variables with a
-    /// certain name prefix
-    ///
-    /// This is needed to propagate the thread-local logging state to OpenMP
-    /// threads in parallel unit tests. To do so, call this macro before the
-    /// start of an omp parallel region in order to back up the thread-local
-    /// logging state, then apply said state to the OpenMP thread by calling
-    /// load_thread_logger_state() inside of the omp parallel block.
-    ///
-    /// Unfortunately, a cleaner interface around this operation cannot be
-    /// provided at the time of writing, because as of GCC 15.2.1 the GCC OpenMP
-    /// frontend dies with a bogus "loop nest expected before ..." error when a
-    /// macro attempts to generate an omp parallel block surrounded by any code
-    /// construct that the author of this macro thought about trying.
-    #define save_thread_logger_state(state)  \
-        logger_t* const state ## _logger = udipe_thread_logger;  \
-        const udipe_log_level_t state ## _log_level = udipe_thread_log_level;
+/// Thread-local logger state backup
+///
+/// This struct can be saved from the current thread-local state via
+/// logger_backup() and restored into the current thread-local state via
+/// logger_restore(). This is typically done in unit tests when spawning test
+/// threads that should use the same logger configuration as the main thread.
+typedef struct logger_state_s {
+    logger_t* logger;  ///< Backup of \ref udipe_thread_logger
+    udipe_log_level_t log_level;  ///< Backup of \ref udipe_thread_log_level
+} logger_state_t;
 
-    /// Restore thread-local logging state that was saved by
-    /// save_thread_logger_state()
-    ///
-    /// See save_thread_logger_state() for more information.
-    #define load_thread_logger_state(state)  \
-        udipe_thread_logger = state ## _logger;  \
-        udipe_thread_log_level = state ## _log_level;
-#endif
+/// Save the current thread-local logger state
+///
+/// This is typically used to propagate the current logger configuration to
+/// child threads with logger_restore().
+///
+/// Bear in mind that the resulting \ref logger_state_t may only be used as long
+/// as the underlying \ref logger_t is valid. The simplest way to enforce this
+/// is to join the child threads to which the logger configuration has been
+/// propagated before the end of the main thread's with_logger() block.
+///
+/// \returns a backup of the thread-local logger state
+logger_state_t logger_backup();
+
+/// Restore the thread-local logger state from a backup
+///
+/// This is typically used to propagate the logger configuration of a main
+/// thread, which has been saved with logger_backup(), into a child thread.
+///
+/// Bear in mind that the resulting state may only be used as long as the
+/// underlying logger object is valid. The simplest way to enforce this
+/// is to join the child threads to which the logger configuration has been
+/// propagated before the end of the main thread's with_logger() block.
+///
+/// \param state is a previously saved backup of the thread-local logger state
+void logger_restore(const logger_state_t* state);
 
 ///@}
 
