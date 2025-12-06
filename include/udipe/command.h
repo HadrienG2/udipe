@@ -59,7 +59,7 @@ udipe_connect_result_t udipe_connect(udipe_context_t* context,
                                      udipe_connect_options_t options) {
     udipe_future_t* future = udipe_start_connect(context, options);
     assert(future);
-    udipe_result_t result = udipe_wait(future, 0);
+    udipe_result_t result = udipe_wait(future);
     assert(result.command_id == UDIPE_CONNECT);
     return result.payload.connect;
 }
@@ -78,7 +78,7 @@ udipe_disconnect_result_t udipe_disconnect(udipe_context_t* context,
                                            udipe_disconnect_options_t options) {
     udipe_future_t* future = udipe_start_disconnect(context, options);
     assert(future);
-    udipe_result_t result = udipe_wait(future, 0);
+    udipe_result_t result = udipe_wait(future);
     assert(result.command_id == UDIPE_DISCONNECT);
     return result.payload.connect;
 }
@@ -102,7 +102,7 @@ udipe_send_result_t udipe_send(udipe_context_t* context,
                                udipe_send_options_t options) {
     udipe_future_t* future = udipe_start_send(context, options);
     assert(future);
-    udipe_result_t result = udipe_wait(future, 0);
+    udipe_result_t result = udipe_wait(future);
     assert(result.command_id == UDIPE_SEND);
     return result.payload.send;
 }
@@ -126,7 +126,7 @@ udipe_recv_result_t udipe_recv(udipe_context_t* context,
                                udipe_recv_options_t options) {
     udipe_future_t* future = udipe_start_recv(context, options);
     assert(future);
-    udipe_result_t result = udipe_wait(future, 0);
+    udipe_result_t result = udipe_wait(future);
     assert(result.command_id == UDIPE_RECV);
     return result.payload.recv;
 }*/
