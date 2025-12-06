@@ -19,24 +19,24 @@
 
 UDIPE_NON_NULL_ARGS
 void udipe_atomic_wait(_Atomic uint32_t* atom, uint32_t expected) {
-    tracef("Waiting for the value at address %p to change value from %#x...",
+    tracef("Waiting for the value at address %p to change away from %#x...",
            (void*)atom,
            expected);
     #ifdef __linux__
         long result = syscall(SYS_futex, atom, FUTEX_WAIT, expected, NULL);
         switch (result) {
         case 0:
-            trace("Got woken up after waiting (maybe from futex recycling).");
+            trace("...and got notified (may be spurious in real use cases).");
             break;
         case -1:
             switch (errno) {
             case EAGAIN:
                 errno = 0;
-                trace("Value already differed from expectation, didn't wait.");
+                trace("...but the value changed before we even started.");
                 break;
             case EINTR:
                 errno = 0;
-                trace("Started to wait, but was interrupted by a signal.");
+                trace("...but our wait was interrupted by a signal.");
                 break;
             // timeout did not point to a valid user-space address.
             case EFAULT:
@@ -103,42 +103,96 @@ void udipe_atomic_notify_one(_Atomic uint32_t* atom) {
 
 #ifdef UDIPE_BUILD_TESTS
 
-    /// Number of workers that we spawn (must be <= 9)
+    /// Number of workers that we spawn
+    ///
+    /// See asserts below for the range that this value can take.
     #define NUM_WORKERS ((unsigned)2)
+    static_assert(
+        NUM_WORKERS >= 2,
+        "Need at least 2 workers to compare notify_all and notify_one"
+    );
+    static_assert(
+        NUM_WORKERS < 10,
+        "Current implementation doesn't support more than 9 workers"
+    );
 
-    /// How long we wait for a worker to do something before concluding that it
-    /// is likely blocked and will not do anything.
-    #define WAIT_FOR_IDLE ((struct timespec){ .tv_sec = 0, .tv_nsec = 10 * 1000 * 1000 })
+    /// Duration of worker wait for idle
+    ///
+    /// How long the main thread waits for workers to do something before
+    /// concluding that they are likely all sleeping.
+    ///
+    /// This should be set as short as possible to keep the test fast, but long
+    /// enough that workers do have the time to fall asleep sometimes.
+    #define WAIT_FOR_IDLE ((struct timespec){ .tv_sec = 0, .tv_nsec = 200 * 1000 })
 
     /// Number of waiting cycles that each worker goes through
-    #define NUM_WAITS ((uint32_t)100)
+    ///
+    /// Setting this higher makes the test more thorough and more likely to
+    /// catch bugs, at the expense of increasing test running time
+    #define NUM_WAIT_CYCLES ((uint32_t)100)
 
     /// State shared between the worker threads and the main thread
+    ///
+    /// This is used to propagate main thread state to the workers and to let
+    /// workers and the main thread synchronize with each other.
     typedef struct shared_state_s {
+        /// Main thread logger state backup
+        ///
+        /// Used to sync up the logging configuration of worker threads with
+        /// that of the main thread.
+        logger_state_t logger;
+
+        /// Main thread notification counter
+        ///
+        /// The main thread begins a notify/wait cycle by increasing this value.
         _Atomic uint32_t notify_counter;
+
+        /// Worker notification channel
+        ///
+        /// The main thread waits for at least one worker to respond to the
+        /// notification by incrementing this counter before moving on.
         _Atomic uint32_t global_wake_counter;
-        // FIXME: Save logger state to a struct to avoid this impl leakage
-        logger_t* logger;
-        udipe_log_level_t log_level;
+
+        /// Truth that udipe_wait_notify_all() is being used
+        ///
+        /// If this is false, udipe_wait_notify_one() is being used. As
+        /// `notify_one` is specified such that it can be implemented via
+        /// `notify_all`, this change of notification function does not change
+        /// the basic synchronization logic, but it does reduces the number of
+        /// guaranteed properties that the test can check for.
+        bool notify_all;
     } shared_state_t;
 
-    /// State that is private to each worker thread
+    /// State that is handed over to each worker thread
     typedef struct worker_state_s {
+        /// Access to the shared state
+        ///
+        /// This is the main channel through which the main thread and worker
+        /// thread communicate with each other.
         shared_state_t* shared;
-        unsigned id;
+
+        /// Worker wait cycle tracking
+        ///
+        /// Each worker keeps track of which wait cycle it is currently
+        /// executing, which is useful when debugging test deadlocks.
         _Atomic uint32_t private_wake_counter;
+
+        /// Worker identifier
+        ///
+        /// Each worker gets an integer identifier, which for implementation
+        /// convenience is forced to be between 0 and 9.
+        uint8_t id;
     } worker_state_t;
 
     static int worker_func(void* context) {
         // Grab worker thread state and give it a clear name
         worker_state_t* state = (worker_state_t*)context;
         shared_state_t* shared = state->shared;
+        logger_restore(&shared->logger);
+        tracef("Setting up worker%u...", state->id);
         char name[8] = "workerN";
-        ensure_le(state->id, (unsigned)9);
+        ensure_le(state->id, (uint8_t)9);
         name[6] = '0' + (char)(state->id);
-        // FIXME: Save logger state to a struct to avoid this impl leakage
-        udipe_thread_logger = shared->logger;
-        udipe_thread_log_level = shared->log_level;
         set_thread_name(name);
 
         trace("Entering wait/notify loop...");
@@ -146,9 +200,9 @@ void udipe_atomic_notify_one(_Atomic uint32_t* atom) {
         const size_t current = 1;
         uint32_t notify[2] = { 0, 0 };
         uint32_t global_wake[2] = { 0, 0 };
-        for (uint32_t wait = 1; wait <= NUM_WAITS; ++wait) {
+        for (uint32_t wait = 1; wait <= NUM_WAIT_CYCLES; ++wait) {
             // Wait for the value of notify_counter to change
-            tracef("Waiting for notify_counter to increase from last value %u...",
+            tracef("Waiting for notify_counter to increase from %u...",
                    notify[last]);
             do {
                 notify[current] = atomic_load_explicit(&shared->notify_counter,
@@ -162,43 +216,50 @@ void udipe_atomic_notify_one(_Atomic uint32_t* atom) {
             notify[last] = notify[current];
 
             // Record that we are done waiting
-            tracef("Telling the main thread that we completed wait cycle #%u...",
+            tracef("Recording that we completed wait cycle %u...",
                    wait);
-            atomic_store_explicit(&state->private_wake_counter,
-                                  wait,
-                                  memory_order_relaxed);
+            const uint32_t old_private =
+                atomic_exchange_explicit(&state->private_wake_counter,
+                                         wait,
+                                         memory_order_relaxed);
+            ensure_eq(old_private, wait - 1);
 
             // Increment the global wake count and ping the main thread
-            trace("...and incrementing the global cycle count");
+            trace("...then pinging the main thread via global_wake.");
             global_wake[current] =
-                atomic_fetch_add_explicit(&shared->global_wake_counter,
-                                          1,
-                                          memory_order_release) + 1;
+                1 + atomic_fetch_add_explicit(&shared->global_wake_counter,
+                                              1,
+                                              memory_order_release);
             ensure_ge(global_wake[current], global_wake[last] + 1);
-            ensure_le(global_wake[current], wait * NUM_WORKERS);
-            udipe_atomic_notify_all(&shared->global_wake_counter);
+            if (shared->notify_all) {
+                ensure_le(global_wake[current], wait * NUM_WORKERS);
+            }
+            if (shared->notify_all) {
+                udipe_atomic_notify_all(&shared->global_wake_counter);
+            } else {
+                udipe_atomic_notify_one(&shared->global_wake_counter);
+            }
         }
 
         trace("Done with our last wait cycle, exiting...");
         return 0;
     }
 
-    static void test_wait_notify_all() {
-        trace("Setting up shared state...");
+    static void test_wait_notify(bool notify_all) {
+        trace("Setting up the shared state...");
         shared_state_t shared;
+        shared.logger = logger_backup();
         atomic_init(&shared.notify_counter, 0);
         atomic_init(&shared.global_wake_counter, 0);
-        // FIXME: Save logger state to a struct to avoid this impl leakage
-        shared.logger = udipe_thread_logger;
-        shared.log_level = udipe_thread_log_level;
+        shared.notify_all = notify_all;
 
-        trace("Setting up worker threads");
+        trace("Setting up worker threads...");
         worker_state_t private[NUM_WORKERS];
         thrd_t handles[NUM_WORKERS];
-        for (unsigned worker = 0; worker < NUM_WORKERS; ++worker) {
+        for (uint8_t worker = 0; worker < NUM_WORKERS; ++worker) {
             private[worker].shared = &shared;
-            private[worker].id = worker;
             atomic_init(&private[worker].private_wake_counter, 0);
+            private[worker].id = worker;
             ensure_eq(thrd_create(&handles[worker],
                                   worker_func,
                                   (void*)(&private[worker])),
@@ -210,42 +271,59 @@ void udipe_atomic_notify_one(_Atomic uint32_t* atom) {
         const size_t current = 1;
         uint32_t notify[2] = { 0, 0 };
         uint32_t global_wake[2] = { 0, 0 };
-        for (size_t wait = 1; wait <= NUM_WAITS; ++wait) {
-            trace("Waiting for workers to finish what they're doing and start waiting...");
+        while (global_wake[last] < NUM_WORKERS * NUM_WAIT_CYCLES) {
+            trace("Giving workers time to start waiting...");
             thrd_sleep(&WAIT_FOR_IDLE, NULL);
 
-            tracef("Sending a notification to all workers by increasing notify_counter to %u...",
+            tracef("Waking workers by increasing notify_counter to %u...",
                    notify[last] + 1);
-            notify[current] = atomic_fetch_add_explicit(&shared.notify_counter,
-                                                        1,
-                                                        memory_order_release) + 1;
+            notify[current] =
+                1 + atomic_fetch_add_explicit(&shared.notify_counter,
+                                              1,
+                                              memory_order_release);
             ensure_eq(notify[current], notify[last] + 1);
             notify[last] = notify[current];
-            udipe_atomic_notify_all(&shared.notify_counter);
+            if (notify_all) {
+                udipe_atomic_notify_all(&shared.notify_counter);
+            } else {
+                udipe_atomic_notify_one(&shared.notify_counter);
+            }
 
-            trace("Waiting for all workers to reply...");
+            trace("Waiting for workers to reply...");
+            unsigned awoken;
             do {
-                global_wake[current] = atomic_load_explicit(&shared.global_wake_counter,
-                                                       memory_order_acquire);
-                const unsigned awoken = global_wake[current] - global_wake[last];
-                if (awoken == NUM_WORKERS) break;
-                if (awoken > 0) {
-                    tracef("Got a reply from %u/%u workers...", awoken, NUM_WORKERS);
+                global_wake[current] =
+                    atomic_load_explicit(&shared.global_wake_counter,
+                                         memory_order_acquire);
+                awoken = global_wake[current] - global_wake[last];
+                if (awoken == 0) {
+                    udipe_atomic_wait(&shared.global_wake_counter,
+                                      global_wake[current]);
+                    continue;
+                } else if (awoken == NUM_WORKERS || !notify_all) {
+                    break;
                 }
-                udipe_atomic_wait(&shared.global_wake_counter,
-                                  global_wake[current]);
+                tracef("Got a reply from %u/%u workers, but we expect more...",
+                       awoken, NUM_WORKERS);
             } while(true);
             global_wake[last] = global_wake[current];
 
-            tracef("Got a reply from all %u workers!", NUM_WORKERS);
+            tracef("Got a reply from expected %u/%u workers!",
+                   awoken, NUM_WORKERS);
+            if (!notify_all) {
+                trace("When notify_one is used, this is all we can check.");
+                continue;
+            }
+
             for (unsigned worker = 0; worker < NUM_WORKERS; ++worker) {
                 tracef("Checking if worker%u is in sync...", worker);
                 ensure_eq(
                     atomic_load_explicit(&private[worker].private_wake_counter,
                                          memory_order_relaxed),
-                    wait
+                    global_wake[last] / NUM_WORKERS
                 );
             }
+            trace("All workers in sync, proceeding to next wait cycle.");
         }
 
         trace("All done, waiting for workers to terminate...");
@@ -261,12 +339,12 @@ void udipe_atomic_notify_one(_Atomic uint32_t* atom) {
         with_log_level(UDIPE_DEBUG, {
             debug("Testing wait + notify_all");
             with_log_level(UDIPE_TRACE, {
-                test_wait_notify_all();
+                test_wait_notify(true);
             });
 
             debug("Testing wait + notify_one");
             with_log_level(UDIPE_TRACE, {
-                // TODO: Test notify_one, sharing code with notify_all test
+                test_wait_notify(false);
             });
         });
     }
