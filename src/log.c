@@ -232,6 +232,14 @@ logger_t logger_initialize(udipe_log_config_t config) {
     // Configure logging callback
     if (!config.callback) {
         config.callback = default_log_callback;
+        if (config.context) {
+            // Cannot log before logger is initialized
+            fprintf(stderr,
+                    "libudipe: Set logger context to %p "
+                    "but it must be NULL when using the default callback!\n",
+                    config.context);
+            exit(EXIT_FAILURE);
+        }
         #ifdef __unix__
             int result = isatty(STDERR_FILENO);
             if (result == 1) {
