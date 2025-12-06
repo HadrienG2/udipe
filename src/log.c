@@ -210,7 +210,9 @@ logger_t logger_initialize(udipe_log_config_t config) {
                 config.min_level = UDIPE_TRACE;
             } else {
                 // Cannot log before logger is initialized
-                fprintf(stderr, "Error: Invalid UDIPE_LOG %s\n", level_str);
+                fprintf(stderr,
+                        "libudipe: UDIPE_LOG environment varible is set to "
+                        "invalid value %s\n", level_str);
                 exit(EXIT_FAILURE);
             }
         } else {
@@ -224,7 +226,8 @@ logger_t logger_initialize(udipe_log_config_t config) {
     default:
         // Cannot log before logger is initialized
         fprintf(stderr,
-                "libudipe: Called logger_initialize() with invalid min_level %d!\n",
+                "libudipe: Called logger_initialize() with invalid "
+                "min_level %d!\n",
                 config.min_level);
         exit(EXIT_FAILURE);
     }
