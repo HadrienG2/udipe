@@ -64,6 +64,27 @@ static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
     static atomic_bool stderr_is_tty;
 #endif
 
+/// Application startup time
+///
+/// This is checked on the first call to logger_initialize().
+static struct timespec startup;
+
+/// Record the application startup time
+void record_startup_time() {
+    // WARNING: This function is called before the logger is ready and must
+    //          therefore not perform any logging. Normal events and non-fatal
+    //          errors should not be signaled at all, fatal errors should be
+    //          signalled on stderr before exiting.
+    int result = timespec_get(&startup, TIME_UTC);
+    if (result != TIME_UTC) {
+        // Cannot log before logger is initialized
+        fprintf(stderr,
+                "libudipe: Failed to query startup time with result %d!\n",
+                result);
+        exit(EXIT_FAILURE);
+    }
+}
+
 /// Default log callback
 ///
 /// This is the \ref udipe_log_config_t::callback that is used when the user
@@ -78,10 +99,24 @@ static void default_log_callback(void* /* context */,
     //          signalled on stderr before exiting.
 
     // Compute log timestamp and its display representation
-    clock_t timestamp = clock();
-    assert(timestamp >= 0);
-    size_t secs = (size_t)(timestamp / CLOCKS_PER_SEC);
-    size_t microsecs = (size_t)(timestamp) * 1000000 / CLOCKS_PER_SEC;
+    struct timespec now;
+    int result = timespec_get(&now, TIME_UTC);
+    if (result != TIME_UTC) {
+        // Cannot log in the logger implementation
+        fprintf(stderr,
+                "libudipe: Failed to query current time with result %d!\n",
+                result);
+        exit(EXIT_FAILURE);
+    }
+    assert(now.tv_sec > startup.tv_sec || now.tv_nsec >= startup.tv_nsec);
+    size_t secs = now.tv_sec - startup.tv_sec;
+    size_t microsecs;
+    if (now.tv_nsec >= startup.tv_nsec) {
+        microsecs = (now.tv_nsec - startup.tv_nsec) / 1000;
+    } else {
+        --secs;
+        microsecs = 1000 * 1000 - (startup.tv_nsec - now.tv_nsec) / 1000;
+    }
 
     // Translate log level into a textual representation
     const char* level_name = log_level_name(level, false);
@@ -147,6 +182,10 @@ logger_t logger_initialize(udipe_log_config_t config) {
     //          therefore not perform any logging. Normal events and non-fatal
     //          errors should not be signaled at all, fatal errors should be
     //          signalled on stderr before exiting.
+
+    // Record the application startup time on first call
+    static once_flag startup_time_recorded = ONCE_FLAG_INIT;
+    call_once(&startup_time_recorded, record_startup_time);
 
     // Select and configure log level
     switch (config.min_level) {
