@@ -105,6 +105,7 @@ target_sources(udipe
                        src/atomic_wait.h
                        src/bit_array.h
                        src/bit_array.c
+                       src/bits.h
                        src/buffer.c
                        src/buffer.h
                        src/buffer.c

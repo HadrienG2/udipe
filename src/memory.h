@@ -9,9 +9,44 @@
 #include <udipe/pointer.h>
 
 #include "arch.h"
+#include "bits.h"
 
 #include <stddef.h>
 
+
+/// \name Implementation details
+/// \{
+
+/// Page size used for memory allocations, encoded as a power of two
+///
+/// This is an implementation detail of get_page_size(). It must be made public
+/// so that get_page_size() can be inline, but you should not use it directly.
+///
+/// \internal
+///
+/// This variable is constant after initialization, but you must call
+/// expect_system_config() before accessing it in order to ensure that it is
+/// initialized in a thread-safe manner.
+extern pow2_t system_page_size_pow2;
+
+/// Prepare to read the `system_` variables
+///
+/// This is an implementation detail of get_page_size(). It must be made public
+/// so that get_page_size() can be inline, but you should not use it directly.
+///
+/// \internal
+///
+/// This function must be called before accessing the `system_` variables. It
+/// ensures that said variables have been initialized in a thread-safe manner.
+///
+/// This function must be called within the scope of with_logger().
+void expect_system_config();
+
+/// \}
+
+
+/// \name Memory management
+/// \{
 
 /// Page size used for memory allocations
 ///
@@ -28,7 +63,10 @@
 /// to realtime_allocate() to a multiple of this quantity.
 ///
 /// This function must be called within the scope of with_logger().
-size_t get_page_size();
+static inline size_t get_page_size() {
+    expect_system_config();
+    return (size_t)pow2_decode(system_page_size_pow2);
+}
 
 /// Liberate a memory buffer previously allocated via realtime_allocate()
 ///
@@ -131,6 +169,8 @@ void realtime_liberate(void* buffer, size_t size);
 UDIPE_NON_NULL_RESULT
 REALTIME_ALLOCATE_ATTRIBUTES
 void* realtime_allocate(size_t size);
+
+/// \}
 
 
 #ifdef UDIPE_BUILD_TESTS

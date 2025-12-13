@@ -3,8 +3,10 @@
 #include <udipe/pointer.h>
 
 #include "arch.h"
+#include "bits.h"
 #include "error.h"
 #include "log.h"
+#include "visibility.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -23,19 +25,14 @@
 #endif
 
 
-/// Memory page size used for realtime allocations
-///
-/// This variable is constant after initialization, but you must call
-/// expect_system_config() before accessing it in order to ensure that it is
-/// initialized in a thread-safe manner.
-static size_t system_page_size = 0;
+DEFINE_PUBLIC pow2_t system_page_size_pow2 = { 0 };
 
-/// Buffer size granularity of the system allocator
+/// Buffer size granularity of the system allocator, encoded as a power of two.
 ///
 /// This variable is constant after initialization, but you must call
 /// expect_system_config() before accessing it in order to ensure that it is
 /// initialized in a thread-safe manner.
-static size_t system_allocation_granularity = 0;
+static pow2_t system_allocation_granularity_pow2 = { 0 };
 
 #ifdef _WIN32
     /// Pseudo-handle to the current process
@@ -57,16 +54,28 @@ static void read_system_config() {
     debug("Reading OS configuration...");
 
     trace("Reading memory management properties...");
+    uint32_t page_size, allocation_granularity;
     #ifdef __unix__
         const long page_size_l = sysconf(_SC_PAGE_SIZE);
-        if (page_size_l < 1) exit_after_c_error("Failed to query system page size!");
-        system_page_size = (size_t)page_size_l;
-        system_allocation_granularity = system_page_size;
+        if (page_size_l < 1) {
+            exit_after_c_error("Failed to query system page size!");
+        }
+        if (page_size_l > (long)UINT32_MAX) {
+            exit_after_c_error("That's an unexpectedly big page size!");
+        }
+        page_size = (uint32_t)page_size_l;
+        allocation_granularity = page_size;
     #elif defined(_WIN32)
         SYSTEM_INFO info;
         GetSystemInfo(&info);
-        system_page_size = info.dwPageSize;
-        system_allocation_granularity = info.dwAllocationGranularity;
+        if (info.dwPageSize > (DWORD)UINT32_MAX) {
+            exit_after_c_error("That's an unexpectedly big page size!");
+        }
+        page_size = info.dwPageSize;
+        if (info.dwAllocationGranularity > (DWORD)UINT32_MAX) {
+            exit_after_c_error("That's an unexpectedly big allocation granularity!");
+        }
+        allocation_granularity = info.dwAllocationGranularity;
 
         trace("Reading current process pseudo handle...");
         system_current_process = GetCurrentProcess();
@@ -75,29 +84,27 @@ static void read_system_config() {
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
 
-    infof("Will use memory pages of size %zu (%#zx) bytes.",
-          system_page_size, system_page_size);
-    assert(system_page_size >= MIN_PAGE_ALIGNMENT);
-    infof("OS kernel allocates memory with a granularity of %zu (%#zx) bytes.",
-          system_allocation_granularity, system_allocation_granularity);
-    assert(system_allocation_granularity >= system_page_size);
+    infof("Will use memory pages of size %u (%#x) bytes.",
+          page_size, page_size);
+    assert(page_size >= MIN_PAGE_ALIGNMENT);
+    system_page_size_pow2 = pow2_encode(page_size);
+    infof("OS kernel allocates memory with a granularity of %u (%#x) bytes.",
+          allocation_granularity, allocation_granularity);
+    assert(allocation_granularity >= page_size);
+    system_allocation_granularity_pow2 = pow2_encode(allocation_granularity);
 }
 
-/// Prepare to read the `system_` variables
-///
-/// This function must be called before accessing the `system_` variables. It
-/// ensures that said variables are initialized in a thread-safe manner.
-///
-/// This function must be called within the scope of with_logger().
-static void expect_system_config() {
+DEFINE_PUBLIC void expect_system_config() {
     static once_flag config_was_read = ONCE_FLAG_INIT;
     call_once(&config_was_read, read_system_config);
 }
 
-
-size_t get_page_size() {
+/// Current system allocation granularity in bytes
+///
+/// This function must be called within the scope of with_logger().
+static inline size_t get_allocation_granularity() {
     expect_system_config();
-    return system_page_size;
+    return (size_t)pow2_decode(system_allocation_granularity_pow2);
 }
 
 
@@ -107,10 +114,10 @@ size_t get_page_size() {
 /// The granularity is just the page size on Unix systems, but it can be larger
 /// on other operating systems like Windows.
 static size_t allocation_size(size_t size) {
-    expect_system_config();
-    const size_t trailing_bytes = size % system_allocation_granularity;
+    size_t allocation_granularity = get_allocation_granularity();
+    const size_t trailing_bytes = size % allocation_granularity;
     if (trailing_bytes != 0) {
-        size += system_allocation_granularity - trailing_bytes;
+        size += allocation_granularity - trailing_bytes;
         tracef("Rounded allocation size up to %zu (%#zx) bytes.", size, size);
     }
     return size;
@@ -268,8 +275,7 @@ REALTIME_ALLOCATE_ATTRIBUTES
 void* realtime_allocate(size_t size) {
     ensure_gt(size, (size_t)0);
 
-    expect_system_config();
-    const size_t page_size = system_page_size;
+    const size_t page_size = get_page_size();
 
     debugf("Asked to allocate %zu bytes for realtime thread use.", size);
     size = allocation_size(size);
@@ -425,11 +431,11 @@ void realtime_liberate(void* buffer, size_t size) {
     static void test_system_config() {
         info("Running system configuration unit tests...");
         with_log_level(UDIPE_DEBUG, {
-            expect_system_config();
-            ensure_eq(get_page_size(), system_page_size);
-            ensure_ge(system_page_size, MIN_PAGE_ALIGNMENT);
-            ensure_ge(system_page_size, EXPECTED_MIN_PAGE_SIZE);
-            ensure_eq(system_allocation_granularity % system_page_size, (size_t)0);
+            size_t page_size = get_page_size();
+            size_t allocation_granularity = get_allocation_granularity();
+            ensure_ge(page_size, MIN_PAGE_ALIGNMENT);
+            ensure_ge(page_size, EXPECTED_MIN_PAGE_SIZE);
+            ensure_eq(allocation_granularity % page_size, (size_t)0);
         });
     }
 

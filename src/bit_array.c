@@ -1,6 +1,7 @@
 #ifdef UDIPE_BUILD_TESTS
 
     #include "bit_array.h"
+    #include "bits.h"
 
     #include "error.h"
 

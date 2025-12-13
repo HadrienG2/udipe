@@ -30,89 +30,21 @@
 //!   other useful compile-time information like e.g. the precise bit value that
 //!   you are setting or searching.
 
+#include "bits.h"
+
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 
-/// \name Implementation details
+/// \name Bit array declaration
 /// \{
-
-/// Divide `num` and `denom`, rounding upwards
-///
-/// \param num must be a side-effects-free integer expression
-/// \param denom must be a side-effects-free integer value that does not
-///              evaluate to zero
-#define DIV_CEIL(num, denom) ((num / denom) + ((num % denom) != 0))
-
-/// Unsigned machine word type used for bit storage
-///
-/// From the C language's perspective, a bit array is an array of \ref word_t.
-typedef size_t word_t;
-
-/// Number of bits within a \ref word_t
-///
-/// This links the amount of \ref word_t that a bit array is composed of, to the
-/// amount of boolean values that it can hold internally.
-///
-/// Bit array operations perform best on bit arrays whose length is known at
-/// compile time to be a multiple of this quantity.
-#define BITS_PER_WORD (sizeof(word_t) * 8)
 
 /// Amount of \ref word_t inside a bit array of specified length
 ///
 /// \param length must be a side-effects-free integer expression.
 #define BIT_ARRAY_WORDS(length)  DIV_CEIL((length), BITS_PER_WORD)
-
-/// Maximum value of \ref word_t
-///
-/// From a bit array perspective, this is a \ref word_t where all bits are set.
-#define WORD_MAX SIZE_MAX
-
-/// Broadcast a boolean value to all bits of a \ref word_t
-///
-/// Returns a \ref word_t where all bits are set to the given `value`.
-static inline word_t bit_broadcast(bool value) {
-    return value ? WORD_MAX : 0;
-}
-
-/// Count the number of trailing zeros in a \ref word_t
-///
-/// \param word must not be zero
-static inline size_t count_trailing_zeros(word_t word) {
-    assert(word != (size_t)0);
-    #ifdef __GNUC__
-        return __builtin_ctzll(word);
-    #else
-        for (size_t bit = 0; bit < sizeof(word_t) * 8; ++bit) {
-            if (word & (size_t)1) return bit;
-            word >>= 1;
-        }
-    #endif
-}
-
-/// Count the number of bits that are set to 1 in a \ref word_t
-///
-/// \returns the word's population count aka Hamming weight
-static inline size_t population_count(word_t word) {
-    #ifdef __GNUC__
-        return __builtin_popcountll(word);
-    #else
-        size_t population = 0;
-        for (size_t bit = 0; bit < sizeof(word_t) * 8; ++bit) {
-            population += word & (size_t)1;
-            word >>= 1;
-        }
-        return population;
-    #endif
-}
-
-/// \}
-
-
-/// \name Bit array declaration
-/// \{
 
 /// Declare a bit array as a stack variable or struct member
 ///
@@ -129,7 +61,7 @@ static inline size_t population_count(word_t word) {
 ///               It should be a compile-time constant, otherwise this macro
 ///               will generate a Variable Lenght Array (VLA), which will have a
 ///               negative effect on compiler optimizations. In any case,
-///               `length` must be a side-effects-free operation.
+///               `length` must be a side-effects-free integer expression.
 #define INLINE_BIT_ARRAY(name, length)  word_t name[BIT_ARRAY_WORDS(length)]
 
 /// \}

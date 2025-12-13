@@ -1,6 +1,6 @@
 #include "connect.h"
 
-#include "bit_array.h"
+#include "bits.h"
 #include "error.h"
 #include "log.h"
 
