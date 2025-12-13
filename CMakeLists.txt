@@ -22,10 +22,9 @@ endif()
 include(GNUInstallDirs)
 
 if(NOT WIN32)
-    add_compile_options(-Wall -Wextra -Wconversion -Wduplicated-cond
-                        -Wduplicated-branches -Wnull-dereference
-                        -Wdouble-promotion -Wno-sign-conversion
-                        -Wno-unused-value)
+    add_compile_options(-Wall -Wextra -Wduplicated-branches -Wduplicated-cond
+                        -Wnull-dereference -Wdouble-promotion
+                        -Wno-sign-conversion -Wno-unused-value)
 endif()
 
 
