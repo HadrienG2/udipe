@@ -140,7 +140,7 @@ jobs:
           cd build
           make package
       - name: Upload package
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: package-bin-${{ matrix.distro }}
           path: build/*.tar.gz
@@ -165,7 +165,7 @@ jobs:
           cd build
           make package_source
       - name: Upload package
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: package-src
           path: build/*.tar.gz
