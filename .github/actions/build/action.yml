@@ -5,8 +5,11 @@ inputs:
   artifact-name:
     description: 'Name of the artifact where the build directory will be uploaded'
     required: true
+  build-type:
+    description: 'CMake build type (Debug, RelWithDebInfo...)'
+    required: true
   extra-cmake-opts:
-    description: 'Extra CMake options beyond EXAMPLES, TESTS and WERROR'
+    description: 'Extra CMake options'
     required: false
 
 runs:
@@ -20,7 +23,8 @@ runs:
       shell: bash
       run: |
         cd build  \
-        && cmake -DUDIPE_BUILD_BENCHMARKS=ON  \
+        && cmake -DCMAKE_BUILD_TYPE=${{ inputs.build-type }}  \
+                 -DUDIPE_BUILD_BENCHMARKS=ON  \
                  -DUDIPE_BUILD_EXAMPLES=ON  \
                  -DUDIPE_BUILD_TESTS=ON  \
                  -DUDIPE_WERROR=ON  \
