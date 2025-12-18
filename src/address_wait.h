@@ -3,54 +3,64 @@
 //! \file
 //! \brief OS-independent atomic wait/notify primitives
 //!
-//! This code module abstracts away differences between the low-level
-//! synchronization primitives of supported operating systems, keeping the door
-//! opened for future C standard evolution under the expectation that they will
-//! likely match the (unfortunate) design of C++20 atomic wait/notify.
+//! Where lock-free code needs to interact with blocking code, it is useful to
+//! have access to "compare-and-wait" blocking synchronization primitives like
+//! SYS_futex on Linux and WaitOnAddress/WakeByAddress on Windows.
 //!
-//! It is this desire for future C standard compatibility which leads to the
-//! current limited API design when the underlying Linux and Windows kernel APIs
-//! can do a fair bit more, including setting a timeout on the wait and telling
-//! why a thread was awoken from this wait.
+//! This module exposes the OS-independent subset of these primitives. As the
+//! Windows primitives are much more limited than to the Linux ones, our subset
+//! API lands much closer to the Windows API, which is why we borrowed the
+//! Windows names for it.
 
 #include <udipe/pointer.h>
+#include <udipe/time.h>
 
 #include <stdatomic.h>
 #include <stdint.h>
 
 
-/// Wait for a 32-bit integer to change, a notification or spurious wakeup
+/// Wait for a 32-bit integer to change, may wake up spuriously
 ///
 /// ## Basic contract
 ///
 /// This function begins by checking if `atom` currently has value `expected`.
-/// If not, it returns immediately without any further processing.
+/// If not, it returns `true` immediately without any further processing.
 ///
 /// If `atom` does have the expected value, then the calling thread immediately
 /// starts to wait until one of the following happens:
 ///
-/// - udipe_atomic_notify_all() is called on the same address.
-/// - udipe_atomic_notify_one() is called and the OS scheduler decides to wake
+/// - wake_by_address_all() is called on the same address by another thread
+///   within the same process.
+/// - wake_by_address_single() is called and the OS scheduler decides to wake
 ///   up this thread among any other waiters.
+/// - The specified `timeout` elapses without either of the above happening.
 /// - The thread is spuriously awoken for an unrelated reason, for example on
 ///   Unices this can happen when the process receives a Unix signal.
 ///
 /// Checking and waiting is performed as a single atomic transaction, in the
-/// sense that if the value changes as the thread begins to wait, its wait will
-/// immediately abort, no notification needed.
+/// sense that value changes will be detected until the thread is ready to
+/// receive notifications from `wake_by_address` methods, and cause the switch
+/// to the waiting state to be aborted. This ensures absence of lost wakeup.
 ///
 /// This function must be called within the scope of with_logger().
 ///
 /// \param atom is the atomic variable used to synchronize threads
 /// \param expected is the value that this variable is initially expected to
 ///                 have, if this is true the active thread will block.
+/// \param timeout indicates after which duration the active thread should give
+///                up on waiting. Beware that this duration may be rounded up to
+///                the next multiple of the OS clock granularity.
+///
+/// \returns - `true` if the thread **could** have been awakened by to a value
+///            change or notification from a `wake_by_address` function
+///          - `false` if we know for sure that the thread woke up for another
+///            reason (timeout, Unix signal...).
 ///
 /// ## Usage guidance
 ///
-/// This function can be thought of as a blocking cousin of
-/// `atomic_compare_exchange_weak()`, that can be used to replace CPU-wasting
-/// spin loops with more efficient blocking synchronization in situations where
-/// blocking code must interact with lock-free code.
+/// In situations where blocking code must interact with lock-free code, this
+/// function can be used to replace CPU-wasting spin loops with more efficient
+/// blocking synchronization on the blocking thread side.
 ///
 /// Here is a basic valid usage pattern:
 ///
@@ -59,10 +69,10 @@
 /// - Waiter enters a loop where it repeatedly loads the value of `atom`, exits
 ///   the loop once this value is not `expected` anymore (typically with a
 ///   `memory_order_acquire` thread fence), and otherwise calls
-///   `udipe_atomic_wait()` and loops back.
+///   `wait_on_address()` and loops back.
 /// - Notifier changes the value of `atom` once done, typically with
-///   `memory_order_release`, then calls some variant of `udipe_atomic_notify`
-///   as appropriate in order to wake up Waiter if it's waiting.
+///   `memory_order_release`, then calls some variant of `wake_by_address` as
+///   appropriate in order to wake up Waiter if it's waiting.
 /// - Until Waiter has somehow acknowledged that it has observed the new value
 ///   of `atom`, no other thread is allowed to change the value of `atom` (in
 ///   this basic algorithm), move it around in memory or deallocate the storage
@@ -103,8 +113,8 @@
 ///
 /// ## Choice of notification function
 ///
-/// Generally speaking, udipe_atomic_notify_one() is harder to use correctly
-/// than udipe_atomic_notify_all() because it creates several new avenues for
+/// Generally speaking, wake_by_address_single() is harder to use correctly
+/// than wake_by_address_all() because it creates several new avenues for
 /// synchronization bugs :
 ///
 /// - It is easy to write code that seems to work correctly under low
@@ -116,29 +126,31 @@
 ///   waiting, a later code refactor can introduce multiple waiting threads and
 ///   thus create such a synchronization bug.
 /// - It is also easy to accidentally form expectations about which of the
-///   waiting threads will be awoken by udipe_atomic_notify_one(), e.g. expect
+///   waiting threads will be awoken by wake_by_address_single(), e.g. expect
 ///   that it is that the first thread that started waiting, but those
 ///   expectations may only be valid on one particular operating system or only
 ///   be valid when particular conditions are true (e.g. all threads have the
 ///   same priority).
-/// - On some platforms, udipe_atomic_notify_one() is just an alias to
-///   udipe_atomic_notify_all(). If you are unlucky enough to do your regular
+/// - On some platforms, wake_by_address_single() is just an alias to
+///   wake_by_address_all(). If you are unlucky enough to do your regular
 ///   development tests on one of those, you may not notice the bugs until
 ///   fairly late in the development and deployment process.
 ///
 /// Furthermore, it has been proved through benchmarking on common operating
-/// systems that contrary to popular belief, udipe_atomic_notify_all() is no
-/// slower than udipe_atomic_notify_one() when only one thread is waiting for
+/// systems that contrary to popular belief, wake_by_address_all() is no
+/// slower than wake_by_address_single() when only one thread is waiting for
 /// the atomic variable of interest. So that is not an argument for using one
 /// over the other.
 ///
-/// For all these reasons, udipe_atomic_notify_all() should be used by default,
-/// and udipe_atomic_notify_one() should only be introduced as a performance
+/// For all these reasons, wake_by_address_all() should be used by default,
+/// and wake_by_address_single() should only be introduced as a performance
 /// optimization in situations where releasing all threads at once creates a
 /// "thundering herd" situation where all threads proceed to immediately put
 /// pressure on a limited or serialized resource like a mutex or an I/O device.
 UDIPE_NON_NULL_ARGS
-void udipe_atomic_wait(_Atomic uint32_t* atom, uint32_t expected);
+bool wait_on_address(_Atomic uint32_t* atom,
+                     uint32_t expected,
+                     udipe_duration_ns_t timeout);
 
 /// Notify all threads currently waiting for `atom`'s value to change
 ///
@@ -147,16 +159,16 @@ void udipe_atomic_wait(_Atomic uint32_t* atom, uint32_t expected);
 ///
 /// It is the notification function that you should use by default, unless you
 /// know your performance can benefit from the finer-grained semantics of
-/// udipe_atomic_notify_one(), and you have set up rigorous testing on multiple
+/// wake_by_address_single(), and you have set up rigorous testing on multiple
 /// operating systems and with varying load levels to ensure that your code is
 /// still correct under those semantics.
 ///
-/// See the documentation of udipe_atomic_wait() for a broader overview of
+/// See the documentation of wait_on_address() for a broader overview of
 /// atomic wait synchronization and intended usage.
 ///
 /// \param atom is the atomic variable used to synchronize threads
 UDIPE_NON_NULL_ARGS
-void udipe_atomic_notify_all(_Atomic uint32_t* atom);
+void wake_by_address_all(_Atomic uint32_t* atom);
 
 /// Notify at least one of the threads currently waiting for `atom`'s value to
 /// change
@@ -164,18 +176,18 @@ void udipe_atomic_notify_all(_Atomic uint32_t* atom);
 /// This function should be called after changing the value of `atom`, typically
 /// with `memory_order_release`.
 ///
-/// It can be used as an optimized version of udipe_atomic_notify_all() in
+/// It can be used as an optimized version of wake_by_address_all() in
 /// situations where waking up all the threads would result in a "thundering
 /// herd" performance problem. But it may be implemented as an alias to
-/// udipe_atomic_notify_all() on some platforms, therefore its "wake one thread"
+/// wake_by_address_all() on some platforms, therefore its "wake one thread"
 /// semantics should not be relied on for correctness.
 ///
-/// See the documentation of udipe_atomic_wait() for a broader overview of
+/// See the documentation of wait_on_address() for a broader overview of
 /// atomic wait synchronization and intended usage.
 ///
 /// \param atom is the atomic variable used to synchronize threads
 UDIPE_NON_NULL_ARGS
-void udipe_atomic_notify_one(_Atomic uint32_t* atom);
+void wake_by_address_single(_Atomic uint32_t* atom);
 
 
 #ifdef UDIPE_BUILD_TESTS
@@ -183,5 +195,5 @@ void udipe_atomic_notify_one(_Atomic uint32_t* atom);
     ///
     /// This function runs all the unit tests for this module. It must be called
     /// within the scope of with_logger().
-    void atomic_wait_unit_tests();
+    void address_wait_unit_tests();
 #endif

@@ -14,8 +14,8 @@
 /// Duration in nanoseconds (0, 1 and the maximum value are special)
 ///
 /// This type, which is typically used for timeouts as an abstraction over the
-/// many different time formats used by POSIX APIs, can encode durations up to a
-/// bit more than 584 years.
+/// many different time formats used by operating system APIs, can encode
+/// durations up to a bit more than 584 years.
 ///
 /// Because processing a network command takes an amount of time which is much
 /// greater than a nanosecond (it's closer to the microsecond scale), timeouts

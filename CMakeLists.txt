@@ -84,25 +84,25 @@ endif()
 
 add_library(udipe)
 add_library(Udipe::udipe ALIAS udipe)
-set(udipe_relative_headers include/udipe.h
-                           include/udipe/buffer.h
-                           include/udipe/command.h
-                           include/udipe/connect.h
-                           include/udipe/context.h
-                           include/udipe/future.h
-                           include/udipe/log.h
-                           include/udipe/pointer.h
-                           include/udipe/result.h
-                           include/udipe/tests.h
-                           include/udipe/time.h
-                           include/udipe/visibility.h)
+set(udipe_public_headers include/udipe.h
+                         include/udipe/buffer.h
+                         include/udipe/command.h
+                         include/udipe/connect.h
+                         include/udipe/context.h
+                         include/udipe/future.h
+                         include/udipe/log.h
+                         include/udipe/pointer.h
+                         include/udipe/result.h
+                         include/udipe/time.h
+                         include/udipe/visibility.h)
 target_sources(udipe
                PUBLIC FILE_SET HEADERS
                       BASE_DIRS include
-                      FILES ${udipe_relative_headers}
+                      FILES ${udipe_public_headers}
+                            include/udipe/tests.h
                PRIVATE src/arch.h
-                       src/atomic_wait.c
-                       src/atomic_wait.h
+                       src/address_wait.c
+                       src/address_wait.h
                        src/bit_array.h
                        src/bit_array.c
                        src/bits.h
@@ -154,7 +154,7 @@ if (UDIPE_BUILD_DOXYGEN)
         # set(DOXYGEN_WARN_AS_ERROR YES)
     endif()
 
-    set(documented_source ${udipe_relative_headers})
+    set(documented_source ${udipe_public_headers})
     if (UDIPE_BUILD_DOXYGEN_INTERNAL)
         set(DOXYGEN_INTERNAL_DOCS YES)
         set(DOXYGEN_SOURCE_BROWSER YES)

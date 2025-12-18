@@ -1,18 +1,15 @@
 #include "connect.h"
 
+#include "address_wait.h"
 #include "bits.h"
 #include "error.h"
 #include "log.h"
 
 #include <assert.h>
 #include <errno.h>
-// TODO: Replace with futex.h once futex abstraction is ready
-#include <linux/futex.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-// TODO: Replace with futex.h once futex abstraction is ready
-#include <sys/syscall.h>
 #include <unistd.h>
 
 
@@ -66,30 +63,7 @@ connect_options_allocate(connect_options_allocator_t* allocator) {
     do {
         while (availability == 0) {
             trace("All options are in use, waiting for some to free up...");
-            // TODO: Add Windows version once Windows CI build is running
-            long result = syscall(SYS_futex,
-                                  &allocator->availability,
-                                  FUTEX_WAIT_PRIVATE,
-                                  0,
-                                  NULL);
-            if (result == -1) {
-                switch (errno) {
-                // Availability changed between the check and FUTEX_WAIT call
-                case EAGAIN:
-                // The operation was interrupted by a signal
-                case EINTR:
-                    break;
-                // All of the following concern timeout handling and therefore
-                // should not apply here as no timeout is set.
-                case EFAULT:
-                case EINVAL:
-                case ETIMEDOUT:
-                default:
-                    exit_after_c_error("Unexpected FUTEX_WAIT_PRIVATE failure");
-                }
-            } else {
-                assert(result == 0);
-            }
+            wait_on_address(&allocator->availability, 0, UDIPE_DURATION_MAX);
             availability = atomic_load_explicit(&allocator->availability,
                                                 memory_order_relaxed);
         }
@@ -145,15 +119,6 @@ void connect_options_liberate(connect_options_allocator_t* allocator,
     if (previous_availability == 0) {
         debug("All connect options were in use, let's wake up "
               "one of the worker threads awaiting some (if any)");
-        // TODO: Add Windows version once Windows CI build is running
-        long result = syscall(SYS_futex,
-                              &allocator->availability,
-                              FUTEX_WAKE_PRIVATE,
-                              1);
-        assert(result == 0 || result == 1);
-        // There is only one known error case at the time of writing, and it
-        // concerns priority inheritance futexes which we aren't using here.
-        exit_on_negative((int) result,
-                         "Unexpected FUTEX_WAKE_PRIVATE failure");
+        wake_by_address_all(&allocator->availability);
     }
 }

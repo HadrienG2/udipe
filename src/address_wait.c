@@ -1,4 +1,4 @@
-#include "atomic_wait.h"
+#include "address_wait.h"
 
 #include "error.h"
 #include "log.h"
@@ -14,38 +14,72 @@
     #include <unistd.h>
 #elif defined(_WIN32)
     #include <synchapi.h>
+    #include <winerror.h>
 #endif
 
 
 UDIPE_NON_NULL_ARGS
-void udipe_atomic_wait(_Atomic uint32_t* atom, uint32_t expected) {
+bool wait_on_address(_Atomic uint32_t* atom,
+                     uint32_t expected,
+                     udipe_duration_ns_t timeout) {
     tracef("Waiting for the value at address %p to change away from %#x...",
            (void*)atom,
            expected);
+
+    // Handle invalid internal use of DEFAULT + zero timeout
+    assert(timeout != UDIPE_DURATION_DEFAULT);
+    if (timeout == UDIPE_DURATION_MIN) {
+        trace("...but with MIN timeout i.e. just return if value changed.");
+        return atomic_load_explicit(atom, memory_order_relaxed) != expected;
+    }
+
     #ifdef __linux__
-        long result = syscall(SYS_futex, atom, FUTEX_WAIT, expected, NULL);
+        // Translate udipe timeout into Linux timeout
+        struct timespec delay;
+        struct timespec* pdelay;
+        if (timeout != UDIPE_DURATION_MAX) {
+            uint64_t nanosecs_per_millisec = 1000 * 1000;
+            tracef("...with a timeout of %llu.%06llu ms...",
+                   timeout / nanosecs_per_millisec,
+                   timeout % nanosecs_per_millisec);
+            int nanosecs_per_sec = 1000 * nanosecs_per_millisec;
+            delay = (struct timespec){ .tv_sec = timeout / nanosecs_per_sec,
+                                       .tv_nsec = timeout % nanosecs_per_sec };
+            pdelay = &delay;
+        } else {
+            trace("...with an infinite timeout...");
+            pdelay = NULL;
+        }
+
+        // Call futex and handle results
+        long result = syscall(SYS_futex,
+                              atom,
+                              FUTEX_WAIT_PRIVATE,
+                              expected,
+                              pdelay);
         switch (result) {
         case 0:
-            trace("...and got notified (may be spurious in real use cases).");
-            break;
+            trace("...and got notified (perhaps spuriously).");
+            return true;
         case -1:
             switch (errno) {
             case EAGAIN:
                 errno = 0;
                 trace("...but the value changed before we even started.");
-                break;
+                return true;
+            case ETIMEDOUT:
+                trace("...but our wait timed out.");
+                return false;
             case EINTR:
                 errno = 0;
                 trace("...but our wait was interrupted by a signal.");
-                break;
+                return false;
             // timeout did not point to a valid user-space address.
             case EFAULT:
             // The supplied timeout argument was invalid (tv_sec was less than
             // zero, or tv_nsec was not less than 1,000,000,000).
             case EINVAL:
-            // The timeout expired before the operation completed.
-            case ETIMEDOUT:
-                exit_after_c_error("Shouldn't happen without a timeout!");
+                exit_after_c_error("Shouldn't happen with our pdelay setup!");
             default:
                 exit_after_c_error("FUTEX_WAIT errno doesn't match manpage!");
             }
@@ -54,22 +88,40 @@ void udipe_atomic_wait(_Atomic uint32_t* atom, uint32_t expected) {
             exit_after_c_error("FUTEX_WAIT result doesn't match manpage!");
         }
     #elif defined(_WIN32)
+        DWORD delay;
+        if (timeout > UINT32_MAX) {
+            trace("...with an infinite timeout...");
+            delay = INFINITE;
+        } else {
+            delay = timeout / (1000 * 1000);
+            tracef("...with a timeout of %u ms", delay);
+        }
         bool result = WaitOnAddress((volatile VOID*)atom,
                                     (PVOID)(&expected),
                                     4,
-                                    INFINITE);
-        win32_exit_on_zero(result, "No error expected as there is no timeout");
+                                    delay);
+        if (result) {
+            trace("...and got notified, value changed, or spurious wakeup occured.");
+        } else {
+            if (GetLastError() == ERROR_TIMEOUT) {
+                trace("...but our wait timed out.");
+            } else {
+                trace("...but our wait was interrupted by an unknown cause.");
+                win32_warn_on_error();
+            }
+        }
+        return result;
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
 }
 
 UDIPE_NON_NULL_ARGS
-void udipe_atomic_notify_all(_Atomic uint32_t* atom) {
+void wake_by_address_all(_Atomic uint32_t* atom) {
     tracef("Signaling all waiters that the value at address %p has changed...",
            (void*)atom);
     #ifdef __linux__
-        long result = syscall(SYS_futex, atom, FUTEX_WAKE, (uint32_t)INT32_MAX);
+        long result = syscall(SYS_futex, atom, FUTEX_WAKE_PRIVATE, (uint32_t)INT32_MAX);
         assert(result >= -1);
         exit_on_negative((int)result, "No error expected here");
         tracef("...which woke %u waiter(s).", (uint32_t)result);
@@ -81,11 +133,11 @@ void udipe_atomic_notify_all(_Atomic uint32_t* atom) {
 }
 
 UDIPE_NON_NULL_ARGS
-void udipe_atomic_notify_one(_Atomic uint32_t* atom) {
+void wake_by_address_single(_Atomic uint32_t* atom) {
     tracef("Signaling one waiter that the value at address %p has changed...",
            (void*)atom);
     #ifdef __linux__
-        long result = syscall(SYS_futex, atom, FUTEX_WAKE, 1);
+        long result = syscall(SYS_futex, atom, FUTEX_WAKE_PRIVATE, 1);
         assert(result >= -1 && result <= 1);
         exit_on_negative((int)result, "No error expected here");
         if (result == 1) {
@@ -208,7 +260,9 @@ void udipe_atomic_notify_one(_Atomic uint32_t* atom) {
                 notify[current] = atomic_load_explicit(&shared->notify_counter,
                                                        memory_order_acquire);
                 if (notify[current] != notify[last]) break;
-                udipe_atomic_wait(&shared->notify_counter, notify[current]);
+                wait_on_address(&shared->notify_counter,
+                                notify[current],
+                                UDIPE_DURATION_MAX);
             } while(true);
 
             tracef("...done, notify_counter is now %u", notify[current]);
@@ -235,9 +289,9 @@ void udipe_atomic_notify_one(_Atomic uint32_t* atom) {
                 ensure_le(global_wake[current], wait * NUM_WORKERS);
             }
             if (shared->notify_all) {
-                udipe_atomic_notify_all(&shared->global_wake_counter);
+                wake_by_address_all(&shared->global_wake_counter);
             } else {
-                udipe_atomic_notify_one(&shared->global_wake_counter);
+                wake_by_address_single(&shared->global_wake_counter);
             }
         }
 
@@ -284,9 +338,9 @@ void udipe_atomic_notify_one(_Atomic uint32_t* atom) {
             ensure_eq(notify[current], notify[last] + 1);
             notify[last] = notify[current];
             if (notify_all) {
-                udipe_atomic_notify_all(&shared.notify_counter);
+                wake_by_address_all(&shared.notify_counter);
             } else {
-                udipe_atomic_notify_one(&shared.notify_counter);
+                wake_by_address_single(&shared.notify_counter);
             }
 
             trace("Waiting for workers to reply...");
@@ -297,8 +351,9 @@ void udipe_atomic_notify_one(_Atomic uint32_t* atom) {
                                          memory_order_acquire);
                 awoken = global_wake[current] - global_wake[last];
                 if (awoken == 0) {
-                    udipe_atomic_wait(&shared.global_wake_counter,
-                                      global_wake[current]);
+                    wait_on_address(&shared.global_wake_counter,
+                                    global_wake[current],
+                                    UDIPE_DURATION_MAX);
                     continue;
                 } else if (awoken == NUM_WORKERS || !notify_all) {
                     break;
@@ -334,7 +389,7 @@ void udipe_atomic_notify_one(_Atomic uint32_t* atom) {
         }
     }
 
-    void atomic_wait_unit_tests() {
+    void address_wait_unit_tests() {
         info("Running atomic wait unit tests...");
         with_log_level(UDIPE_DEBUG, {
             debug("Testing wait + notify_all");
@@ -346,6 +401,12 @@ void udipe_atomic_notify_one(_Atomic uint32_t* atom) {
             with_log_level(UDIPE_TRACE, {
                 test_wait_notify(false);
             });
+
+            debug("Testing wait with timeout");
+            _Atomic uint32_t futex;
+            atomic_init(&futex, 42);
+            ensure(!wait_on_address(&futex, 42, UDIPE_DURATION_MIN));
+            ensure(!wait_on_address(&futex, 42, UDIPE_DURATION_MIN + 1));
         });
     }
 

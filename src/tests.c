@@ -3,7 +3,7 @@
     #include <udipe/log.h>
     #include <udipe/tests.h>
 
-    #include "atomic_wait.h"
+    #include "address_wait.h"
     #include "bit_array.h"
     #include "buffer.h"
     #include "command.h"
@@ -32,7 +32,7 @@
             // other pieces of code that may depend on it
             NAME_FILTERED_CALL(filter, thread_name_unit_tests);
             NAME_FILTERED_CALL(filter, name_filter_unit_tests);
-            NAME_FILTERED_CALL(filter, atomic_wait_unit_tests);
+            NAME_FILTERED_CALL(filter, address_wait_unit_tests);
             NAME_FILTERED_CALL(filter, memory_unit_tests);
             NAME_FILTERED_CALL(filter, bit_array_unit_tests);
             NAME_FILTERED_CALL(filter, buffer_unit_tests);
