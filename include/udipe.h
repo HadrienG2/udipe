@@ -28,6 +28,8 @@
 #include "udipe/context.h"
 #include "udipe/future.h"
 #include "udipe/log.h"
+// Not including udipe/micro_benchmarks.h as it isn't meant for end user
+// consumption
 #include "udipe/pointer.h"
 #include "udipe/result.h"
 // Not including udipe/tests.h as it isn't meant for end user consumption

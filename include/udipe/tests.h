@@ -7,7 +7,7 @@
     //! \brief Unit tests
     //!
     //! This header contains the unit tests of `libudipe`. It is an internal
-    //! implementation detail of the libudipe unit tests that you should not use.
+    //! implementation that you should not use directly.
 
     #include "visibility.h"
 

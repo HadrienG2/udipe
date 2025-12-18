@@ -30,8 +30,6 @@ endif()
 
 ### Optional features ###
 
-option(UDIPE_BUILD_DOXYGEN "Build the Doxygen documentation" OFF)
-
 option(UDIPE_WERROR "Treat GCC and doxygen warnings as errors" OFF)
 if (UDIPE_WERROR AND NOT WIN32)
     add_compile_options(-Werror)
@@ -39,6 +37,11 @@ endif()
 
 # These options are only available in standalone builds, not vendored ones
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    option (UDIPE_BUILD_BENCHMARKS
+            "Build the performance benchmarks"
+            ON)
+
+    option(UDIPE_BUILD_DOXYGEN "Build the Doxygen documentation" OFF)
     option(UDIPE_BUILD_DOXYGEN_INTERNAL
            "Allow UDIPE_BUILD_DOXYGEN to cover implementation details"
            OFF)
@@ -94,6 +97,7 @@ target_sources(udipe
                PUBLIC FILE_SET HEADERS
                       BASE_DIRS include
                       FILES ${udipe_public_headers}
+                            include/udipe/micro_benchmarks.h
                             include/udipe/tests.h
                PRIVATE src/arch.h
                        src/address_wait.c
@@ -119,12 +123,16 @@ target_sources(udipe
                        src/log.h
                        src/memory.c
                        src/memory.h
+                       src/micro_benchmarks.c
                        src/name_filter.c
                        src/name_filter.h
                        src/tests.c
                        src/thread_name.c
                        src/thread_name.h
                        src/visibility.h)
+if (UDIPE_BUILD_TESTS)
+    target_compile_definitions(udipe PUBLIC UDIPE_BUILD_BENCHMARKS)
+endif()
 if (UDIPE_BUILD_TESTS)
     target_compile_definitions(udipe PUBLIC UDIPE_BUILD_TESTS)
 endif()
@@ -163,6 +171,13 @@ if (UDIPE_BUILD_DOXYGEN)
 endif()
 
 
+### Performance benchmarks ###
+
+if(UDIPE_BUILD_BENCHMARKS)
+    add_subdirectory(benches)
+endif()
+
+
 ### Code examples ###
 
 if(UDIPE_BUILD_EXAMPLES)
@@ -175,9 +190,6 @@ endif()
 if(UDIPE_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
-
-
-# TODO: Add benchmarks etc
 
 
 ### Packaging for downstream users ###
