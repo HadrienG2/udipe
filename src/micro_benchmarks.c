@@ -21,11 +21,11 @@
             // Warn about bad build/runtime configurations
             #ifndef NDEBUG
                 warning("You are running micro-benchmarks on a Debug build. "
-                        "Measurements will be biased!");
+                        "This will bias measurements!");
             #else
                 if (logger.min_level <= UDIPE_DEBUG) {
                     warning("You are running micro-benchmarks with DEBUG/TRACE "
-                            "logging enabled. Measurements will be biased!");
+                            "logging enabled. This will bias measurements!");
                 }
             #endif
 
