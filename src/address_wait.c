@@ -39,9 +39,9 @@ bool wait_on_address(_Atomic uint32_t* atom,
         struct timespec* pdelay;
         if (timeout != UDIPE_DURATION_MAX) {
             uint64_t nanosecs_per_millisec = 1000 * 1000;
-            tracef("...with a timeout of %llu.%06llu ms...",
-                   timeout / nanosecs_per_millisec,
-                   timeout % nanosecs_per_millisec);
+            tracef("...with a timeout of %zu.%06zu ms...",
+                   (size_t)(timeout / nanosecs_per_millisec),
+                   (size_t)(timeout % nanosecs_per_millisec));
             int nanosecs_per_sec = 1000 * nanosecs_per_millisec;
             delay = (struct timespec){ .tv_sec = timeout / nanosecs_per_sec,
                                        .tv_nsec = timeout % nanosecs_per_sec };
