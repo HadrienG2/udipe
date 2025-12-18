@@ -48,8 +48,9 @@
 /// \param expected is the value that this variable is initially expected to
 ///                 have, if this is true the active thread will block.
 /// \param timeout indicates after which duration the active thread should give
-///                up on waiting. Beware that this duration may be rounded up to
-///                the next multiple of the OS clock granularity.
+///                up on waiting. Beware that the actually applied timeout will
+///                be slightly longer due to scheduling delays and OS clock
+///                granularity.
 ///
 /// \returns - `true` if the thread **could** have been awakened by to a value
 ///            change or notification from a `wake_by_address` function
