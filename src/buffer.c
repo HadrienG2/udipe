@@ -50,7 +50,7 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
 
         trace("Removing hyperthreads...");
         int result = hwloc_bitmap_singlify_per_core(topology, cache_cpuset, 0);
-        assert(result == 0);
+        ensure_eq(result, 0);
         if (log_enabled(UDIPE_TRACE)) {
             char* cpuset_str;
             exit_on_negative(hwloc_bitmap_list_asprintf(&cpuset_str, cache_cpuset),

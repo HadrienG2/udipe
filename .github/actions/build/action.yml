@@ -20,11 +20,11 @@ runs:
       shell: bash
       run: |
         cd build  \
-        && cmake ${{ inputs.extra-cmake-opts }}  \
-                 -DUDIPE_BUILD_BENCHMARKS=ON  \
+        && cmake -DUDIPE_BUILD_BENCHMARKS=ON  \
                  -DUDIPE_BUILD_EXAMPLES=ON  \
                  -DUDIPE_BUILD_TESTS=ON  \
                  -DUDIPE_WERROR=ON  \
+                 ${{ inputs.extra-cmake-opts }}  \
                  ..
 
     - name: Build the library and tests

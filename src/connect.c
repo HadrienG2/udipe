@@ -74,6 +74,7 @@ connect_options_allocate(connect_options_allocator_t* allocator) {
         const size_t available_idx = rand() % num_available;
         tracef("Will now try to allocate available option %zu/%zu...",
                available_idx + 1, num_available);
+        option_idx = 0;
         for (size_t i = 0; i < available_idx; ++i) {
             const size_t extra_offset = count_trailing_zeros(availability) + 1;
             option_idx += extra_offset;

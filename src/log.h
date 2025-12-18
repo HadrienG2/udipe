@@ -372,7 +372,7 @@ void logger_restore(const logger_state_t* state);
 #ifndef NDEBUG
     void validate_log(udipe_log_level_t level);
 #else
-    static inline void validate_log(udipe_log_level_t level) {}
+    static inline void validate_log(udipe_log_level_t) {}
 #endif
 
 /// GNU attributes of logf_impl()

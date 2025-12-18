@@ -18,6 +18,17 @@
         memset(&log_config, 0, sizeof(udipe_log_config_t));
         logger_t logger = logger_initialize(log_config);
         with_logger(&logger, {
+            // Warn about bad build/runtime configurations
+            #ifndef NDEBUG
+                warning("You are running micro-benchmarks on a Debug build. "
+                        "Measurements will be biased!");
+            #else
+                if (logger.min_level <= UDIPE_DEBUG) {
+                    warning("You are running micro-benchmarks with DEBUG/TRACE "
+                            "logging enabled. Measurements will be biased!");
+                }
+            #endif
+
             // Set up name-based benchmark filtering
             ensure_le(argc, 2);
             const char* filter_key = (argc == 2) ? argv[1] : "";

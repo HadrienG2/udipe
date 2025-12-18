@@ -22,9 +22,19 @@ endif()
 include(GNUInstallDirs)
 
 if(NOT WIN32)
+    # Rationale for disabling some warnings:
+    #
+    # - unused-parameter doesn't work when some function parameters are only
+    #   used for debug assertions and unused in Release builds.
+    # - unused-value breaks the comma trick for documenting debug assertions.
+    # - unused-variable and unused-but-set-variable similarly don't work well
+    #   with debug assertions over a function result, where you want the
+    #   function to execute even in Release builds.
     add_compile_options(-Wall -Wextra -Wduplicated-branches -Wduplicated-cond
                         -Wnull-dereference -Wdouble-promotion
-                        -Wno-sign-conversion -Wno-unused-value)
+                        -Wno-unused-parameter -Wno-unused-value
+                        -Wno-unused-variable
+                        -Wno-unused-but-set-variable)
 endif()
 
 
@@ -51,8 +61,8 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     endif()
 
     option(UDIPE_BUILD_EXAMPLES
-           "Build the code examples"
-           ON)
+           "Build the usage examples"
+           OFF)
 
     include(CTest)
     option(UDIPE_BUILD_TESTS "Build the tests" OFF)
@@ -98,7 +108,7 @@ target_sources(udipe
                       BASE_DIRS include
                       FILES ${udipe_public_headers}
                             include/udipe/micro_benchmarks.h
-                            include/udipe/tests.h
+                            include/udipe/unit_tests.h
                PRIVATE src/arch.h
                        src/address_wait.c
                        src/address_wait.h
@@ -126,9 +136,9 @@ target_sources(udipe
                        src/micro_benchmarks.c
                        src/name_filter.c
                        src/name_filter.h
-                       src/tests.c
                        src/thread_name.c
                        src/thread_name.h
+                       src/unit_tests.c
                        src/visibility.h)
 if (UDIPE_BUILD_TESTS)
     target_compile_definitions(udipe PUBLIC UDIPE_BUILD_BENCHMARKS)

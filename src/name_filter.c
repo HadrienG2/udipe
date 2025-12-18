@@ -26,8 +26,9 @@ bool name_filter_matches(name_filter_t filter, const char* name) {
 
 UDIPE_NON_NULL_ARGS
 void name_filter_finalize(name_filter_t* filter) {
-    debug("Liberating name filter...");
+    debug("Liberating name filter, which should not be in use...");
     free(*filter);
+    debug("Poisoning name filter so that further (invalid) use fails...");
     *filter = NULL;
 }
 

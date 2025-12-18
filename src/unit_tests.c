@@ -1,7 +1,8 @@
 #ifdef UDIPE_BUILD_TESTS
 
+    #include <udipe/unit_tests.h>
+
     #include <udipe/log.h>
-    #include <udipe/tests.h>
 
     #include "address_wait.h"
     #include "bit_array.h"
@@ -23,6 +24,12 @@
         memset(&log_config, 0, sizeof(udipe_log_config_t));
         logger_t logger = logger_initialize(log_config);
         with_logger(&logger, {
+            // Warn about bad build configurations
+            #ifdef NDEBUG
+                warning("You are running unit tests with debug assertions "
+                        "turned off. Bugs may go undetected!");
+            #endif
+
             // Set up name-based test filtering
             ensure_le(argc, 2);
             const char* filter_key = (argc == 2) ? argv[1] : "";
@@ -37,6 +44,7 @@
             NAME_FILTERED_CALL(filter, bit_array_unit_tests);
             NAME_FILTERED_CALL(filter, buffer_unit_tests);
             NAME_FILTERED_CALL(filter, command_unit_tests);
+
             name_filter_finalize(&filter);
             info("All executed tests completed successfully!");
         });
