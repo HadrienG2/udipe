@@ -52,7 +52,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
            ON)
 
     include(CTest)
-    option(UDIPE_BUILD_TESTS "Build the tests (require OpenMP)" OFF)
+    option(UDIPE_BUILD_TESTS "Build the tests" OFF)
     if(BUILD_TESTING)
         set(UDIPE_BUILD_TESTS ON)
     endif()
@@ -72,11 +72,6 @@ pkg_check_modules(hwloc REQUIRED IMPORTED_TARGET hwloc>=2.0)
 # Need doxygen to build the API reference documentation
 if(UDIPE_BUILD_DOXYGEN)
     find_package(Doxygen REQUIRED)
-endif()
-
-# Need OpenMP for unit tests
-if(UDIPE_BUILD_TESTS)
-    find_package(OpenMP COMPONENTS C REQUIRED)
 endif()
 
 
@@ -132,7 +127,6 @@ target_sources(udipe
                        src/visibility.h)
 if (UDIPE_BUILD_TESTS)
     target_compile_definitions(udipe PUBLIC UDIPE_BUILD_TESTS)
-    target_link_libraries(udipe PRIVATE OpenMP::OpenMP_C)
 endif()
 target_include_directories(udipe
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
