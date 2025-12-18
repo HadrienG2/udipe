@@ -14,6 +14,6 @@
 
     /// \internal
     /// \brief Run all the libudipe unit tests
-    UDIPE_PUBLIC void udipe_unit_tests();
+    UDIPE_PUBLIC void udipe_unit_tests(int argc, char *argv[]);
 
 #endif  // UDIPE_BUILD_TESTS

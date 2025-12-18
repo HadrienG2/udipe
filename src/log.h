@@ -9,6 +9,7 @@
 #include <udipe/log.h>
 #include <udipe/pointer.h>
 
+#include <assert.h>
 #include <stdbool.h>
 #include <threads.h>
 

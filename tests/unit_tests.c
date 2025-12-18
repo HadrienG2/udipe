@@ -1,5 +1,5 @@
 #include <udipe/tests.h>
 
-int main() {
-    udipe_unit_tests();
+int main(int argc, char *argv[]) {
+    udipe_unit_tests(argc, argv);
 }

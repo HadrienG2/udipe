@@ -59,7 +59,7 @@ void warn_on_errno();
 /// - exit_after_c_error() preconditions are fulfilled
 #define exit_on_null(result, error_message)  \
     do {  \
-        void* udipe_result = (result);  \
+        const void* udipe_result = (result);  \
         if (!udipe_result) exit_after_c_error(error_message);  \
     } while(false)
 

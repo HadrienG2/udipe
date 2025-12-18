@@ -124,6 +124,8 @@ target_sources(udipe
                        src/log.h
                        src/memory.c
                        src/memory.h
+                       src/name_filter.c
+                       src/name_filter.h
                        src/tests.c
                        src/thread_name.c
                        src/thread_name.h
