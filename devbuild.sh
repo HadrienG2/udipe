@@ -14,6 +14,12 @@ set -euo pipefail
 # - A RelWithDebInfo build for benchmarking
 mkdir -p build-{test,bench}
 
+# If something goes wrong, we'll insert this visual separator before trying
+# again in a manner that should produce more readable output
+function separator() {
+    printf "\n\n=== ERROR: Let's try that again more slowly... ===\n\n"
+}
+
 # Set up or update the testing build
 cd build-test
 if [[ ! -e CMakeCache.txt ]]; then
@@ -26,7 +32,7 @@ if [[ ! -e CMakeCache.txt ]]; then
           ..
 fi
 set +e
-make -j$(nproc) || (clear && make)
+cmake --build . -j$(nproc) || (separator && cmake --build . -j1 --verbose) || exit 1
 set -e
 cd ..
 
@@ -40,8 +46,8 @@ cd ../..
 # of without full colored logs
 cd build-test
 set +e
-./tests/unit_tests || (clear && UDIPE_LOG=trace ./tests/unit_tests) || exit 1
-ctest -j$(nproc) -E '^unit_tests$' || (clear && UDIPE_LOG=trace ctest -V -E '^unit_tests$') || exit 1
+./tests/unit_tests || (separator && UDIPE_LOG=trace ./tests/unit_tests) || exit 1
+ctest -j$(nproc) -E '^unit_tests$' || (separator && UDIPE_LOG=trace ctest -V -E '^unit_tests$') || exit 1
 set -e
 cd ..
 
@@ -54,7 +60,7 @@ if [[ ! -e CMakeCache.txt ]]; then
           ..
 fi
 set +e
-make -j$(nproc) || (clear && make)
+cmake --build . -j$(nproc) || (separator && cmake --build . -j1 --verbose) || exit 1
 set -e
 cd ..
 
@@ -62,7 +68,9 @@ cd ..
 cd build-bench/benches
 for entry in $(ls); do
     if [[ -f ${entry} && -x ${entry} ]]; then
-        ./${entry} || UDIPE_LOG=trace ./${entry}
+        set +e
+        ./${entry} || (separator && UDIPE_LOG=trace ./${entry}) || exit 1
+        set -e
     fi
 done
 cd ../..
