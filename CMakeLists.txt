@@ -107,14 +107,15 @@ target_sources(udipe
                PUBLIC FILE_SET HEADERS
                       BASE_DIRS include
                       FILES ${udipe_public_headers}
-                            include/udipe/benchmarks.h
+                            include/udipe/benchmark.h
                             include/udipe/unit_tests.h
                PRIVATE src/arch.h
                        src/address_wait.c
                        src/address_wait.h
-                       src/benchmarks.c
-                       src/bit_array.h
+                       src/benchmark.c
+                       src/benchmark.h
                        src/bit_array.c
+                       src/bit_array.h
                        src/bits.h
                        src/buffer.c
                        src/buffer.h

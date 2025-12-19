@@ -1,4 +1,4 @@
-#include <udipe/benchmarks.h>
+#include <udipe/benchmark.h>
 
 int main(int argc, char *argv[]) {
     udipe_benchmark_t* benchmark = udipe_benchmark_initialize(argc, argv);

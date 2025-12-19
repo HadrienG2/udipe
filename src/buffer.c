@@ -5,6 +5,7 @@
 #include "memory.h"
 
 #include <stdint.h>
+#include <string.h>
 
 
 /// Determine the smallest cache capacity available at a certain cache level
@@ -230,6 +231,8 @@ void buffer_allocator_finalize(buffer_allocator_t* allocator) {
 UDIPE_NON_NULL_ARGS
 void buffer_liberate(buffer_allocator_t* allocator, void* buffer) {
     tracef("Liberating buffer with address %p...", buffer);
+
+    // Check that this is indeed one of our buffers, figure out which
     assert(allocator->memory_pool);
     assert(buffer >= allocator->memory_pool);
     const size_t buffer_offset = (char*)buffer - (char*)allocator->memory_pool;
@@ -238,6 +241,14 @@ void buffer_liberate(buffer_allocator_t* allocator, void* buffer) {
     const size_t buffer_idx = buffer_offset / allocator->config.buffer_size;
     assert(allocator->config.buffer_count > 0);
     assert(buffer_idx < allocator->config.buffer_count);
+
+    // In debug builds, clear out buffers when they are liberated
+    #ifndef NDEBUG
+        debug("...after zeroing it to detect more bugs...");
+        memset(buffer, 0, allocator->config.buffer_size);
+    #endif
+
+    // Liberate it in the bitmap
     const bit_pos_t buffer_bit = index_to_bit_pos(buffer_idx);
     assert(!bit_array_get(allocator->buffer_availability,
                           UDIPE_MAX_BUFFERS,

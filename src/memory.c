@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <string.h>
 #include <threads.h>
 
 #ifdef __unix__
@@ -393,6 +394,11 @@ void realtime_liberate(void* buffer, size_t size) {
     debugf("Liberating %zu previously allocated byte(s) at address %p...",
            size, buffer);
     size = allocation_size(size);
+
+    #ifndef NDEBUG
+        debug("...after zeroing it to detect more bugs...");
+        memset(buffer, 0, size);
+    #endif
 
     // Note that neither code path decreases RLIMIT_MEMLOCK (Unix) or the
     // process working set size (Windows). While this is obviously meh from a
