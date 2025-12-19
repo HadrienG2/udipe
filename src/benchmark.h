@@ -165,7 +165,7 @@
     ///          the moment where now() was called and the moment where the call
     ///          to now() completed.
     static inline instant_t now() {
-        instant_t result;
+        instant_t timestamp;
         #if defined(_POSIX_TIMERS)
             clockid_t clock;
             #ifdef __linux__
@@ -175,15 +175,15 @@
             #else
                 clock = CLOCK_REALTIME;
             #endif
-            exit_on_negative(clock_gettime(clock, &result),
-                             "Failed to read the system clock");
+            int result = clock_gettime(clock, &timestamp);
+            assert(result == 0);
         #elif defined(_WIN32)
-            win32_exit_on_zero(QueryPerformanceCounter(&result),
-                               "Failed to read the system clock");
+            bool result = QueryPerformanceCounter(&timestamp);
+            assert(result);
         #else
             #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
         #endif
-        return result;
+        return timestamp;
     }
 
     /// Estimate the elapsed time between two system clock readouts
