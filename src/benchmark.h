@@ -40,7 +40,7 @@
     /// be queried at runtime through a relatively time-consuming process whose
     /// results should be cached and reused across benchmarks.
     typedef struct benchmark_clock_s {
-        /// Median system clock access delay in nanoseconds, rounded to nearest
+        /// Typical system clock access delay in nanoseconds, rounded to nearest
         ///
         /// This is the time that typically elapses between the moment where a
         /// clock readout is requested from the operating system and the moment
@@ -63,7 +63,7 @@
         /// automatically for you.
         udipe_duration_ns_t access_delay;
 
-        /// Median system clock precision in nanoseconds, rounded up
+        /// Typical system clock precision in nanoseconds, rounded up
         ///
         /// This is the typical uncertainty of clock measurements, i.e. the
         /// amount by which individual clock readouts tend to deviate from an
@@ -79,11 +79,11 @@
         /// appropriate factor away from this figure of merit to achieve the
         /// desired timing precision. For example, if you want to measure
         /// timings with +/- 1% precision, then you should tune the benchmark
-        /// iteration count such that a typical benchmark iteration takes at
-        /// least 100x longer than the system clock's precision.
+        /// iteration count such that a typical benchmark run takes at least
+        /// 100x longer than the system clock's precision.
         udipe_duration_ns_t precision;
 
-        /// Maximum benchmark duration with 1 % OS interrupt frequency,
+        /// Benchmark duration associated with an 1 % interrupt frequency,
         /// rounded down
         ///
         /// Application code can only use the CPU exclusively for a short while
@@ -98,21 +98,25 @@
         /// clock readouts, yet they are not the code whose performance we are
         /// trying to measure and therefore act as an additive contribution with
         /// respect to the application code execution duration that we are
-        /// interested in, which is unpredictable because it depends on the
-        /// current system configuration/environment and may therefore vary from
-        /// one benchmark run another.
+        /// interested in. Furthermore, said contribution is unpredictable
+        /// because it depends on the current system configuration/environment,
+        /// therefore it may vary from one benchmark run to another and reduce
+        /// benchmark result reproducibility.
         ///
         /// To avoid this problem, we attempt to tune down benchmark iteration
-        /// counts (and therefore benchmark duration) until the probability that
-        /// a purely CPU-bound benchmark is perturbed by system activity appears
-        /// to become less than 1%. Failure to do so is not fatal since not all
+        /// counts (and therefore benchmark duration) until the frequency at
+        /// which a purely CPU-bound benchmark is perturbed by system activity
+        /// becomes less than 1%. This should lead such timing disturbances to
+        /// drop out of the eventually computed 95% timing confidence interval.
+        ///
+        /// Failure to achieve this tuning is not fatal since not all
         /// benchmarked workloads of interest are short enough for this, and
         /// some timing sources do not allow us to satisfy both this constraint
         /// and the precision one above, which is more important.
         ///
-        /// As this tuning is time-consuming and requires a task with very
-        /// predictable timing to distinguish OS interference from normal code
-        /// timing variability, we perform it at benchmark harness
+        /// As this tuning is time-consuming and requires a simple task with
+        /// very predictable timing to distinguish OS interference from normal
+        /// code timing variability, we perform it at benchmark harness
         /// initialization time on a known-good task, under the assumption that
         /// the system load pattern will remain constant throughout the rest of
         /// the benchmark run and does not depend on the workload at hand.
@@ -120,6 +124,9 @@
 
         #ifdef _WIN32
             /// Frequency of the performance counter clock in ticks per second
+            ///
+            /// This is just the cached output of QueryPerformanceFrequency() in
+            /// 64-bit form.
             ///
             /// To convert performance counter ticks to nanoseconds, multiply
             /// the number of ticks by one billion (`1000*1000*1000`) then
@@ -246,8 +253,8 @@
         /// benchmark results.
         benchmark_clock_t clock;
 
-        // TODO: Will need some kind of cache-friendly buffer setup, may want to
-        //       steal the one from buffer.h.
+        // TODO: Will need some kind of cache-friendly buffer setup for
+        //       timestamps, may want to steal the one from buffer.h.
     };
 
 #endif  // UDIPE_BUILD_BENCHMARKS
