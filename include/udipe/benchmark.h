@@ -12,6 +12,8 @@
     #include "pointer.h"
     #include "visibility.h"
 
+    #include <stdbool.h>
+
 
     /// \name Benchmark harness
     /// \{
