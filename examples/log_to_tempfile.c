@@ -40,8 +40,7 @@ int main() {
     }
 
     // Start from the default libudipe configuration
-    udipe_config_t config;
-    memset(&config, 0, sizeof(udipe_config_t));
+    udipe_config_t config = { 0 };
 
     // Set up maximally verbose logging to the temporary file
     config.log = (udipe_log_config_t){

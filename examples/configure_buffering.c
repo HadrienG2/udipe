@@ -19,8 +19,7 @@ udipe_buffer_config_t apply_shared_configuration(void* context) {
 
 int main() {
     // Start from the default libudipe configuration
-    udipe_config_t config;
-    memset(&config, 0, sizeof(udipe_config_t));
+    udipe_config_t config = { 0 };
 
     // Adjust the buffering configuration
     udipe_buffer_config_t buffer_config = {

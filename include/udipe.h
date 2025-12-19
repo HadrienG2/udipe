@@ -22,14 +22,13 @@
 //! document the internal components of the library within the `src/` directory
 //! of the `libudipe` source tree.
 
+// Not including udipe/benchmarks.h as it isn't meant for end user consumption
 #include "udipe/buffer.h"
 #include "udipe/command.h"
 #include "udipe/connect.h"
 #include "udipe/context.h"
 #include "udipe/future.h"
 #include "udipe/log.h"
-// Not including udipe/micro_benchmarks.h as it isn't meant for end user
-// consumption
 #include "udipe/pointer.h"
 #include "udipe/result.h"
 // Not including udipe/unit_tests.h as it isn't meant for end user consumption

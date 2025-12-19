@@ -20,9 +20,7 @@
 
     DEFINE_PUBLIC void udipe_unit_tests(int argc, char *argv[]) {
         // Set up logging
-        udipe_log_config_t log_config;
-        memset(&log_config, 0, sizeof(udipe_log_config_t));
-        logger_t logger = logger_initialize(log_config);
+        logger_t logger = logger_initialize((udipe_log_config_t){ 0 });
         with_logger(&logger, {
             // Warn about bad build configurations
             #ifdef NDEBUG

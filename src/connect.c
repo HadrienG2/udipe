@@ -29,8 +29,7 @@ uint32_t initial_availability_mask() {
 connect_options_allocator_t
 connect_options_allocator_initialize() {
     debug("Zero-initializing the allocator...");
-    connect_options_allocator_t allocator;
-    memset(&allocator, 0, sizeof(connect_options_allocator_t));
+    connect_options_allocator_t allocator = { 0 };
 
     const uint32_t initial_availability = initial_availability_mask();
     debugf("Initializing availability mask to %#x...", initial_availability);

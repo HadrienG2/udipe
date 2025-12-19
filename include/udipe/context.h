@@ -29,8 +29,8 @@
 /// Core `libudipe` configuration
 ///
 /// This data structure is used to configure the behavior of udipe_initialize().
-/// It is designed such that zero-initializing it with memset() should result in
-/// sane defaults for many applications.
+/// It is designed such that zero-initializing it should result in sane defaults
+/// for many applications.
 typedef struct udipe_config_s {
     /// Logging configuration
     ///

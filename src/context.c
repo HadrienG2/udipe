@@ -19,7 +19,6 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
     with_logger(&logger, {
         debug("Allocating a libudipe context...");
         context = realtime_allocate(sizeof(udipe_context_t));
-        exit_on_null(context, "Failed to allocate the libudipe context!");
         memset(context, 0, sizeof(udipe_context_t));
         context->logger = logger;
 

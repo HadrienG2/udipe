@@ -155,7 +155,7 @@ UDIPE_NON_NULL_ARGS
 buffer_allocator_t
 buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
                             hwloc_topology_t topology) {
-    buffer_allocator_t allocator;
+    buffer_allocator_t allocator = { 0 };
     if (configurator.callback) {
         debug("Obtaining configuration from user callback...");
         allocator.config = (configurator.callback)(configurator.context);
@@ -169,7 +169,6 @@ buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
             exit_with_error("Do not set udipe_buffer_configurator_t::context "
                             "without also setting the callback field!");
         }
-        memset(&allocator.config, 0, sizeof(udipe_buffer_config_t));
     }
 
     debug("Applying defaults and page rounding...");
@@ -180,6 +179,7 @@ buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
         allocator.config.buffer_size * allocator.config.buffer_count;
     allocator.memory_pool = realtime_allocate(pool_size);
     exit_on_null(allocator.memory_pool, "Failed to allocate memory pool!");
+    memset(allocator.memory_pool, 0, pool_size);
     tracef("Allocated memory pool at location %p.", allocator.memory_pool);
 
     debug("Initializing the availability bit array...");
@@ -401,12 +401,10 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
             debugf("System page size is %1$zu (%1$#zx) bytes.", page_size);
 
             debug("Testing the default configuration...");
-            udipe_buffer_configurator_t configurator;
-            udipe_buffer_config_t config;
-            buffer_allocator_t allocator;
+            udipe_buffer_configurator_t configurator = { 0 };
+            udipe_buffer_config_t config = { 0 };
+            buffer_allocator_t allocator = { 0 };
             with_log_level(UDIPE_TRACE, {
-                memset(&configurator, 0, sizeof(udipe_buffer_configurator_t));
-                memset(&config, 0, sizeof(udipe_buffer_config_t));
                 allocator = buffer_allocator_initialize(configurator, topology);
                 check_and_finalize(allocator,
                                    config,
