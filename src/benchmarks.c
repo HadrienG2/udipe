@@ -52,6 +52,7 @@
             #endif
 
             // Set up name-based benchmark filtering
+            debug("Setting up benchmark name filter...");
             ensure_le(argc, 2);
             const char* filter_key = (argc == 2) ? argv[1] : "";
             benchmark->filter = name_filter_initialize(filter_key);
@@ -79,7 +80,7 @@
         with_logger(&(*benchmark)->logger, {
             info("All micro-benchmarks completed successfully!");
 
-            debug("Finalizing name filter...");
+            debug("Finalizing benchmark name filter...");
             name_filter_finalize(&(*benchmark)->filter);
 
             debug("Finalizing logger, deallocating, and poisoning...");
