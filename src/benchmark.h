@@ -34,24 +34,24 @@
     /// \name Benchmark timing measurements
     /// \{
 
-    /// Result of the statistical analysis of a duration dataset
+    /// Result of the statistical analysis of a duration-based dataset
     ///
     /// This provides the most likely value and x% confidence interval of some
-    /// quantity that the benchmark clock measures, using bootstrap resampling
-    /// techniques to avoid assuming that computation timing measurements are
-    /// normally distributed (they aren't).
+    /// quantity that originates from benchmark clock measurements, using
+    /// bootstrap resampling techniques to avoid assuming that duration
+    /// measurements are normally distributed (they aren't).
     ///
     /// To allow statistical analysis code sharing between the code paths
     /// associated with different clocks and different stages of the
-    /// benchmarking process, the quantity that is being measured (clock ticks
-    /// vs nanoseconds) and the width of the confidence interval is purposely
-    /// left unspecified.
+    /// benchmarking process, the quantity that is being measured (nanoseconds,
+    /// clock ticks, TSC frequency...) and the width of the confidence interval
+    /// are purposely left unspecified.
     ///
     /// Such details must clarified at each point where this type is used. If
     /// you find that a specific configuration is used often, consider creating
     /// a typedef for this common configuration.
-    typedef struct duration_s {
-        /// Most likely value of the duration measurement
+    typedef struct stats_s {
+        /// Most likely value of the duration-based measurement
         ///
         /// This value is determined by repeatedly drawing a small amount of
         /// duration samples from the duration dataset, taking their median
@@ -85,7 +85,11 @@
         /// - For 99% confidence intervals, this is the 99.5% quantile of the
         ///   median timing distribution.
         int64_t high;
-    } duration_t;
+    } stats_t;
+
+    /// \ref stats_t from a duration measurement that was performed during
+    /// calibration
+    typedef stats_t calibration_duration_t;
 
     /// Harness for statistically analyzing duration data with a certain
     /// confidence interval
@@ -123,9 +127,9 @@
     /// \param data is the raw duration data from the clock that you are using
     /// \param data_len is the number of data points within `data`
     UDIPE_NON_NULL_ARGS
-    duration_t analyze_duration(duration_analyzer_t* analyzer,
-                                int64_t data[],
-                                size_t data_len);
+    stats_t analyze_duration(duration_analyzer_t* analyzer,
+                             int64_t data[],
+                             size_t data_len);
 
     /// Destroy a \ref duration_analyzer_t
     ///

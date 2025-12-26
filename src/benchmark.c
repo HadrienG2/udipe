@@ -134,9 +134,9 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    duration_t analyze_duration(duration_analyzer_t* analyzer,
-                                int64_t data[],
-                                size_t data_len) {
+    stats_t analyze_duration(duration_analyzer_t* analyzer,
+                             int64_t data[],
+                             size_t data_len) {
         trace("Checking dataset...");
         ensure_gt(data_len, (size_t)0);
 
@@ -177,7 +177,7 @@
               analyzer->num_medians,
               sizeof(int64_t),
               compare_i64);
-        return (duration_t){
+        return (stats_t){
             .center = analyzer->medians[analyzer->center_idx],
             .low = analyzer->medians[analyzer->low_idx],
             .high = analyzer->medians[analyzer->high_idx]
@@ -250,7 +250,7 @@
     ///                 via duration_analyzer_initialize() and hasn't been
     ///                 destroyed via duration_analyzer_finalize() yet.
     UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 4, 5, 7)
-    static inline duration_t measure_os_duration(
+    static inline stats_t measure_os_duration(
         benchmark_clock_t* clock,
         void (*workload)(void*),
         void* context,
@@ -299,19 +299,19 @@
         }
     }
 
-    /// Log a run duration measurement from the calibration process
+    /// Log statistics from the calibration process
     ///
     /// This function must be called within the scope of with_logger().
     ///
     /// \param level is the verbosity level at which this log will be emitted
     /// \param header is a string that will be prepended to the log
-    /// \param duration is a \ref duration_t from the calibration process that
-    ///                 will be printed out
+    /// \param stats is \ref stats_t from the calibration process that will
+    ///              be printed out
     /// \param unit is a string that spells out the measurement unit of
-    ///             `duration`
-    #define log_calibration_run_duration(level, header, duration, unit)  \
+    ///             `stats`
+    #define log_calibration_stats(level, header, stats, unit)  \
         do {  \
-            duration_t udipe_duration = (duration);  \
+            stats_t udipe_duration = (stats);  \
             udipe_logf((level),  \
                        "%s: %zd %s with %g%% CI [%zd; %zd].",  \
                        (header),  \
@@ -320,6 +320,51 @@
                        CALIBRATION_CONFIDENCE,  \
                        udipe_duration.low,  \
                        udipe_duration.high);  \
+        } while(false)
+
+    /// Compute the relative uncertainty from some \ref stats_t
+    ///
+    /// \param stats is \ref stats_t that directly or indirectly derive from
+    ///              some measurements.
+    /// \returns the associated statistical uncertainty in percentage points
+    static inline double relative_uncertainty(stats_t stats) {
+        return (double)(stats.high - stats.low) / stats.center * 100.0;
+    }
+
+    /// Log per-iteration statistics from the calibration process
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param level is the verbosity level at which this log will be emitted
+    /// \param stats is \ref stats_t from the calibration process that will
+    ///              be printed out
+    /// \param unit is a string that spells out the measurement unit of
+    ///             `stats`
+    #define log_iteration_stats(level, bullet, stats, num_iters, unit)  \
+        do {  \
+            const stats_t udipe_stats = (stats);  \
+            const size_t udipe_num_iters = (num_iters);  \
+            const double udipe_center = (double)udipe_stats.center / udipe_num_iters;  \
+            const double udipe_low = (double)udipe_stats.low / udipe_num_iters;  \
+            const double udipe_high = (double)udipe_stats.high / udipe_num_iters;  \
+            const double udipe_spread = udipe_high - udipe_low;  \
+            const int udipe_stats_decimals = ceil(1.0 - log10(udipe_spread));  \
+            const double udipe_uncertainty = relative_uncertainty(udipe_stats);  \
+            int udipe_uncertainty_decimals = ceil(1.0 - log10(udipe_uncertainty));  \
+            if (udipe_uncertainty_decimals < 0) udipe_uncertainty_decimals = 0;  \
+            udipe_logf((level),  \
+                       "%s That's %.*f %s/iter with %g%% CI [%.*f; %.*f] (%.*f%% uncertainty).",  \
+                       (bullet),  \
+                       udipe_stats_decimals,  \
+                       udipe_center,  \
+                       (unit),  \
+                       CALIBRATION_CONFIDENCE,  \
+                       udipe_stats_decimals,  \
+                       udipe_low,  \
+                       udipe_stats_decimals,  \
+                       udipe_high,  \
+                       udipe_uncertainty_decimals,  \
+                       udipe_uncertainty);  \
         } while(false)
 
     benchmark_clock_t benchmark_clock_initialize() {
@@ -350,7 +395,7 @@
         signed_duration_ns_t* durations = realtime_allocate(durations_size);
 
         info("Calibrating OS clock offset...");
-        const duration_t os_offset = measure_os_duration(
+        const stats_t os_offset = measure_os_duration(
             &clock,
             nothing,
             NULL,
@@ -359,10 +404,10 @@
             NUM_RUNS_OFFSET,
             &clock.calibration_analyzer
         );
-        log_calibration_run_duration(UDIPE_INFO,
-                                     "- OS clock offset",
-                                     os_offset,
-                                     "ns");
+        log_calibration_stats(UDIPE_INFO,
+                              "- OS clock offset",
+                              os_offset,
+                              "ns");
         clock.os_offset = os_offset.center;
         clock.best_precision = os_offset.high - os_offset.low;
         infof("- Offset correction will have %g%% CI [%+zd; %+zd].",
@@ -371,7 +416,7 @@
               os_offset.high-os_offset.center);
 
         info("Finding minimal measurable loop...");
-        duration_t loop_duration;
+        stats_t loop_duration;
         size_t num_iters = 1;
         do {
             debugf("- Trying loop with %zu iteration(s)...", num_iters);
@@ -384,12 +429,12 @@
                 NUM_RUNS_SHORTEST_LOOP,
                 &clock.calibration_analyzer
             );
-            log_calibration_run_duration(UDIPE_DEBUG,
-                                         "  * Loop duration",
-                                         loop_duration,
-                                         "ns");
+            log_calibration_stats(UDIPE_DEBUG,
+                                  "  * Loop duration",
+                                  loop_duration,
+                                  "ns");
             if (loop_duration.center > (int64_t)clock.os_offset) {
-                debug("  * Loop finally contributes more than the clock offset!");
+                debug("  * Loop finally contributes more to measurements than the clock offset!");
                 break;
             } else {
                 debug("  * That's not even the clock offset, try a longer loop...");
@@ -397,12 +442,12 @@
                 continue;
             }
         } while(true);
-        infof("- Need at least %zu loop iterations.", num_iters);
+        infof("- Loops with >=%zu iterations have non-negligible duration.",
+              num_iters);
 
         info("Finding optimal loop duration...");
-        duration_t best_duration = loop_duration;
-        double best_uncertainty =
-            (double)(loop_duration.high - loop_duration.low) / loop_duration.center * 100.0;
+        stats_t best_duration = loop_duration;
+        double best_uncertainty = relative_uncertainty(loop_duration);
         size_t best_iters = num_iters;
         do {
             num_iters *= 2;
@@ -416,27 +461,23 @@
                 NUM_RUNS_OPTIMAL_LOOP,
                 &clock.calibration_analyzer
             );
-            log_calibration_run_duration(UDIPE_DEBUG,
-                                         "  * Loop duration",
-                                         loop_duration,
-                                         "ns");
-            // TODO: Extract this recuring display and relative uncertainty
-            //       computation logic + change it everywhere
-            debugf("  * Iteration duration: %g ns with %g%% CI [%g; %g].",
-                   (double)loop_duration.center / num_iters,
-                   CALIBRATION_CONFIDENCE,
-                   (double)loop_duration.low / num_iters,
-                   (double)loop_duration.high / num_iters);
-            const double rel_uncertainty =
-                (double)(loop_duration.high - loop_duration.low) / loop_duration.center * 100.0;
-            debugf("  * Relative uncertainty: %g%%.", rel_uncertainty);
+            log_calibration_stats(UDIPE_DEBUG,
+                                  "  * Loop duration",
+                                  loop_duration,
+                                  "ns");
+            log_iteration_stats(UDIPE_DEBUG,
+                                "  *",
+                                loop_duration,
+                                num_iters,
+                                "ns");
+            const double uncertainty = relative_uncertainty(loop_duration);
             if (loop_duration.high - loop_duration.low > 2*(os_offset.high - os_offset.low)) {
                 debug("  * Timing precision degraded by >2x: time to stop!");
                 break;
-            } else if (rel_uncertainty < best_uncertainty) {
+            } else if (uncertainty < best_uncertainty) {
                 debug("  * This is our new best loop!");
                 best_iters = num_iters;
-                best_uncertainty = rel_uncertainty;
+                best_uncertainty = uncertainty;
                 best_duration = loop_duration;
                 continue;
             } else {
@@ -445,17 +486,15 @@
             }
         } while(true);
         infof("- Achieved optimal precision at %zu loop iterations.", best_iters);
-        log_calibration_run_duration(UDIPE_INFO,
-                                     "- Best loop duration",
-                                     best_duration,
-                                     "ns");
-        // TODO replace
-        infof("- Best iteration duration: %g ns with %g%% CI [%g; %g]...",
-               (double)best_duration.center / best_iters,
-               CALIBRATION_CONFIDENCE,
-               (double)best_duration.low / best_iters,
-               (double)best_duration.high / best_iters);
-        infof("- Best relative uncertainty: %g%%.", best_uncertainty);
+        log_calibration_stats(UDIPE_INFO,
+                              "- Best loop duration",
+                              best_duration,
+                              "ns");
+        log_iteration_stats(UDIPE_INFO,
+                            "-",
+                            best_duration,
+                            best_iters,
+                            "ns");
         clock.longest_optimal_duration = best_duration.low;
 
         // TODO: WIP x86 TSC calibration, once ready extract it into its own
@@ -502,14 +541,14 @@
                num_internal_migrations, num_external_migrations);
         // TODO: Handle case where there are too many migrations
         debug("- Analyzing durations...");
-        const duration_t best_ticks =
+        const stats_t best_ticks =
             analyze_duration(&clock.calibration_analyzer,
                              ticks,
                              num_valid_ticks);
-        log_calibration_run_duration(UDIPE_INFO,
-                                     "- Best loop duration",
-                                     best_ticks,
-                                     "ticks");
+        log_calibration_stats(UDIPE_INFO,
+                              "- Best loop duration",
+                              best_ticks,
+                              "ticks");
 
         // TODO: Deduplicate with above code
         // FIXME: Don't use a half-length loop for offset calibration when an
@@ -549,43 +588,42 @@
                num_internal_migrations, num_external_migrations);
         // TODO: Handle case where there are too many migrations
         debug("- Analyzing durations...");
-        const duration_t half_ticks =
+        const stats_t half_ticks =
             analyze_duration(&clock.calibration_analyzer,
                              ticks,
                              num_valid_ticks);
-        log_calibration_run_duration(UDIPE_INFO,
-                                     "- Half-loop duration",
-                                     half_ticks,
-                                     "ticks");
-        const duration_t tsc_offset = (duration_t){
+        log_calibration_stats(UDIPE_INFO,
+                              "- Half-loop duration",
+                              half_ticks,
+                              "ticks");
+        const stats_t tsc_offset = (stats_t){
             .center = 2*half_ticks.center - best_ticks.center,
             .low = 2*half_ticks.low - best_ticks.high,
             .high = 2*half_ticks.high - best_ticks.low
         };
-        log_calibration_run_duration(UDIPE_INFO,
-                                     "- Deduced timing offset",
-                                     tsc_offset,
-                                     "ticks");
+        log_calibration_stats(UDIPE_INFO,
+                              "- Deduced timing offset",
+                              tsc_offset,
+                              "ticks");
         clock.tsc_offset = tsc_offset.center;
-        const duration_t corrected_best_ticks = (duration_t){
+        const stats_t corrected_best_ticks = (stats_t){
             .center = best_ticks.center - tsc_offset.center,
             .low = best_ticks.low - tsc_offset.high,
             .high = best_ticks.high - tsc_offset.low
         };
-        log_calibration_run_duration(UDIPE_INFO,
-                                     "- Corrected best loop duration",
-                                     corrected_best_ticks,
-                                     "ticks");
-        // TODO: Rename duration_t to something more generic so this is less jarring
-        const duration_t tsc_freq = (duration_t){
+        log_calibration_stats(UDIPE_INFO,
+                              "- Corrected best loop duration",
+                              corrected_best_ticks,
+                              "ticks");
+        const stats_t tsc_freq = (stats_t){
             .center = corrected_best_ticks.center * 1000*1000*1000 / best_duration.center,
             .low = corrected_best_ticks.low * 1000*1000*1000 / best_duration.high,
             .high = corrected_best_ticks.high * 1000*1000*1000 / best_duration.low
         };
-        log_calibration_run_duration(UDIPE_INFO,
-                                     "- TSC frequency",
-                                     tsc_freq,
-                                     "ticks/sec");
+        log_calibration_stats(UDIPE_INFO,
+                              "- TSC frequency",
+                              tsc_freq,
+                              "ticks/sec");
 
         // TODO: Deduplicate with above code
         // TODO: Only run when debug logging is enabled
@@ -625,29 +663,24 @@
                    num_internal_migrations, num_external_migrations);
             // TODO: Handle case where there are too many migrations
             debug("  * Analyzing durations...");
-            const duration_t loop_ticks =
+            const stats_t loop_ticks =
                 analyze_duration(&clock.calibration_analyzer,
                                  ticks,
                                  num_valid_ticks);
-            loop_duration = (duration_t){
+            loop_duration = (stats_t){
                 .center = loop_ticks.center * 1000*1000*1000 / tsc_freq.center,
                 .low = loop_ticks.low * 1000*1000*1000 / tsc_freq.high,
                 .high = loop_ticks.high * 1000*1000*1000 / tsc_freq.low
             };
-            log_calibration_run_duration(UDIPE_DEBUG,
-                                         "  * Loop duration",
-                                         loop_duration,
-                                         "ns");
-            // TODO replace
-            debugf("  * Iteration duration: %g ns with %g%% CI [%g; %g].",
-                   (double)loop_duration.center / num_iters,
-                   CALIBRATION_CONFIDENCE,
-                   (double)loop_duration.low / num_iters,
-                   (double)loop_duration.high / num_iters);
-            const double rel_uncertainty =
-                (double)(loop_duration.high - loop_duration.low) / loop_duration.center * 100.0;
-            debugf("  * Relative uncertainty: %g%%.", rel_uncertainty);
-
+            log_calibration_stats(UDIPE_DEBUG,
+                                  "  * Loop duration",
+                                  loop_duration,
+                                  "ns");
+            log_iteration_stats(UDIPE_DEBUG,
+                                "  *",
+                                loop_duration,
+                                num_iters,
+                                "ns");
             if (loop_ticks.center <= clock.tsc_offset) {
                 debug("  * This is getting below the offset, stop here.");
                 break;
