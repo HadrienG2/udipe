@@ -691,19 +691,6 @@
             }
         } while(true);
 
-        // TODO: Now introduce the TSC on x86 only:
-        //       - Starting from the optimal loop from the OS clock's
-        //         perspective, time it with TSC and tune iteration count down
-        //         by 2x steps if needed until <10% of measurements must be
-        //         discarded due to CPU migrations.
-        //       - Take this TSC-optimal loop's ticks duration, tune iteration
-        //         count down by 2x, measure ticks duration again, and use
-        //         affine model to deduce TSC offset. (2*short - long = offset).
-        //       - Alternatively measure TSC-optimal loop with TSC and OS clock
-        //         (as in paired benchmarking), deduce TSC frequency and its
-        //         99% CI.
-        //       - Use TSC ticks 99% CI and frequency 99% CI to deduce TSC
-        //         best-case precision and longest optimal duration.
         // TODO: Once done, extract OS clock calibration and TSC calibration
         //       into their own functions.
         // TODO: Consider keeping around the optimal loop iteration count to
@@ -787,6 +774,10 @@
             const char* filter_key = (argc == 2) ? argv[1] : "";
             benchmark->filter = name_filter_initialize(filter_key);
 
+            // TODO: Pin to one CPU hyperthread to avoid CPU migrations, which
+            //       complicate TSC measurement. Then simplify the TSC code
+            //       accordingly.
+
             // Set up the benchmark clock
             benchmark->clock = benchmark_clock_initialize();
         });
@@ -804,6 +795,8 @@
             matches = name_filter_matches(benchmark->filter, name);
             if (matches) {
                 tracef("Running benchmark \"%s\"...", name);
+                // TODO: Pin to one CPU hyperthread to avoid CPU migrations,
+                //       which complicate TSC measurement.
                 // TODO: Make this a realtime thread with a priority given by
                 //       environment variable UDIPE_PRIORITY_BENCHMARK if set,
                 //       by default halfway from the bottom of the realtime
