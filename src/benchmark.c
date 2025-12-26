@@ -434,7 +434,7 @@
                                   loop_duration,
                                   "ns");
             if (loop_duration.center > (int64_t)clock.os_offset) {
-                debug("  * Loop finally contributes more to measurements than the clock offset!");
+                debug("  * Loop finally contributes more to measurements than clock offset!");
                 break;
             } else {
                 debug("  * That's not even the clock offset, try a longer loop...");
@@ -475,7 +475,7 @@
                 debug("  * Timing precision degraded by >2x: time to stop!");
                 break;
             } else if (uncertainty < best_uncertainty) {
-                debug("  * This is our new best loop!");
+                debug("  * This is our new best loop. Can we do even better?");
                 best_iters = num_iters;
                 best_uncertainty = uncertainty;
                 best_duration = loop_duration;
