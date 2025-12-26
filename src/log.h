@@ -87,11 +87,12 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// performed when the target log level is disabled, then you should use
 /// log_enabled() to test ahead of time whether this log level is enabled. For
 /// the common case where the expensive process is generation of a formatted
-/// text, we directly provide logf() and log level specific cousins thereof.
+/// text, we directly provide udipe_logf() and log level specific cousins
+/// thereof.
 ///
 /// See also warn_on_errno() for cases where you need to report a failure from
 /// system calls and third-party C libraries.
-#define log(level, message)  \
+#define udipe_log(level, message)  \
     do {  \
         const udipe_log_level_t udipe_level = thread_log_level(level);  \
         if (log_enabled(udipe_level)) {  \
@@ -104,28 +105,33 @@ static inline bool log_enabled(udipe_log_level_t level);
 
 /// Log a \link #UDIPE_TRACE `TRACE` \endlink message
 ///
-/// Can only be used within the scope of with_logger(). See log() for more info.
-#define trace(message)  log(UDIPE_TRACE, (message))
+/// Can only be used within the scope of with_logger(). See udipe_log() for more
+/// info.
+#define trace(message)  udipe_log(UDIPE_TRACE, (message))
 
 /// Log a \link #UDIPE_DEBUG `DEBUG` \endlink message
 ///
-/// Can only be used within the scope of with_logger(). See log() for more info.
-#define debug(message)  log(UDIPE_DEBUG, (message))
+/// Can only be used within the scope of with_logger(). See udipe_log() for more
+/// info.
+#define debug(message)  udipe_log(UDIPE_DEBUG, (message))
 
 /// Log an \link #UDIPE_INFO `INFO` \endlink message
 ///
-/// Can only be used within the scope of with_logger(). See log() for more info.
-#define info(message)  log(UDIPE_INFO, (message))
+/// Can only be used within the scope of with_logger(). See udipe_log() for more
+/// info.
+#define info(message)  udipe_log(UDIPE_INFO, (message))
 
 /// Log a \link #UDIPE_WARNING `WARNING` \endlink message
 ///
-/// Can only be used within the scope of with_logger(). See log() for more info.
-#define warning(message)  log(UDIPE_WARNING, (message))
+/// Can only be used within the scope of with_logger(). See udipe_log() for more
+/// info.
+#define warning(message)  udipe_log(UDIPE_WARNING, (message))
 
 /// Log an \link #UDIPE_ERROR `ERROR` \endlink message
 ///
-/// Can only be used within the scope of with_logger(). See log() for more info.
-#define error(message)  log(UDIPE_ERROR, (message))
+/// Can only be used within the scope of with_logger(). See udipe_log() for more
+/// info.
+#define error(message)  udipe_log(UDIPE_ERROR, (message))
 
 /// \}
 
@@ -135,18 +141,18 @@ static inline bool log_enabled(udipe_log_level_t level);
 
 /// Log a message with printf() formatting
 ///
-/// This macro works a lot like log(), but instead of logging a pre-existing
-/// string, it builds a string on the fly using a printf()-style format string
-/// and formatting arguments.
+/// This macro works a lot like udipe_log(), but instead of logging a
+/// pre-existing string, it builds a string on the fly using a printf()-style
+/// format string and formatting arguments.
 ///
 /// The price to pay for these enhanced formating capabilities is extra runtime
 /// overhead, so prefer the basic logging macros where all you need to log is a
 /// static string.
 ///
-/// All other comments from log() remain valid, including the need to call it
-/// inside the scope of with_logger(). See also errorf(), warningf(), infof(),
-/// debugf() and tracef() for level-specific formatted logging macros.
-#define logf(level, format, ...)  \
+/// All other comments from udipe_log() remain valid, including the need to call
+/// it inside the scope of with_logger(). See also errorf(), warningf(),
+/// infof(), debugf() and tracef() for level-specific formatted logging macros.
+#define udipe_logf(level, format, ...)  \
     do {  \
         const udipe_log_level_t udipe_level = thread_log_level(level);  \
         if (log_enabled(udipe_level)) {  \
@@ -159,28 +165,33 @@ static inline bool log_enabled(udipe_log_level_t level);
 
 /// Log a \link #UDIPE_TRACE `TRACE` \endlink formatted message
 ///
-/// Can only be used within the scope of with_logger(). See logf() for more info.
-#define tracef(format, ...)  logf(UDIPE_TRACE, (format), __VA_ARGS__)
+/// Can only be used within the scope of with_logger(). See udipe_logf() for
+/// more info.
+#define tracef(format, ...)  udipe_logf(UDIPE_TRACE, (format), __VA_ARGS__)
 
 /// Log a \link #UDIPE_DEBUG `DEBUG` \endlink formatted message
 ///
-/// Can only be used within the scope of with_logger(). See logf() for more info.
-#define debugf(format, ...)  logf(UDIPE_DEBUG, (format), __VA_ARGS__)
+/// Can only be used within the scope of with_logger(). See udipe_logf() for
+/// more info.
+#define debugf(format, ...)  udipe_logf(UDIPE_DEBUG, (format), __VA_ARGS__)
 
 /// Log an \link #UDIPE_INFO `INFO` \endlink formatted message
 ///
-/// Can only be used within the scope of with_logger(). See logf() for more info.
-#define infof(format, ...)  logf(UDIPE_INFO, (format), __VA_ARGS__)
+/// Can only be used within the scope of with_logger(). See udipe_logf() for
+/// more info.
+#define infof(format, ...)  udipe_logf(UDIPE_INFO, (format), __VA_ARGS__)
 
 /// Log a \link #UDIPE_WARNING `WARNING` \endlink formatted message
 ///
-/// Can only be used within the scope of with_logger(). See logf() for more info.
-#define warningf(format, ...)  logf(UDIPE_WARNING, (format), __VA_ARGS__)
+/// Can only be used within the scope of with_logger(). See udipe_logf() for
+/// more info.
+#define warningf(format, ...)  udipe_logf(UDIPE_WARNING, (format), __VA_ARGS__)
 
 /// Log an \link #UDIPE_ERROR `ERROR` \endlink formatted message
 ///
-/// Can only be used within the scope of with_logger(). See logf() for more info.
-#define errorf(format, ...)  logf(UDIPE_ERROR, (format), __VA_ARGS__)
+/// Can only be used within the scope of with_logger(). See udipe_logf() for
+/// more info.
+#define errorf(format, ...)  udipe_logf(UDIPE_ERROR, (format), __VA_ARGS__)
 
 /// \}
 
@@ -233,8 +244,8 @@ static inline bool log_enabled(udipe_log_level_t level);
 
 /// Set up logging within a certain code scope
 ///
-/// Call as `with_logger(&logger, { ... })` to be able to use log() and related
-/// macros inside of the `{ ... }` inner code scope.
+/// Call as `with_logger(&logger, { ... })` to be able to use udipe_log() and
+/// related macros inside of the `{ ... }` inner code scope.
 ///
 /// This macro must be called at the start of every public `libudipe` API entry
 /// point, and early on inside the main function of every worker thread.
@@ -386,10 +397,10 @@ void logger_restore(const logger_state_t* state);
     #define LOGF_IMPL_ATTRIBUTES
 #endif
 
-/// Implementation of logf()
+/// Implementation of udipe_logf()
 ///
 /// This function is not meant to be used directly, it is an implementation
-/// detail of the logf() macro.
+/// detail of the udipe_logf() macro.
 LOGF_IMPL_ATTRIBUTES
 void logf_impl(udipe_log_level_t level,
                const char* location,

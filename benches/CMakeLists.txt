@@ -1,3 +1,3 @@
 add_executable(micro_benchmarks)
 target_sources(micro_benchmarks PRIVATE micro_benchmarks.c)
-target_link_libraries(micro_benchmarks PRIVATE udipe)
+target_link_libraries(micro_benchmarks PRIVATE m udipe)
