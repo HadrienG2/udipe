@@ -87,10 +87,6 @@
         int64_t high;
     } stats_t;
 
-    /// \ref stats_t from a duration measurement that was performed during
-    /// calibration
-    typedef stats_t calibration_duration_t;
-
     /// Harness for statistically analyzing duration data with a certain
     /// confidence interval
     ///
