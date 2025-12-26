@@ -95,19 +95,24 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
     ///
     /// To relate this to real time units like nanoseconds, you must calibrate
     /// TSC clock ticks against the operating system clock.
-    typedef uint64_t x86_tsc_instant;
+    typedef uint64_t x86_instant;
 
     /// Duration in TSC clock ticks
     ///
     /// This is a working quantity that is used when computing durations from
-    /// pairs of \ref x86_tsc_instant.
+    /// pairs of \ref x86_instant.
     ///
     /// The TSC itself does not go back in time when both readouts have been
     /// taken on a single CPU core. But after subtracting the TSC offset to get
     /// an unbiased duration estimator we can sometimes get negative quantities
     /// when timing very short durations, depending on which side of the TSC
     /// offset confidence interval we end up.
-    typedef int64_t x86_tsc_ticks;
+    typedef int64_t x86_duration_ticks;
+
+    /// CPU identifier on x86 systems
+    ///
+    /// Used to detect CPU migrations in TSC-based timing.
+    typedef uint32_t x86_cpu_id;
 
     /// (timestamp, CPU ID) pair from the RDTSCP instruction
     ///
@@ -126,7 +131,7 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
         /// To relate these TSC ticks to physically meaningful time units like
         /// nanoseconds, you must calibrate the TSC against the operating system
         /// clock during benchmark harness initialization.
-        x86_tsc_instant ticks;
+        x86_instant ticks;
 
         /// OS identifier of the CPU on which the TSC was measured
         ///
@@ -174,7 +179,7 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
         /// TSCs of different cores may drift away from each other by more than
         /// 1 tick on a system with sufficiently long uptime since boot-time TSC
         /// synchronization occured
-        uint32_t cpu_id;
+        x86_cpu_id cpu_id;
     } x86_timestamp_t;
 
     /// \ref x86_timestamp_t that was measured by x86_timer_start()
@@ -278,7 +283,7 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
             #error "Sorry, we don't support your compiler yet. Please file a bug report about it!"
         #endif
         return (x86_timestamp_start){
-            .ticks = (x86_tsc_instant)edx_out << 32 | eax_out,
+            .ticks = (x86_instant)edx_out << 32 | eax_out,
             .cpu_id = ecx_out,
         };
     }
@@ -378,7 +383,7 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
             #error "Sorry, we don't support your compiler yet. Please file a bug report about it!"
         #endif
         return (x86_timestamp_start){
-            .ticks = (x86_tsc_instant)edx_out << 32 | eax_out,
+            .ticks = (x86_instant)edx_out << 32 | eax_out,
             .cpu_id = ecx_out,
         };
     }

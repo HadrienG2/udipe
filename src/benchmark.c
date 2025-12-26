@@ -95,7 +95,7 @@
     //       once the pool of available testing systems is exhausted, some extra
     //       safety margin (maybe 2-4x?) should be applied on top of the final
     //       result to account for unknown systems.
-    #define NUM_RUNS_OPTIMAL_LOOP ((size_t)4*1024)
+    #define NUM_RUNS_OPTIMAL_LOOP ((size_t)8*1024)
 
     /// Comparison function for applying qsort() to int64_t[]
     static inline int compare_i64(const void* v1, const void* v2) {
@@ -225,6 +225,8 @@
     /// - Execution time, which grows roughly linearly with `num_runs`,
     ///   remains reasonable.
     ///
+    /// This function must be called within the scope of with_logger().
+    ///
     /// \param clock is the benchmark clock that is going to be used. This
     ///              routine can be used before said clock is fully initialized,
     ///              but it must be at minimum initialized enough to allow for
@@ -257,19 +259,21 @@
         size_t num_runs,
         duration_analyzer_t* analyzer
     ) {
-        tracef("- Performing %zu timed runs...", num_runs);
+        tracef("Performing %zu timed runs...", num_runs);
         timestamps[0] = os_now();
-        for (size_t i = 0; i < num_runs; ++i) {
+        for (size_t run = 0; run < num_runs; ++run) {
             UDIPE_ASSUME_READ(timestamps);
             workload(context);
-            timestamps[i+1] = os_now();
+            timestamps[run+1] = os_now();
         }
-        trace("- Computing run durations...");
-        for (size_t i = 0; i < num_runs; ++i) {
-            durations[i] = os_duration(clock, timestamps[i], timestamps[i+1]);
-            tracef("  * durations[%zu] = %zd ns", i, durations[i]);
+        trace("Computing run durations...");
+        for (size_t run = 0; run < num_runs; ++run) {
+            durations[run] = os_duration(clock,
+                                         timestamps[run],
+                                         timestamps[run+1]);
+            tracef("- durations[%zu] = %zd ns", run, durations[run]);
         }
-        trace("- Analyzing durations...");
+        trace("Analyzing durations...");
         return analyze_duration(analyzer, durations, num_runs);
     }
 
@@ -294,6 +298,29 @@
             UDIPE_ASSUME_READ(iter);
         }
     }
+
+    /// Log a run duration measurement from the calibration process
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param level is the verbosity level at which this log will be emitted
+    /// \param header is a string that will be prepended to the log
+    /// \param duration is a \ref duration_t from the calibration process that
+    ///                 will be printed out
+    /// \param unit is a string that spells out the measurement unit of
+    ///             `duration`
+    #define log_calibration_run_duration(level, header, duration, unit)  \
+        do {  \
+            duration_t udipe_duration = (duration);  \
+            udipe_logf((level),  \
+                       "%s: %zd %s with %g%% CI [%zd; %zd].",  \
+                       (header),  \
+                       udipe_duration.center,  \
+                       (unit),  \
+                       CALIBRATION_CONFIDENCE,  \
+                       udipe_duration.low,  \
+                       udipe_duration.high);  \
+        } while(false)
 
     benchmark_clock_t benchmark_clock_initialize() {
         // Zero out all clock fields initially
@@ -332,11 +359,10 @@
             NUM_RUNS_OFFSET,
             &clock.calibration_analyzer
         );
-        infof("- Typical OS clock offset: %zd ns with %g%% CI [%zd; %zd].",
-               os_offset.center,
-               CALIBRATION_CONFIDENCE,
-               os_offset.low,
-               os_offset.high);
+        log_calibration_run_duration(UDIPE_INFO,
+                                     "- OS clock offset",
+                                     os_offset,
+                                     "ns");
         clock.os_offset = os_offset.center;
         clock.best_precision = os_offset.high - os_offset.low;
         infof("- Offset correction will have %g%% CI [%+zd; %+zd].",
@@ -358,11 +384,10 @@
                 NUM_RUNS_SHORTEST_LOOP,
                 &clock.calibration_analyzer
             );
-            debugf("  * Typical loop duration: %zd ns with %g%% CI [%zd; %zd].",
-                   loop_duration.center,
-                   CALIBRATION_CONFIDENCE,
-                   loop_duration.low,
-                   loop_duration.high);
+            log_calibration_run_duration(UDIPE_DEBUG,
+                                         "  * Loop duration",
+                                         loop_duration,
+                                         "ns");
             if (loop_duration.center > (int64_t)clock.os_offset) {
                 debug("  * Loop finally contributes more than the clock offset!");
                 break;
@@ -391,11 +416,12 @@
                 NUM_RUNS_OPTIMAL_LOOP,
                 &clock.calibration_analyzer
             );
-            debugf("  * Typical loop duration: %zd ns with %g%% CI [%zd; %zd].",
-                   loop_duration.center,
-                   CALIBRATION_CONFIDENCE,
-                   loop_duration.low,
-                   loop_duration.high);
+            log_calibration_run_duration(UDIPE_DEBUG,
+                                         "  * Loop duration",
+                                         loop_duration,
+                                         "ns");
+            // TODO: Extract this recuring display and relative uncertainty
+            //       computation logic + change it everywhere
             debugf("  * Iteration duration: %g ns with %g%% CI [%g; %g].",
                    (double)loop_duration.center / num_iters,
                    CALIBRATION_CONFIDENCE,
@@ -419,18 +445,218 @@
             }
         } while(true);
         infof("- Achieved optimal precision at %zu loop iterations.", best_iters);
-        infof("- Typical loop duration: %zd ns with %g%% CI [%zd; %zd].",
-               best_duration.center,
-               CALIBRATION_CONFIDENCE,
-               best_duration.low,
-               best_duration.high);
-        infof("- Iteration duration: %g ns with %g%% CI [%g; %g]...",
+        log_calibration_run_duration(UDIPE_INFO,
+                                     "- Best loop duration",
+                                     best_duration,
+                                     "ns");
+        // TODO replace
+        infof("- Best iteration duration: %g ns with %g%% CI [%g; %g]...",
                (double)best_duration.center / best_iters,
                CALIBRATION_CONFIDENCE,
                (double)best_duration.low / best_iters,
                (double)best_duration.high / best_iters);
-        infof("- Relative uncertainty: %g%%.", best_uncertainty);
-        clock.longest_optimal_duration = best_duration.high;
+        infof("- Best relative uncertainty: %g%%.", best_uncertainty);
+        clock.longest_optimal_duration = best_duration.low;
+
+        // TODO: WIP x86 TSC calibration, once ready extract it into its own
+        //       function guarded with #ifdef X86_64
+        // TODO: Move to toplevel and tune
+        // TODO: Use different values for different stages of the calibration
+        //       process
+        #define NUM_RUNS_TSC ((size_t)128*1024)
+        // TODO: Dynamically allocate with realtime_allocate() after max with
+        //       other TSC allocation sizes
+        x86_timestamp_start starts[NUM_RUNS_TSC+1];
+        x86_timestamp_end ends[NUM_RUNS_TSC];
+        x86_duration_ticks ticks[NUM_RUNS_TSC];
+        info("Measuring optimal loop with the TSC...");
+        debugf("- Performing %zu timed runs...", NUM_RUNS_TSC);
+        starts[0] = x86_timer_start(false);
+        for (size_t run = 0; run < NUM_RUNS_TSC; ++run) {
+            UDIPE_ASSUME_READ(starts);
+            empty_loop(&best_iters);
+            ends[run] = x86_timer_end(false);
+            UDIPE_ASSUME_READ(ends);
+            starts[run+1] = x86_timer_start(false);
+        }
+        debug("- Analyzing CPU migrations & durations...");
+        x86_cpu_id prev_start_cpu = starts[0].cpu_id;
+        size_t num_internal_migrations = 0;
+        size_t num_external_migrations = 0;
+        size_t num_valid_ticks = 0;
+        for (size_t run = 0; run < NUM_RUNS_TSC; ++run) {
+            const bool migrated = (ends[run].cpu_id != prev_start_cpu);
+            if (migrated) {
+                tracef("  * Skipping run %zu due to CPU%u -> CPU%u migration",
+                       run, prev_start_cpu, ends[run].cpu_id);
+            } else {
+                const size_t idx = ++num_valid_ticks;
+                ticks[idx] = ends[run].ticks - starts[run].ticks;
+                tracef("  * ticks[%zu] = %zd", idx, ticks[idx]);
+            }
+            num_internal_migrations += migrated;
+            num_external_migrations += (starts[run+1].cpu_id != ends[run].cpu_id);
+            prev_start_cpu = starts[run+1].cpu_id;
+        }
+        debugf("- Got %zu migrations during runs, %zu between runs",
+               num_internal_migrations, num_external_migrations);
+        // TODO: Handle case where there are too many migrations
+        debug("- Analyzing durations...");
+        const duration_t best_ticks =
+            analyze_duration(&clock.calibration_analyzer,
+                             ticks,
+                             num_valid_ticks);
+        log_calibration_run_duration(UDIPE_INFO,
+                                     "- Best loop duration",
+                                     best_ticks,
+                                     "ticks");
+
+        // TODO: Deduplicate with above code
+        // FIXME: Don't use a half-length loop for offset calibration when an
+        //        empty loop will get us to the desired result quicker and also
+        //        provide us with the precision in ticks.
+        info("Calibrating TSC offset & frequency with half-length loop...");
+        debugf("- Performing %zu timed runs...", NUM_RUNS_TSC);
+        starts[0] = x86_timer_start(false);
+        size_t half_iters = best_iters / 2;
+        for (size_t run = 0; run < NUM_RUNS_TSC; ++run) {
+            UDIPE_ASSUME_READ(starts);
+            empty_loop(&half_iters);
+            ends[run] = x86_timer_end(false);
+            UDIPE_ASSUME_READ(ends);
+            starts[run+1] = x86_timer_start(false);
+        }
+        debug("- Analyzing CPU migrations & durations...");
+        prev_start_cpu = starts[0].cpu_id;
+        num_internal_migrations = 0;
+        num_external_migrations = 0;
+        num_valid_ticks = 0;
+        for (size_t run = 0; run < NUM_RUNS_TSC; ++run) {
+            const bool migrated = (ends[run].cpu_id != prev_start_cpu);
+            if (migrated) {
+                tracef("  * Skipping run %zu due to CPU%u -> CPU%u migration",
+                       run, prev_start_cpu, ends[run].cpu_id);
+            } else {
+                const size_t idx = ++num_valid_ticks;
+                ticks[idx] = ends[run].ticks - starts[run].ticks;
+                tracef("  * ticks[%zu] = %zd", idx, ticks[idx]);
+            }
+            num_internal_migrations += migrated;
+            num_external_migrations += (starts[run+1].cpu_id != ends[run].cpu_id);
+            prev_start_cpu = starts[run+1].cpu_id;
+        }
+        debugf("- Got %zu migrations during runs, %zu between runs",
+               num_internal_migrations, num_external_migrations);
+        // TODO: Handle case where there are too many migrations
+        debug("- Analyzing durations...");
+        const duration_t half_ticks =
+            analyze_duration(&clock.calibration_analyzer,
+                             ticks,
+                             num_valid_ticks);
+        log_calibration_run_duration(UDIPE_INFO,
+                                     "- Half-loop duration",
+                                     half_ticks,
+                                     "ticks");
+        const duration_t tsc_offset = (duration_t){
+            .center = 2*half_ticks.center - best_ticks.center,
+            .low = 2*half_ticks.low - best_ticks.high,
+            .high = 2*half_ticks.high - best_ticks.low
+        };
+        log_calibration_run_duration(UDIPE_INFO,
+                                     "- Deduced timing offset",
+                                     tsc_offset,
+                                     "ticks");
+        clock.tsc_offset = tsc_offset.center;
+        const duration_t corrected_best_ticks = (duration_t){
+            .center = best_ticks.center - tsc_offset.center,
+            .low = best_ticks.low - tsc_offset.high,
+            .high = best_ticks.high - tsc_offset.low
+        };
+        log_calibration_run_duration(UDIPE_INFO,
+                                     "- Corrected best loop duration",
+                                     corrected_best_ticks,
+                                     "ticks");
+        // TODO: Rename duration_t to something more generic so this is less jarring
+        const duration_t tsc_freq = (duration_t){
+            .center = corrected_best_ticks.center * 1000*1000*1000 / best_duration.center,
+            .low = corrected_best_ticks.low * 1000*1000*1000 / best_duration.high,
+            .high = corrected_best_ticks.high * 1000*1000*1000 / best_duration.low
+        };
+        log_calibration_run_duration(UDIPE_INFO,
+                                     "- TSC frequency",
+                                     tsc_freq,
+                                     "ticks/sec");
+
+        // TODO: Deduplicate with above code
+        // TODO: Only run when debug logging is enabled
+        debug("Revisiting smaller loops with the TSC...");
+        num_iters = best_iters;
+        do {
+            debugf("- Trying loop with %zu iterations...", num_iters);
+            debugf("  * Performing %zu timed runs...", NUM_RUNS_TSC);
+            starts[0] = x86_timer_start(false);
+            for (size_t run = 0; run < NUM_RUNS_TSC; ++run) {
+                UDIPE_ASSUME_READ(starts);
+                empty_loop(&num_iters);
+                ends[run] = x86_timer_end(false);
+                UDIPE_ASSUME_READ(ends);
+                starts[run+1] = x86_timer_start(false);
+            }
+            debug("  * Analyzing CPU migrations & durations...");
+            prev_start_cpu = starts[0].cpu_id;
+            num_internal_migrations = 0;
+            num_external_migrations = 0;
+            num_valid_ticks = 0;
+            for (size_t run = 0; run < NUM_RUNS_TSC; ++run) {
+                const bool migrated = (ends[run].cpu_id != prev_start_cpu);
+                if (migrated) {
+                    tracef("    - Skipping run %zu due to CPU%u -> CPU%u migration",
+                           run, prev_start_cpu, ends[run].cpu_id);
+                } else {
+                    const size_t idx = ++num_valid_ticks;
+                    ticks[idx] = ends[run].ticks - starts[run].ticks - clock.tsc_offset;
+                    tracef("    - ticks[%zu] = %zd", idx, ticks[idx]);
+                }
+                num_internal_migrations += migrated;
+                num_external_migrations += (starts[run+1].cpu_id != ends[run].cpu_id);
+                prev_start_cpu = starts[run+1].cpu_id;
+            }
+            debugf("  * Got %zu migrations during runs, %zu between runs",
+                   num_internal_migrations, num_external_migrations);
+            // TODO: Handle case where there are too many migrations
+            debug("  * Analyzing durations...");
+            const duration_t loop_ticks =
+                analyze_duration(&clock.calibration_analyzer,
+                                 ticks,
+                                 num_valid_ticks);
+            loop_duration = (duration_t){
+                .center = loop_ticks.center * 1000*1000*1000 / tsc_freq.center,
+                .low = loop_ticks.low * 1000*1000*1000 / tsc_freq.high,
+                .high = loop_ticks.high * 1000*1000*1000 / tsc_freq.low
+            };
+            log_calibration_run_duration(UDIPE_DEBUG,
+                                         "  * Loop duration",
+                                         loop_duration,
+                                         "ns");
+            // TODO replace
+            debugf("  * Iteration duration: %g ns with %g%% CI [%g; %g].",
+                   (double)loop_duration.center / num_iters,
+                   CALIBRATION_CONFIDENCE,
+                   (double)loop_duration.low / num_iters,
+                   (double)loop_duration.high / num_iters);
+            const double rel_uncertainty =
+                (double)(loop_duration.high - loop_duration.low) / loop_duration.center * 100.0;
+            debugf("  * Relative uncertainty: %g%%.", rel_uncertainty);
+
+            if (loop_ticks.center <= clock.tsc_offset) {
+                debug("  * This is getting below the offset, stop here.");
+                break;
+            } else {
+                debug("  * That still seems within significant range, keep going...");
+                if (num_iters == 0) break;
+                num_iters /= 2;
+            }
+        } while(true);
 
         // TODO: Now introduce the TSC on x86 only:
         //       - Starting from the optimal loop from the OS clock's
@@ -445,6 +671,8 @@
         //         99% CI.
         //       - Use TSC ticks 99% CI and frequency 99% CI to deduce TSC
         //         best-case precision and longest optimal duration.
+        // TODO: Once done, extract OS clock calibration and TSC calibration
+        //       into their own functions.
         // TODO: Consider keeping around the optimal loop iteration count to
         //       speed up future recalibrations, which may then become...
         //       - Measure previously optimal loop

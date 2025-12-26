@@ -161,7 +161,7 @@
             ///
             /// We measure the offset in ticks, not nanoseconds, because TSC
             /// ticks have sub-nanosecond resolution so ticks are more precise.
-            x86_tsc_ticks tsc_offset;
+            x86_duration_ticks tsc_offset;
         #endif
 
         #ifdef _WIN32
