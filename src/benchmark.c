@@ -9,6 +9,7 @@
     #include "visibility.h"
 
     #include <assert.h>
+    #include <hwloc.h>
     #include <math.h>
     #include <stddef.h>
     #include <stdint.h>
@@ -41,7 +42,7 @@
     ///
     /// Picked because 95% is kinda the standard in statistics, so it is what
     /// the end user will most likely be used to.
-    #define RESULT_CONFIDENCE 95.0
+    #define MEASUREMENT_CONFIDENCE 95.0
 
     /// Confidence interval used for clock calibration
     ///
@@ -70,7 +71,7 @@
     //       once the pool of available testing systems is exhausted, some extra
     //       safety margin (maybe 2-4x?) should be applied on top of the final
     //       result to account for unknown systems.
-    #define NUM_RUNS_OFFSET ((size_t)32*1024)
+    #define NUM_RUNS_OFFSET_OS ((size_t)32*1024)
 
     /// Number of benchmark runs used for shortest loop calibration
     ///
@@ -83,11 +84,12 @@
     //       enough. Test on more systems and tune up if needed.
     #define NUM_RUNS_SHORTEST_LOOP ((size_t)128)
 
-    /// Number of benchmark run used for optimal loop calibration
+    /// Number of benchmark run used for optimal loop calibration, when using
+    /// the system clock to perform said calibration
     ///
     /// This should be tuned high enough that the optimal loop calibration
-    /// consistently ends at the same number of loop iterations and reaches
-    /// similar precision figures of merit.
+    /// consistently ends at the same number of loop iterations and yields
+    /// similar final statistics.
     //
     // TODO: Current value is the minimum required run count needed for
     //       reproducibility on the author's laptop. This minimum should be
@@ -95,7 +97,36 @@
     //       once the pool of available testing systems is exhausted, some extra
     //       safety margin (maybe 2-4x?) should be applied on top of the final
     //       result to account for unknown systems.
-    #define NUM_RUNS_OPTIMAL_LOOP ((size_t)8*1024)
+    #define NUM_RUNS_BEST_LOOP_OS ((size_t)8*1024)
+
+    #ifdef X86_64
+
+        /// Number of benchmark runs used when measuring the duration of the
+        /// optimal loop using the x86 TimeStamp Counter
+        ///
+        /// This should be tuned high enough that the optimal loop measurement
+        /// produces reproducible results.
+        //
+        // TODO: Current value is the minimum required run count needed for
+        //       reproducibility on the author's laptop. This minimum should be
+        //       tuned up through testing on a more diverse set of systems, then
+        //       once the pool of available testing systems is exhausted, some
+        //       extra safety margin (maybe 2-4x?) should be applied on top of
+        //       the final result to account for unknown systems.
+        #define NUM_RUNS_BEST_LOOP_X86 ((size_t)512)
+
+        /// Number of benchmark runs used for TSC clock offset calibration
+        ///
+        /// This should be tuned high enough that the TSC clock offset
+        /// calibration produces reproducible results.
+        //
+        // TODO: Generally speaking, doing statistics on less than 100 samples
+        //       makes the author nervous, and on the author's laptop that is
+        //       already enough. Test on more systems and tune up if needed.
+        #define NUM_RUNS_OFFSET_X86 ((size_t)128)
+
+    #endif  // X86_64
+
 
     /// Comparison function for applying qsort() to int64_t[]
     static inline int compare_i64(const void* v1, const void* v2) {
@@ -135,27 +166,25 @@
 
     UDIPE_NON_NULL_ARGS
     stats_t analyze_duration(duration_analyzer_t* analyzer,
-                             int64_t data[],
-                             size_t data_len) {
-        trace("Checking dataset...");
-        ensure_gt(data_len, (size_t)0);
-
+                             int64_t durations[],
+                             size_t durations_len) {
         trace("Computing medians...");
+        ensure_gt(durations_len, (size_t)0);
         int64_t median_samples[NUM_MEDIAN_SAMPLES];
         for (size_t median = 0; median < analyzer->num_medians; ++median) {
             tracef("- Computing medians[%zu]...", median);
             for (size_t sample = 0; sample < NUM_MEDIAN_SAMPLES; ++sample) {
-                size_t data_idx = rand() % data_len;
-                int64_t data_point = data[data_idx];
-                tracef("  * Picked %zu-th sample data[%zu] = %zd, inserting...",
-                       sample, data_idx, data_point);
+                size_t duration_idx = rand() % durations_len;
+                int64_t duration = durations[duration_idx];
+                tracef("  * Picked %zu-th sample durations[%zu] = %zd, inserting...",
+                       sample, duration_idx, duration);
 
                 ptrdiff_t prev;
                 for (prev = sample - 1; prev >= 0; --prev) {
                     int64_t pivot = median_samples[prev];
                     tracef("    - Checking median_samples[%zd] = %zd...",
                            prev, pivot);
-                    if (pivot > data_point) {
+                    if (pivot > duration) {
                         trace("    - Too high, shift that up to make room.");
                         median_samples[prev + 1] = median_samples[prev];
                         continue;
@@ -165,7 +194,7 @@
                     }
                 }
                 tracef("  * Sample inserted at median_samples[%zd].", prev + 1);
-                median_samples[prev + 1] = data_point;
+                median_samples[prev + 1] = duration;
             }
             analyzer->medians[median] = median_samples[NUM_MEDIAN_SAMPLES / 2];
             tracef("  * medians[%zu] is therefore %zd.",
@@ -196,85 +225,6 @@
         analyzer->center_idx = SIZE_MAX;
         analyzer->low_idx = SIZE_MAX;
         analyzer->high_idx = SIZE_MAX;
-    }
-
-    /// Measure the execution duration of `workload` using the OS clock
-    ///
-    /// This call `workload` repeatedly `num_runs` times with timing calls
-    /// interleaved between each call. Usual micro-benchmarking precautions must
-    /// be taken to avoid compiler over-optimization:
-    ///
-    /// - If `workload` always processes the same inputs, then
-    ///   UDIPE_ASSUME_ACCESSED() should be used to make the compiler assume
-    ///   that these inputs change from one execution to another.
-    /// - If `workload` emits outputs, then UDIPE_ASSUME_READ() should be used
-    ///   to make the compiler assume that these outputs are being used.
-    /// - If `workload` is just an artificial empty loop (as used during
-    ///   calibration), then UDIPE_ASSUME_READ() should be used on the loop
-    ///   counter to preserve the number of loop iterations.
-    ///
-    /// `num_runs` controls how many timed calls to `workload` will occur, it
-    /// should be tuned such that...
-    ///
-    /// - Output timestamps fit in `timestamps` and output durations fit in
-    ///   `durations`.
-    /// - Results are reproducible enough across benchmark executions (what
-    ///   constitutes "reproducible enough" is context dependent, a parameter
-    ///   autotuning loop can typically work with less steady timing data than
-    ///   the final benchmark measurement).
-    /// - Execution time, which grows roughly linearly with `num_runs`,
-    ///   remains reasonable.
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param clock is the benchmark clock that is going to be used. This
-    ///              routine can be used before said clock is fully initialized,
-    ///              but it must be at minimum initialized enough to allow for
-    ///              offset-biased OS clock measurements (i.e. on Windows
-    ///              `win32_frequency` must have been queried already, and on
-    ///              all OSes `os_offset` must be zeroed out if not known yet).
-    /// \param workload is the workload whose duration should be measured. For
-    ///                 minimal overhead/bias, it should be inlinable by the
-    ///                 compiler static inline function.
-    /// \param context encodes the parameters that should be passed to
-    ///                `workload`, if any.
-    /// \param timestamps should point to an array of at least `num_runs+1`
-    ///                   \ref os_timestamp_t, ideally allocated using
-    ///                   realtime_allocate().
-    /// \param durations should point to an array of at least `num_runs`
-    ///                  \ref signed_durations_ns_t, ideally allocated using
-    ///                  realtime_allocate().
-    /// \param num_runs indicates how many timed calls to `workload` should
-    ///                      be performed, see above for tuning advice.
-    /// \param analyzer is a duration analyzer that has been previously set up
-    ///                 via duration_analyzer_initialize() and hasn't been
-    ///                 destroyed via duration_analyzer_finalize() yet.
-    UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 4, 5, 7)
-    static inline stats_t measure_os_duration(
-        benchmark_clock_t* clock,
-        void (*workload)(void*),
-        void* context,
-        os_timestamp_t timestamps[],
-        signed_duration_ns_t durations[],
-        size_t num_runs,
-        duration_analyzer_t* analyzer
-    ) {
-        tracef("Performing %zu timed runs...", num_runs);
-        timestamps[0] = os_now();
-        for (size_t run = 0; run < num_runs; ++run) {
-            UDIPE_ASSUME_READ(timestamps);
-            workload(context);
-            timestamps[run+1] = os_now();
-        }
-        trace("Computing run durations...");
-        for (size_t run = 0; run < num_runs; ++run) {
-            durations[run] = os_duration(clock,
-                                         timestamps[run],
-                                         timestamps[run+1]);
-            tracef("- durations[%zu] = %zd ns", run, durations[run]);
-        }
-        trace("Analyzing durations...");
-        return analyze_duration(analyzer, durations, num_runs);
     }
 
     /// Empty benchmark workload
@@ -348,9 +298,9 @@
             const double udipe_low = (double)udipe_stats.low / udipe_num_iters;  \
             const double udipe_high = (double)udipe_stats.high / udipe_num_iters;  \
             const double udipe_spread = udipe_high - udipe_low;  \
-            const int udipe_stats_decimals = ceil(1.0 - log10(udipe_spread));  \
+            const int udipe_stats_decimals = ceil(-log10(udipe_spread));  \
             const double udipe_uncertainty = relative_uncertainty(udipe_stats);  \
-            int udipe_uncertainty_decimals = ceil(1.0 - log10(udipe_uncertainty));  \
+            int udipe_uncertainty_decimals = ceil(-log10(udipe_uncertainty));  \
             if (udipe_uncertainty_decimals < 0) udipe_uncertainty_decimals = 0;  \
             udipe_logf((level),  \
                        "%s That's %.*f %s/iter with %g%% CI [%.*f; %.*f] (%.*f%% uncertainty).",  \
@@ -367,73 +317,63 @@
                        udipe_uncertainty);  \
         } while(false)
 
-    benchmark_clock_t benchmark_clock_initialize() {
+    UDIPE_NON_NULL_ARGS
+    os_clock_t os_clock_initialize(duration_analyzer_t* calibration_analyzer) {
         // Zero out all clock fields initially
         //
         // This is a valid (if incorrect) value for some fields but not all of
         // them. We will take care of the missing fields later on.
-        benchmark_clock_t clock = { 0 };
+        os_clock_t clock = { 0 };
 
-        // On Windows, we must check the performance counter frequency before we
-        // can do any precision time measurement with QueryPerformanceCounter().
         #ifdef _WIN32
             debug("Obtaining Windows performance counter frequency...");
             clock.win32_frequency = QueryPerformanceFrequency().QuadPart;
         #endif
 
-        debug("Setting up calibration analysis...");
-        clock.calibration_analyzer =
-            duration_analyzer_initialize(CALIBRATION_CONFIDENCE);
-
-        debug("Allocating OS clock timestamp and duration buffers...");
-        size_t max_runs = NUM_RUNS_OFFSET;
+        debug("Allocating timestamp and duration buffers...");
+        size_t max_runs = NUM_RUNS_OFFSET_OS;
         if (max_runs < NUM_RUNS_SHORTEST_LOOP) max_runs = NUM_RUNS_SHORTEST_LOOP;
-        if (max_runs < NUM_RUNS_OPTIMAL_LOOP) max_runs = NUM_RUNS_OPTIMAL_LOOP;
+        if (max_runs < NUM_RUNS_BEST_LOOP_OS) max_runs = NUM_RUNS_BEST_LOOP_OS;
         const size_t timestamps_size = (max_runs+1) * sizeof(os_timestamp_t);
         const size_t durations_size = max_runs * sizeof(signed_duration_ns_t);
-        os_timestamp_t* timestamps = realtime_allocate(timestamps_size);
-        signed_duration_ns_t* durations = realtime_allocate(durations_size);
+        clock.timestamps = realtime_allocate(timestamps_size);
+        clock.durations = realtime_allocate(durations_size);
+        clock.num_durations = max_runs;
 
-        info("Calibrating OS clock offset...");
-        const stats_t os_offset = measure_os_duration(
+        info("Calibrating clock offset...");
+        clock.offset_stats = os_clock_measure(
             &clock,
             nothing,
             NULL,
-            timestamps,
-            durations,
-            NUM_RUNS_OFFSET,
-            &clock.calibration_analyzer
+            NUM_RUNS_OFFSET_OS,
+            calibration_analyzer
         );
         log_calibration_stats(UDIPE_INFO,
-                              "- OS clock offset",
-                              os_offset,
+                              "- Clock offset",
+                              clock.offset_stats,
                               "ns");
-        clock.os_offset = os_offset.center;
-        clock.best_precision = os_offset.high - os_offset.low;
-        infof("- Offset correction will have %g%% CI [%+zd; %+zd].",
+        infof("- Offset correction will increase %g%% CI by [%+zd; %+zd] ns.",
               CALIBRATION_CONFIDENCE,
-              os_offset.low-os_offset.center,
-              os_offset.high-os_offset.center);
+              clock.offset_stats.center-clock.offset_stats.high,
+              clock.offset_stats.center-clock.offset_stats.low);
 
         info("Finding minimal measurable loop...");
         stats_t loop_duration;
         size_t num_iters = 1;
         do {
             debugf("- Trying loop with %zu iteration(s)...", num_iters);
-            loop_duration = measure_os_duration(
+            loop_duration = os_clock_measure(
                 &clock,
                 empty_loop,
                 &num_iters,
-                timestamps,
-                durations,
                 NUM_RUNS_SHORTEST_LOOP,
-                &clock.calibration_analyzer
+                calibration_analyzer
             );
             log_calibration_stats(UDIPE_DEBUG,
                                   "  * Loop duration",
                                   loop_duration,
                                   "ns");
-            if (loop_duration.center > (int64_t)clock.os_offset) {
+            if (loop_duration.low > clock.offset_stats.high) {
                 debug("  * Loop finally contributes more to measurements than clock offset!");
                 break;
             } else {
@@ -446,20 +386,21 @@
               num_iters);
 
         info("Finding optimal loop duration...");
-        stats_t best_duration = loop_duration;
+        clock.best_empty_iters = num_iters;
+        clock.best_empty_stats = loop_duration;
         double best_uncertainty = relative_uncertainty(loop_duration);
-        size_t best_iters = num_iters;
+        int64_t best_precision =
+            (clock.offset_stats.high - clock.offset_stats.low)
+            - (clock.offset_stats.low - clock.offset_stats.high);
         do {
             num_iters *= 2;
             debugf("- Trying loop with %zu iterations...", num_iters);
-            loop_duration = measure_os_duration(
+            loop_duration = os_clock_measure(
                 &clock,
                 empty_loop,
                 &num_iters,
-                timestamps,
-                durations,
-                NUM_RUNS_OPTIMAL_LOOP,
-                &clock.calibration_analyzer
+                NUM_RUNS_BEST_LOOP_OS,
+                calibration_analyzer
             );
             log_calibration_stats(UDIPE_DEBUG,
                                   "  * Loop duration",
@@ -471,250 +412,228 @@
                                 num_iters,
                                 "ns");
             const double uncertainty = relative_uncertainty(loop_duration);
-            if (loop_duration.high - loop_duration.low > 2*(os_offset.high - os_offset.low)) {
-                debug("  * Timing precision degraded by >2x: time to stop!");
+            if (loop_duration.high - loop_duration.low > 2*best_precision) {
+                debug("  * Timing precision degraded by >2x. Time to stop!");
                 break;
             } else if (uncertainty < best_uncertainty) {
                 debug("  * This is our new best loop. Can we do even better?");
-                best_iters = num_iters;
+                clock.best_empty_iters = num_iters;
                 best_uncertainty = uncertainty;
-                best_duration = loop_duration;
+                clock.best_empty_stats = loop_duration;
                 continue;
             } else {
-                debug("  * That's not much worse, keep trying...");
+                debug("  * That's not much worse. Keep trying...");
                 continue;
             }
         } while(true);
-        infof("- Achieved optimal precision at %zu loop iterations.", best_iters);
+        infof("- Achieved optimal precision at %zu loop iterations.",
+              clock.best_empty_iters);
         log_calibration_stats(UDIPE_INFO,
                               "- Best loop duration",
-                              best_duration,
+                              clock.best_empty_stats,
                               "ns");
         log_iteration_stats(UDIPE_INFO,
                             "-",
-                            best_duration,
-                            best_iters,
+                            clock.best_empty_stats,
+                            clock.best_empty_iters,
                             "ns");
-        clock.longest_optimal_duration = best_duration.low;
+        return clock;
+    }
 
-        // TODO: WIP x86 TSC calibration, once ready extract it into its own
-        //       function guarded with #ifdef X86_64
-        // TODO: Move to toplevel and tune
-        // TODO: Use different values for different stages of the calibration
-        //       process
-        #define NUM_RUNS_TSC ((size_t)128*1024)
-        // TODO: Dynamically allocate with realtime_allocate() after max with
-        //       other TSC allocation sizes
-        x86_timestamp_start starts[NUM_RUNS_TSC+1];
-        x86_timestamp_end ends[NUM_RUNS_TSC];
-        x86_duration_ticks ticks[NUM_RUNS_TSC];
-        info("Measuring optimal loop with the TSC...");
-        debugf("- Performing %zu timed runs...", NUM_RUNS_TSC);
-        starts[0] = x86_timer_start(false);
-        for (size_t run = 0; run < NUM_RUNS_TSC; ++run) {
-            UDIPE_ASSUME_READ(starts);
-            empty_loop(&best_iters);
-            ends[run] = x86_timer_end(false);
-            UDIPE_ASSUME_READ(ends);
-            starts[run+1] = x86_timer_start(false);
-        }
-        debug("- Analyzing CPU migrations & durations...");
-        x86_cpu_id prev_start_cpu = starts[0].cpu_id;
-        size_t num_internal_migrations = 0;
-        size_t num_external_migrations = 0;
-        size_t num_valid_ticks = 0;
-        for (size_t run = 0; run < NUM_RUNS_TSC; ++run) {
-            const bool migrated = (ends[run].cpu_id != prev_start_cpu);
-            if (migrated) {
-                tracef("  * Skipping run %zu due to CPU%u -> CPU%u migration",
-                       run, prev_start_cpu, ends[run].cpu_id);
-            } else {
-                const size_t idx = ++num_valid_ticks;
-                ticks[idx] = ends[run].ticks - starts[run].ticks;
-                tracef("  * ticks[%zu] = %zd", idx, ticks[idx]);
-            }
-            num_internal_migrations += migrated;
-            num_external_migrations += (starts[run+1].cpu_id != ends[run].cpu_id);
-            prev_start_cpu = starts[run+1].cpu_id;
-        }
-        debugf("- Got %zu migrations during runs, %zu between runs",
-               num_internal_migrations, num_external_migrations);
-        // TODO: Handle case where there are too many migrations
-        debug("- Analyzing durations...");
-        const stats_t best_ticks =
-            analyze_duration(&clock.calibration_analyzer,
-                             ticks,
-                             num_valid_ticks);
-        log_calibration_stats(UDIPE_INFO,
-                              "- Best loop duration",
-                              best_ticks,
-                              "ticks");
+    UDIPE_NON_NULL_ARGS
+    void os_clock_finalize(os_clock_t* clock) {
+        debug("Liberating and poisoning measurement storage...");
+        realtime_liberate(clock->timestamps,
+                          (clock->num_durations+1) * sizeof(os_timestamp_t));
+        clock->timestamps = NULL;
+        realtime_liberate(clock->durations,
+                          clock->num_durations * sizeof(signed_duration_ns_t));
+        clock->durations = NULL;
+        clock->num_durations = 0;
 
-        // TODO: Deduplicate with above code
-        // FIXME: Don't use a half-length loop for offset calibration when an
-        //        empty loop will get us to the desired result quicker and also
-        //        provide us with the precision in ticks.
-        info("Calibrating TSC offset & frequency with half-length loop...");
-        debugf("- Performing %zu timed runs...", NUM_RUNS_TSC);
-        starts[0] = x86_timer_start(false);
-        size_t half_iters = best_iters / 2;
-        for (size_t run = 0; run < NUM_RUNS_TSC; ++run) {
-            UDIPE_ASSUME_READ(starts);
-            empty_loop(&half_iters);
-            ends[run] = x86_timer_end(false);
-            UDIPE_ASSUME_READ(ends);
-            starts[run+1] = x86_timer_start(false);
-        }
-        debug("- Analyzing CPU migrations & durations...");
-        prev_start_cpu = starts[0].cpu_id;
-        num_internal_migrations = 0;
-        num_external_migrations = 0;
-        num_valid_ticks = 0;
-        for (size_t run = 0; run < NUM_RUNS_TSC; ++run) {
-            const bool migrated = (ends[run].cpu_id != prev_start_cpu);
-            if (migrated) {
-                tracef("  * Skipping run %zu due to CPU%u -> CPU%u migration",
-                       run, prev_start_cpu, ends[run].cpu_id);
-            } else {
-                const size_t idx = ++num_valid_ticks;
-                ticks[idx] = ends[run].ticks - starts[run].ticks;
-                tracef("  * ticks[%zu] = %zd", idx, ticks[idx]);
-            }
-            num_internal_migrations += migrated;
-            num_external_migrations += (starts[run+1].cpu_id != ends[run].cpu_id);
-            prev_start_cpu = starts[run+1].cpu_id;
-        }
-        debugf("- Got %zu migrations during runs, %zu between runs",
-               num_internal_migrations, num_external_migrations);
-        // TODO: Handle case where there are too many migrations
-        debug("- Analyzing durations...");
-        const stats_t half_ticks =
-            analyze_duration(&clock.calibration_analyzer,
-                             ticks,
-                             num_valid_ticks);
-        log_calibration_stats(UDIPE_INFO,
-                              "- Half-loop duration",
-                              half_ticks,
-                              "ticks");
-        const stats_t tsc_offset = (stats_t){
-            .center = 2*half_ticks.center - best_ticks.center,
-            .low = 2*half_ticks.low - best_ticks.high,
-            .high = 2*half_ticks.high - best_ticks.low
+        debug("Poisoning the now-invalid OS clock...");
+        #ifdef _WIN32
+            clock->win32_frequency = 0;
+        #endif
+        clock->offset_stats = (stats_t){
+            .low = INT64_MIN,
+            .center = INT64_MIN,
+            .high = INT64_MIN
         };
-        log_calibration_stats(UDIPE_INFO,
-                              "- Deduced timing offset",
-                              tsc_offset,
-                              "ticks");
-        clock.tsc_offset = tsc_offset.center;
-        const stats_t corrected_best_ticks = (stats_t){
-            .center = best_ticks.center - tsc_offset.center,
-            .low = best_ticks.low - tsc_offset.high,
-            .high = best_ticks.high - tsc_offset.low
+        clock->best_empty_iters = SIZE_MAX;
+        clock->best_empty_stats = (stats_t){
+            .low = INT64_MIN,
+            .center = INT64_MIN,
+            .high = INT64_MIN
         };
-        log_calibration_stats(UDIPE_INFO,
-                              "- Corrected best loop duration",
-                              corrected_best_ticks,
-                              "ticks");
-        const stats_t tsc_freq = (stats_t){
-            .center = corrected_best_ticks.center * 1000*1000*1000 / best_duration.center,
-            .low = corrected_best_ticks.low * 1000*1000*1000 / best_duration.high,
-            .high = corrected_best_ticks.high * 1000*1000*1000 / best_duration.low
-        };
-        log_calibration_stats(UDIPE_INFO,
-                              "- TSC frequency",
-                              tsc_freq,
-                              "ticks/sec");
+    }
 
-        // TODO: Deduplicate with above code
-        // TODO: Only run when debug logging is enabled
-        debug("Revisiting smaller loops with the TSC...");
-        num_iters = best_iters;
-        do {
-            debugf("- Trying loop with %zu iterations...", num_iters);
-            debugf("  * Performing %zu timed runs...", NUM_RUNS_TSC);
-            starts[0] = x86_timer_start(false);
-            for (size_t run = 0; run < NUM_RUNS_TSC; ++run) {
-                UDIPE_ASSUME_READ(starts);
-                empty_loop(&num_iters);
-                ends[run] = x86_timer_end(false);
-                UDIPE_ASSUME_READ(ends);
-                starts[run+1] = x86_timer_start(false);
-            }
-            debug("  * Analyzing CPU migrations & durations...");
-            prev_start_cpu = starts[0].cpu_id;
-            num_internal_migrations = 0;
-            num_external_migrations = 0;
-            num_valid_ticks = 0;
-            for (size_t run = 0; run < NUM_RUNS_TSC; ++run) {
-                const bool migrated = (ends[run].cpu_id != prev_start_cpu);
-                if (migrated) {
-                    tracef("    - Skipping run %zu due to CPU%u -> CPU%u migration",
-                           run, prev_start_cpu, ends[run].cpu_id);
-                } else {
-                    const size_t idx = ++num_valid_ticks;
-                    ticks[idx] = ends[run].ticks - starts[run].ticks - clock.tsc_offset;
-                    tracef("    - ticks[%zu] = %zd", idx, ticks[idx]);
-                }
-                num_internal_migrations += migrated;
-                num_external_migrations += (starts[run+1].cpu_id != ends[run].cpu_id);
-                prev_start_cpu = starts[run+1].cpu_id;
-            }
-            debugf("  * Got %zu migrations during runs, %zu between runs",
-                   num_internal_migrations, num_external_migrations);
-            // TODO: Handle case where there are too many migrations
-            debug("  * Analyzing durations...");
-            const stats_t loop_ticks =
-                analyze_duration(&clock.calibration_analyzer,
-                                 ticks,
-                                 num_valid_ticks);
-            loop_duration = (stats_t){
-                .center = loop_ticks.center * 1000*1000*1000 / tsc_freq.center,
-                .low = loop_ticks.low * 1000*1000*1000 / tsc_freq.high,
-                .high = loop_ticks.high * 1000*1000*1000 / tsc_freq.low
+
+    #ifdef X86_64
+
+        UDIPE_NON_NULL_ARGS
+        x86_clock_t
+        x86_clock_initialize(const os_clock_t* os,
+                             duration_analyzer_t* calibration_analyzer) {
+            // Zero out all clock fields initially
+            //
+            // This is a valid (if incorrect) value for some fields but not all
+            // of them. We will take care of the missing fields later on.
+            x86_clock_t clock = { 0 };
+
+            debug("Allocating timestamp and duration buffers...");
+            size_t max_runs = NUM_RUNS_BEST_LOOP_X86;
+            if (max_runs < NUM_RUNS_OFFSET_X86) max_runs = NUM_RUNS_OFFSET_X86;
+            const size_t instants_size = 2 * max_runs * sizeof(x86_instant);
+            const size_t ticks_size = max_runs * sizeof(x86_duration_ticks);
+            clock.instants = realtime_allocate(instants_size);
+            clock.ticks = realtime_allocate(ticks_size);
+            clock.num_durations = max_runs;
+
+            // This should happen as soon as possible to reduce the risk of CPU
+            // clock frequency changes, which would degrade the quality of our
+            // TSC frequency calibration
+            //
+            // TODO: Investigate paired benchmarking techniques as a more robust
+            //       alternative to reducing the delay between these two
+            //       measurements. The general idea is to alternatively measure
+            //       durations with the OS and TSC clocks, use pairs of raw
+            //       duration data points from each clock to compute frequency
+            //       samples, and compute statistics over these frequency
+            //       samples. This way we are using data that was acquired in
+            //       similar system configurations, so even if the system
+            //       configuration changes over time, the results remain stable.
+            info("Measuring optimal loop again with the TSC...");
+            size_t best_empty_iters = os->best_empty_iters;
+            const stats_t raw_empty_stats = x86_clock_measure(
+                &clock,
+                empty_loop,
+                &best_empty_iters,
+                NUM_RUNS_BEST_LOOP_X86,
+                calibration_analyzer
+            );
+            log_calibration_stats(UDIPE_INFO,
+                                  "- Offset-biased best loop stats",
+                                  raw_empty_stats,
+                                  "ticks");
+
+            info("Calibrating TSC offset...");
+            clock.offset_stats = x86_clock_measure(
+                &clock,
+                nothing,
+                NULL,
+                NUM_RUNS_OFFSET_X86,
+                calibration_analyzer
+            );
+            log_calibration_stats(UDIPE_INFO,
+                                  "- Clock offset",
+                                  clock.offset_stats,
+                                  "ticks");
+            infof("- Offset correction will increase %g%% CI by [%+zd; %+zd] ticks.",
+                  CALIBRATION_CONFIDENCE,
+                  clock.offset_stats.center-clock.offset_stats.high,
+                  clock.offset_stats.center-clock.offset_stats.low);
+
+            debug("Applying offset correction to best loop duration...");
+            clock.best_empty_stats = (stats_t){
+                .center = raw_empty_stats.center - clock.offset_stats.center,
+                .low = raw_empty_stats.low - clock.offset_stats.high,
+                .high = raw_empty_stats.high - clock.offset_stats.low
             };
             log_calibration_stats(UDIPE_DEBUG,
-                                  "  * Loop duration",
-                                  loop_duration,
+                                  "- Offset-corrected best loop stats",
+                                  clock.best_empty_stats,
+                                  "ticks");
+            log_iteration_stats(UDIPE_DEBUG,
+                                "-",
+                                clock.best_empty_stats,
+                                os->best_empty_iters,
+                                "ticks");
+
+            info("Deducing TSC tick frequency...");
+            const int64_t nano = 1000*1000*1000;
+            clock.frequency_stats = (stats_t){
+                .center = clock.best_empty_stats.center * nano / os->best_empty_stats.center,
+                .low = clock.best_empty_stats.low * nano / os->best_empty_stats.high,
+                .high = clock.best_empty_stats.high * nano / os->best_empty_stats.low
+            };
+            log_calibration_stats(UDIPE_INFO,
+                                  "- TSC frequency",
+                                  clock.frequency_stats,
+                                  "ticks/sec");
+
+            debug("Deducing best loop duration...");
+            const stats_t best_empty_duration = x86_duration(
+                &clock,
+                clock.best_empty_stats
+            );
+            log_calibration_stats(UDIPE_DEBUG,
+                                  "- Best loop duration",
+                                  best_empty_duration,
                                   "ns");
             log_iteration_stats(UDIPE_DEBUG,
-                                "  *",
-                                loop_duration,
-                                num_iters,
+                                "-",
+                                best_empty_duration,
+                                os->best_empty_iters,
                                 "ns");
-            if (loop_ticks.center <= clock.tsc_offset) {
-                debug("  * This is getting below the offset, stop here.");
-                break;
-            } else {
-                debug("  * That still seems within significant range, keep going...");
-                if (num_iters == 0) break;
-                num_iters /= 2;
-            }
-        } while(true);
+            return clock;
+        }
 
-        // TODO: Once done, extract OS clock calibration and TSC calibration
-        //       into their own functions.
-        // TODO: Consider keeping around the optimal loop iteration count to
-        //       speed up future recalibrations, which may then become...
-        //       - Measure previously optimal loop
-        //       - Tune iteration count up and down by 2x, pick the
-        //         configuration with optimal timing precision, and if it's not
-        //         the previous one then tune further by 2x steps in adjustment
-        //         direction until optimal precision is achieved.
-        //       - Adjust clock precision figure of merit and longest optimal
-        //         benchmark run duration if needed.
-        //       - Take iteration count 2x smaller than optimal and use simple
-        //         affine model to compute the clock offset (2*short - long =
-        //         offset), apply a correction if it is not zero as it should.
+        UDIPE_NON_NULL_ARGS
+        void x86_clock_finalize(x86_clock_t* clock) {
+            debug("Liberating and poisoning measurement storage...");
+            realtime_liberate(clock->instants,
+                              2 * clock->num_durations * sizeof(x86_instant));
+            clock->instants = NULL;
+            realtime_liberate(clock->ticks,
+                              clock->num_durations * sizeof(x86_duration_ticks));
+            clock->ticks = NULL;
+            clock->num_durations = 0;
 
-        // TODO: Remove this exit once the above is done
-        exit(EXIT_FAILURE);
+            debug("Poisoning the now-invalid TSC clock...");
+            clock->best_empty_stats = (stats_t){
+                .low = INT64_MIN,
+                .center = INT64_MIN,
+                .high = INT64_MIN
+            };
+            clock->offset_stats = (stats_t){
+                .low = INT64_MIN,
+                .center = INT64_MIN,
+                .high = INT64_MIN
+            };
+            clock->frequency_stats = (stats_t){
+                .low = INT64_MIN,
+                .center = INT64_MIN,
+                .high = INT64_MIN
+            };
+        }
 
-        // TODO: Consider keeping those around along with any other data needed
-        //       for future recalibration.
-        debug("Liberating OS clock timestamp and duration buffers...");
-        realtime_liberate(timestamps, timestamps_size);
-        realtime_liberate(durations, durations_size);
+    #endif  // X86_64
 
+
+    benchmark_clock_t benchmark_clock_initialize() {
+        // Zero out all clock fields initially
+        //
+        // This is a valid (if incorrect) value for some fields but not all of
+        // them. We will take care of the missing fields later on.
+        benchmark_clock_t clock = { 0 };
+
+        debug("Setting up clock calibration analysis...");
+        clock.calibration_analyzer =
+            duration_analyzer_initialize(CALIBRATION_CONFIDENCE);
+
+        info("Setting up the OS clock...");
+        clock.os = os_clock_initialize(&clock.calibration_analyzer);
+
+        #ifdef X86_64
+            info("Setting up the TSC clock...");
+            clock.x86 = x86_clock_initialize(&clock.os,
+                                             &clock.calibration_analyzer);
+        #endif
+
+        debug("Setting up duration measurement analysis...");
+        clock.measurement_analyzer =
+            duration_analyzer_initialize(MEASUREMENT_CONFIDENCE);
         return clock;
     }
 
@@ -722,23 +641,26 @@
     void benchmark_clock_recalibrate(benchmark_clock_t* clock) {
         // TODO: Check if clock calibration still seems correct, recalibrate if
         //       needed.
+        // TODO: This should probably be implemented by implementing recalibrate
+        //       for the x86 and OS clocks, then calling these here.
         error("Not implemented yet!");
         exit(EXIT_FAILURE);
     }
 
     UDIPE_NON_NULL_ARGS
     void benchmark_clock_finalize(benchmark_clock_t* clock) {
-        debug("Poisoning the now-invalid benchmark clock...");
+        debug("Liberating the measurement analyzer...");
+        duration_analyzer_finalize(&(clock->measurement_analyzer));
+
         #ifdef X86_64
-            clock->tsc_frequency = 0;
-            clock->tsc_offset = UDIPE_DURATION_MAX;
+            debug("Liberating the TSC clock...");
+            x86_clock_finalize(&clock->x86);
         #endif
-        #ifdef _WIN32
-            clock->win32_frequency = 0;
-        #endif
-        clock->os_offset = UDIPE_DURATION_MAX;
-        clock->best_precision = UDIPE_DURATION_MAX;
-        clock->longest_optimal_duration = 0;
+
+        debug("Liberating the OS clock...");
+        os_clock_finalize(&clock->os);
+
+        debug("Liberating the calibration analyzer...");
         duration_analyzer_finalize(&(clock->calibration_analyzer));
     }
 
@@ -750,7 +672,6 @@
         logger_t logger = logger_initialize((udipe_log_config_t){ 0 });
         udipe_benchmark_t* benchmark;
         with_logger(&logger, {
-            // Our goal is to fill up this struct
             debug("Setting up benchmark harness...");
             benchmark =
                 (udipe_benchmark_t*)realtime_allocate(sizeof(udipe_benchmark_t));
@@ -768,15 +689,32 @@
                 }
             #endif
 
-            // Set up name-based benchmark filtering
             debug("Setting up benchmark name filter...");
             ensure_le(argc, 2);
             const char* filter_key = (argc == 2) ? argv[1] : "";
             benchmark->filter = name_filter_initialize(filter_key);
 
-            // TODO: Pin to one CPU hyperthread to avoid CPU migrations, which
-            //       complicate TSC measurement. Then simplify the TSC code
-            //       accordingly.
+            debug("Setting up the hwloc topology...");
+            exit_on_negative(hwloc_topology_init(&benchmark->topology),
+                             "Failed to allocate the hwloc hopology!");
+            exit_on_negative(hwloc_topology_load(benchmark->topology),
+                             "Failed to build the hwloc hopology!");
+
+            debug("Pinning the benchmark timing thread...");
+            benchmark->timing_cpuset = hwloc_bitmap_alloc();
+            exit_on_null(benchmark->timing_cpuset,
+                         "Failed to allocate timing thread cpuset");
+            exit_on_negative(
+                hwloc_get_last_cpu_location(benchmark->topology,
+                                            benchmark->timing_cpuset,
+                                            HWLOC_CPUBIND_THREAD),
+                "Failed to query timing thread cpuset"
+            );
+            exit_on_negative(hwloc_set_cpubind(benchmark->topology,
+                                               benchmark->timing_cpuset,
+                                               HWLOC_CPUBIND_THREAD
+                                               | HWLOC_CPUBIND_STRICT),
+                             "Failed to pin the timing thread");
 
             // Set up the benchmark clock
             benchmark->clock = benchmark_clock_initialize();
@@ -790,13 +728,18 @@
                              const char* name,
                              udipe_callable_t callable,
                              void* context) {
-        bool matches;
+        bool name_matches;
         with_logger(&benchmark->logger, {
-            matches = name_filter_matches(benchmark->filter, name);
-            if (matches) {
+            name_matches = name_filter_matches(benchmark->filter, name);
+            if (name_matches) {
+                trace("Pinning the benchmark timing thread...");
+                exit_on_negative(hwloc_set_cpubind(benchmark->topology,
+                                                   benchmark->timing_cpuset,
+                                                   HWLOC_CPUBIND_THREAD
+                                                   | HWLOC_CPUBIND_STRICT),
+                                 "Failed to pin benchmark timing thread");
+
                 tracef("Running benchmark \"%s\"...", name);
-                // TODO: Pin to one CPU hyperthread to avoid CPU migrations,
-                //       which complicate TSC measurement.
                 // TODO: Make this a realtime thread with a priority given by
                 //       environment variable UDIPE_PRIORITY_BENCHMARK if set,
                 //       by default halfway from the bottom of the realtime
@@ -810,7 +753,7 @@
                 benchmark_clock_recalibrate(&benchmark->clock);
             }
         });
-        return matches;
+        return name_matches;
     }
 
     DEFINE_PUBLIC
@@ -822,6 +765,14 @@
 
             debug("Finalizing the benchmark clock...");
             benchmark_clock_finalize(&(*benchmark)->clock);
+
+            debug("Freeing and poisoning the timing thread cpuset...");
+            hwloc_bitmap_free((*benchmark)->timing_cpuset);
+            (*benchmark)->timing_cpuset = NULL;
+
+            debug("Destroying and poisoning the hwloc topology...");
+            hwloc_topology_destroy((*benchmark)->topology);
+            (*benchmark)->topology = NULL;
 
             debug("Finalizing the benchmark name filter...");
             name_filter_finalize(&(*benchmark)->filter);

@@ -17,9 +17,11 @@
     #include "arch.h"
     #include "error.h"
     #include "log.h"
+    #include "memory.h"
     #include "name_filter.h"
 
     #include <assert.h>
+    #include <hwloc.h>
     #include <stdint.h>
 
     #ifdef __unix__
@@ -30,34 +32,29 @@
     #endif
 
 
-
-    /// \name Benchmark timing measurements
+    /// \name Statistical analysis of timing data
     /// \{
 
     /// Result of the statistical analysis of a duration-based dataset
     ///
     /// This provides the most likely value and x% confidence interval of some
-    /// quantity that originates from benchmark clock measurements, using
+    /// quantity that originates from benchmark clock measurements. We use
     /// bootstrap resampling techniques to avoid assuming that duration
-    /// measurements are normally distributed (they aren't).
+    /// measurements are normally distributed (which is totally false).
     ///
-    /// To allow statistical analysis code sharing between the code paths
-    /// associated with different clocks and different stages of the
-    /// benchmarking process, the quantity that is being measured (nanoseconds,
+    /// To maximize statistical analysis code sharing between the code paths
+    /// associated with different clocks and different stages of the benchmark
+    /// harness setup process, the quantity that is being measured (nanoseconds,
     /// clock ticks, TSC frequency...) and the width of the confidence interval
     /// are purposely left unspecified.
-    ///
-    /// Such details must clarified at each point where this type is used. If
-    /// you find that a specific configuration is used often, consider creating
-    /// a typedef for this common configuration.
     typedef struct stats_s {
         /// Most likely value of the duration-based measurement
         ///
         /// This value is determined by repeatedly drawing a small amount of
         /// duration samples from the duration dataset, taking their median
-        /// value (which eliminates outliers), then taking the median of a large
-        /// number of these median values (which determines the most likely
-        /// small-window median duration value).
+        /// value (which eliminates outliers), and then taking the median of a
+        /// large number of these median values (which determines the most
+        /// likely small-window median duration value).
         int64_t center;
 
         /// Lower bound of the confidence interval
@@ -92,7 +89,7 @@
     ///
     /// We will typically end up analyzing many timing datasets with the same
     /// confidence interval, which means that it is beneficial to keep around
-    /// the associated memory allocation and layout data.
+    /// the associated memory allocation and layout information.
     typedef struct duration_analyzer_s {
         int64_t* medians;  ///< Storage for median duration samples
         size_t num_medians;  ///< Number of samples within `medians`
@@ -120,12 +117,14 @@
     /// \param analyzer is a duration analyzer that has been previously set up
     ///                 via duration_analyzer_initialize() and hasn't been
     ///                 destroyed via duration_analyzer_finalize() yet
-    /// \param data is the raw duration data from the clock that you are using
-    /// \param data_len is the number of data points within `data`
+    /// \param durations is the raw duration data from your clock
+    /// \param durations_len is the number of data points within `durations`
+    ///
+    /// \returns the timing statistics associated with the input durations
     UDIPE_NON_NULL_ARGS
     stats_t analyze_duration(duration_analyzer_t* analyzer,
-                             int64_t data[],
-                             size_t data_len);
+                             int64_t durations[],
+                             size_t durations_len);
 
     /// Destroy a \ref duration_analyzer_t
     ///
@@ -137,206 +136,32 @@
     UDIPE_NON_NULL_ARGS
     void duration_analyzer_finalize(duration_analyzer_t* analyzer);
 
-    /// Benchmark clock configuration
-    ///
-    /// This is a cache of informations about the CPU and system's high
-    /// resolution clocks that are needed for precision benchmarking, but can
-    /// only be queried at runtime through a relatively time-consuming process
-    /// whose results should be cached and reused across benchmarks.
-    typedef struct benchmark_clock_s {
-        #ifdef X86_64
-            /// Frequency of the TSC clock in ticks/second
-            ///
-            /// This is calibrated against the OS clock, enabling us to turn
-            /// RDTSC readings into nanoseconds as with `win32_frequency`.
-            uint64_t tsc_frequency;
+    /// \}
 
-            /// Typical x86_timer_start()/x86_timer_end() overhead inside of the
-            /// timed region, in TSC ticks
-            ///
-            /// This is the offset that must be subtracted from TSC differences
-            /// in order to get an unbiased estimator of the duration of the
-            /// benchmarked code, excluding the cost of
-            /// x86_timer_start()/x86_timer_end() themselves.
-            ///
-            /// We measure the offset in ticks, not nanoseconds, because TSC
-            /// ticks have sub-nanosecond resolution so ticks are more precise.
-            x86_duration_ticks tsc_offset;
-        #endif
 
-        #ifdef _WIN32
-            /// Frequency of the Win32 performance counter in ticks/second
-            ///
-            /// This is just the cached output of
-            /// QueryPerformanceFrequency() in 64-bit form.
-            ///
-            /// To convert performance counter ticks to nanoseconds, multiply
-            /// the number of ticks by one billion (`1000*1000*1000`) then
-            /// divide it by this number.
-            uint64_t win32_frequency;
-        #endif
-
-        /// Typical OS clock offset in nanoseconds
-        ///
-        /// This is the offset that must be subtracted from OS clock durations
-        /// in order to get an unbiased estimator of the duration of the code
-        /// that is being benchmarked, excluding the cost of os_now() itself. If
-        /// you use os_duration(), it will do this automatically for you.
-        udipe_duration_ns_t os_offset;
-
-        /// Width of the 99% duration confidence interval when measuring
-        /// sufficiently small durations
-        ///
-        /// Real world clocks are not perfectly precise, and when timing a
-        /// phenomenon of constant duration they will provided duration that
-        /// vary by some small amount of nanoseconds. This happens due to a
-        /// combination of factors:
-        ///
-        /// - Clocks measure timestamps with a finite granularity (the "tick"),
-        ///   which means that individual clock timetamps deviate from the true
-        ///   timestamp at the time where they were measured by +/- 0.5 clock
-        ///   tick, and thus differences of clock timestamps deviate from the
-        ///   true durations by +/- 1 clock tick.
-        /// - The clock measurement process is not instantaneous, it takes a
-        ///   certain amount of time. On clocks whose readout involves some form
-        ///   of synchronization (some OS clocks, HPET...), this measurement
-        ///   duration is not constant but may fluctuate from one clock readout
-        ///   to another, and the precise point within this time window where a
-        ///   timestamp is acquired may fluctuate as well.
-        ///
-        /// The resulting absolute clock precision acts as a lower limit on how
-        /// small a duration you can reliably measure with a given relative
-        /// precision. For example, if your clock has 10ns precision, then 1µs
-        /// (`100*10ns`) is the lowest absolute duration that you can measure
-        /// with 1% relative precision.
-        udipe_duration_ns_t best_precision;
-
-        /// Longest benchmark run duration where `best_precision` is achieved
-        ///
-        /// Duration measurement precision decreases above a certain benchmark
-        /// run duration because a non-negligible fraction of benchmark runs
-        /// start being interrupted by the OS scheduler and I/O peripheral
-        /// notifications, which has many harmful side-effects:
-        ///
-        /// - On its own, the kernel/user mode round trip and interrupt
-        ///   processing logic has nontrivial overhead, which gets accounted
-        ///   into your benchmark duration even though that's not the code you
-        ///   are interested in measuring. This introduces bias on the duration
-        ///   output and reduces result reproducibility as the background
-        ///   interrupt workload that causes this is not constant over time.
-        /// - As a result of this interrupt, the OS scheduler may decide to
-        ///   migrate your task to a different CPU core, which will trash all
-        ///   long-lived CPU state that your application relies on for optimal
-        ///   execution performance: data caches, branch predictor entries,
-        ///   frequency scaling, enablement of wider SIMD instruction sets...
-        ///   This will make the next few benchmark runs last longer, thus
-        ///   increasing measured duration variability.
-        ///     * If you are using the TSC clock, or an OS clock based on it,
-        ///       then CPU migration will additionally increase duration
-        ///       measurement error because the TSC clocks of different CPU
-        ///       cores are not perfectly synchronized with each other.
-        /// - Even if your task does not migrate to a different CU core, the
-        ///   interrupt processing routine will still trash a subset of the
-        ///   aforementioned CPU state, which depends on non-reproducible
-        ///   details of the OS background workload.
-        ///
-        /// This clock figure of merit tells you the longest a benchmark run can
-        /// last before these effects start measurably degrading the empirical
-        /// duration measurement precision.
-        ///
-        /// It is measured on a trivial task (empty loop) which is minimally
-        /// perturbed by interrupts and must therefore be understood as an upper
-        /// bound on the optimal benchmark run duration. More complex workloads
-        /// will be more severely perturbed by OS interrupts and should
-        /// therefore be tuned to a shorter benchmark run duration.
-        ///
-        /// To find out the optimal benchmark run duration for your specific
-        /// workload, you can use the following algorithm:
-        ///
-        /// - Quickly tune up benchmark loop iteration count until benchmark run
-        ///   duration crosses this upper limit.
-        /// - Tune down benchmark loop iteration count more slowly/carefully
-        ///   until empirically optimal duration precision is achieved.
-        /// - Finish measurement at this iteration count.
-        udipe_duration_ns_t longest_optimal_duration;
-
-        /// Duration analyzer for clock calibration data
-        ///
-        /// This will be used whenever the clock is recalibrated
-        duration_analyzer_t calibration_analyzer;
-    } benchmark_clock_t;
-
-    /// Set up the benchmark clock
-    ///
-    /// Since operating systems do not expose many useful properties of their
-    /// high-resolution clocks, these properties must unfortunately be manually
-    /// calibrated by applications through a set of measurements, which will
-    /// take some time.
-    ///
-    /// Furthermore, some aspects of this initial calibration may not remain
-    /// correct forever, as system operation conditions can change during
-    /// long-running benchmarks. It is therefore strongly recommended to call
-    /// benchmark_clock_recalibrate() between two sets of measurements, so that
-    /// the benchmark clock gets automatically recalibrated whenever necessary.
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \returns a benchmark clock configuration that is meant to be integrated
-    ///          into \ref udipe_benchmark_t, and eventually destroyed with
-    ///          benchmark_clock_finalize().
-    benchmark_clock_t benchmark_clock_initialize();
-
-    /// Check if the benchmark clock needs recalibration, if so recalibrate it
-    ///
-    /// This recalibration process mainly concerns \ref
-    /// benchmark_clock_t::uninterrupted_window, which may evolve as the system
-    /// background workload changes. But it is also a good occasion to
-    /// sanity-check that other clock parameters still seem valid.
-    ///
-    /// It should be run at the time where execution shifts from one benchmark
-    /// workload to another, as performing statistics over measurements which
-    /// were using different clock calibrations is fraught with peril.
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param clock must be a benchmark clock configuration that was
-    ///              initialized with benchmark_clock_initialize() and hasn't
-    ///             been destroyed with benchmark_clock_finalize() yet.
-    UDIPE_NON_NULL_ARGS
-    void benchmark_clock_recalibrate(benchmark_clock_t* clock);
-
-    /// Destroy the benchmark clock
-    ///
-    /// After this is done, the benchmark clock must not be used again.
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param clock must be a benchmark clock configuration that was
-    ///              initialized with benchmark_clock_initialize() and hasn't
-    ///             been destroyed with benchmark_clock_finalize() yet.
-    UDIPE_NON_NULL_ARGS
-    void benchmark_clock_finalize(benchmark_clock_t* clock);
+    /// \name Common clock properties
+    /// \{
 
     /// Signed version of \ref udipe_duration_ns_t
     ///
-    /// Most system clocks guarantee that if two timestamps t1 and t2 were taken
-    /// in succession, t2 cannot be "lesser than" t1 and therefore t2 - t1 must
-    /// be a positive or zero duration. But this monotonicity property is
+    /// Most clocks guarantee that if two timestamps t1 and t2 were taken in
+    /// succession, t2 cannot be "lesser than" t1 and therefore t2 - t1 must be
+    /// a positive or zero duration. But this monotonicity property is
     /// unfortunately partially lost we attempt to compute true user code
     /// durations, i.e. the time that elapsed between the end of the now() at
     /// the beginning of a benchmark workload and the start of now() at the end
     /// of a benchmark workload. There are two reasons for this:
     ///
-    /// - Computing the user workload duration requires us to subtract the
-    ///   system clock access delay, which is not perfectly known but estimated
-    ///   by statistical means (and may indeed fluctuate one some uncommon
-    ///   hardware configurations). If we over-estimate the clock access delay,
-    ///   then negative duration measurements may happen.
-    /// - System clocks do not guarantee that a timestamp will always be
-    ///   acquired at the same time between the start and the end of the call to
-    ///   now(), and this introduces an uncertainty window over the position of
-    ///   time windows that can be as large as the clock access delay in the
-    ///   worst case (though it will usually be smaller). If we take t the true
+    /// - Computing the user workload duration requires us to subtract the clock
+    ///   access delay, which is not perfectly known but estimated by
+    ///   statistical means (and may indeed fluctuate one some uncommon hardware
+    ///   configurations). If we over-estimate the clock access delay, then
+    ///   negative duration measurements may happen.
+    /// - Clocks do not guarantee that a timestamp will always be acquired at
+    ///   the same time between the start and the end of the call to now(), and
+    ///   this introduces an uncertainty window over the position of time
+    ///   windows that can be as large as the clock access delay in the worst
+    ///   case (though it will usually be smaller). If we take t the true
     ///   duration and dt the clock access time, the corrected duration `t2 - t1
     ///   - dt` may therefore be anywhere within the `[t - dt; t + dt]` range.
     ///   This means that in the edge case where `t < dt`, the computed duration
@@ -348,6 +173,12 @@
     /// was carried out correctly with workload durations that far exceed the
     /// clock access delay.
     typedef int64_t signed_duration_ns_t;
+
+    /// \}
+
+
+    /// \name Operating system clock
+    /// \{
 
     /// Raw system clock timestamp
     ///
@@ -401,6 +232,85 @@
         #endif
     }
 
+    /// Operating system clock
+    ///
+    /// This contains a cache of anything needed to (re)calibrate the operating
+    /// system clock and use it for duration measurements.
+    typedef struct os_clock_s {
+        #ifdef _WIN32
+            /// Frequency of the Win32 performance counter in ticks/second
+            ///
+            /// This is just the cached output of
+            /// QueryPerformanceFrequency() in 64-bit form.
+            ///
+            /// To convert performance counter ticks to nanoseconds, multiply
+            /// the number of ticks by one billion (`1000*1000*1000`) then
+            /// divide it by this number.
+            uint64_t win32_frequency;
+        #endif
+
+        /// Clock offset statistics in nanoseconds
+        ///
+        /// This is the offset that must be subtracted from OS clock durations
+        /// in order to get an unbiased estimator of the duration of the code
+        /// that is being benchmarked, excluding the cost of os_now() itself.
+        ///
+        /// You do not need to perform this offset subtraction yourself,
+        /// os_duration() will take care of it for you.
+        stats_t offset_stats;
+
+        /// Empty loop iteration count at which the best relative precision on
+        /// the loop iteration duration is achieved
+        ///
+        /// This is a useful starting point when recalibrating the system clock,
+        /// or when calibrating a different clock based on the system clock.
+        size_t best_empty_iters;
+
+        /// Duration statistics for the best empty loop, in nanoseconds
+        ///
+        /// This data can be used in several different ways:
+        ///
+        /// - The central value indicates the timed function duration for which
+        ///   the OS clock has optimal relative precision on the benchmark loop
+        ///   iteration duration. It can be used as a target when calibrating
+        ///   benchmark run iteration counts.
+        /// - The (low, high) spread indicates the absolute clock precision in
+        ///   the optimal regime where OS interrupts do not play a role yet.
+        stats_t best_empty_stats;
+
+        /// Timestamp buffer
+        ///
+        /// This is used for timestamp storage during OS clock measurements. It
+        /// contains enough storage for `num_durations + 1` timestamps.
+        os_timestamp_t* timestamps;
+
+        /// Duration buffer
+        ///
+        /// This is used for duration storage during OS clock measurements. It
+        /// contains enough storage for `num_durations` durations.
+        signed_duration_ns_t* durations;
+
+        /// Duration buffer capacity
+        ///
+        /// See individual buffer descriptions for more information about how
+        /// buffer capacities derive from this quantity.
+        size_t num_durations;
+    } os_clock_t;
+
+    /// Set up the system clock
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param calibration_analyzer should have been initialized with
+    ///                             duration_analyzer_initialize() based on the
+    ///                             width of the calibration confidence interval
+    ///                             and not have been finalized yet
+    ///
+    /// \returns a system clock context that must later be finalized using
+    ///          os_clock_finalize()
+    UDIPE_NON_NULL_ARGS
+    os_clock_t os_clock_initialize(duration_analyzer_t* calibration_analyzer);
+
     /// Read the system clock
     ///
     /// The output of this function is OS-specific and unrelated to any time
@@ -410,8 +320,8 @@
     /// duration estimates using os_duration().
     ///
     /// \returns a timestamp representing the current time at some point between
-    ///          the moment where now() was called and the moment where the call
-    ///          to now() completed.
+    ///          the moment where os_now() was called and the moment where the
+    ///          call to os_now() returned.
     static inline os_timestamp_t os_now() {
         os_timestamp_t timestamp;
         #if defined(_POSIX_TIMERS)
@@ -441,23 +351,19 @@
     /// time that elapsed between the end of the call to os_now() that returned
     /// `start` and the beginning of the call to os_now() that returned `end`.
     ///
-    /// `clock->precision` provides an estimate of the precision of the result,
-    /// which should be shown in user-facing output as `duration ± precision`.
-    ///
     /// \param clock is a set of clock parameters that were previously measured
-    ///              via benchmark_clock_initialize().
+    ///              via os_clock_initialize() and haven't been finalized yet.
     /// \param start is the timestamp that was measured using os_now() at the
     ///              start of the time span of interest.
     /// \param end is the timestamp that was measured using os_now() at the end
     ///            of the time span of interest (and therefore after `start`).
     ///
-    /// \returns an unbiased estimate of the amount of time that elapsed between
-    ///          `start` and `end`, in nanoseconds, with a precision given by
-    ///          `clock->precison`.
+    /// \returns an offset-corrected estimate of the amount of time that elapsed
+    ///          between `start` and `end`, in nanoseconds.
     UDIPE_NON_NULL_ARGS
-    static inline signed_duration_ns_t os_duration(benchmark_clock_t* clock,
-                                                   os_timestamp_t start,
-                                                   os_timestamp_t end) {
+    static inline stats_t os_duration(os_clock_t* clock,
+                                      os_timestamp_t start,
+                                      os_timestamp_t end) {
         assert(os_timestamp_le(start, end));
         const uint64_t nano = 1000 * 1000 * 1000;
         signed_duration_ns_t uncorrected_ns;
@@ -472,8 +378,493 @@
         #else
             #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
         #endif
-        return uncorrected_ns - clock->os_offset;
+        return (stats_t){
+            .center = uncorrected_ns - clock->offset_stats.center,
+            .low = uncorrected_ns - clock->offset_stats.high,
+            .high = uncorrected_ns - clock->offset_stats.low
+        };
     }
+
+    /// Measure the execution duration of `workload` using the OS clock
+    ///
+    /// This call `workload` repeatedly `num_runs` times with timing calls
+    /// interleaved between each call. Usual micro-benchmarking precautions must
+    /// be taken to avoid compiler over-optimization:
+    ///
+    /// - If `workload` always processes the same inputs, then
+    ///   UDIPE_ASSUME_ACCESSED() should be used to make the compiler assume
+    ///   that these inputs change from one execution to another.
+    /// - If `workload` emits outputs, then UDIPE_ASSUME_READ() should be used
+    ///   to make the compiler assume that these outputs are being used.
+    /// - If `workload` is just an artificial empty loop (as used during
+    ///   calibration), then UDIPE_ASSUME_READ() should be used on the loop
+    ///   counter to preserve the number of loop iterations.
+    ///
+    /// `num_runs` controls how many timed calls to `workload` will occur, it
+    /// should be tuned such that...
+    ///
+    /// - Output timestamps fit in `timestamps` and output durations fit in
+    ///   `durations`.
+    /// - Results are reproducible enough across benchmark executions (what
+    ///   constitutes "reproducible enough" is context dependent, a parameter
+    ///   autotuning loop can typically work with less steady timing data than
+    ///   the final benchmark measurement).
+    /// - Execution time, which grows roughly linearly with `num_runs`,
+    ///   remains reasonable.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param clock is the benchmark clock that is going to be used. This
+    ///              routine can be used before said clock is fully initialized,
+    ///              but it must be at minimum initialized enough to allow for
+    ///              offset-biased OS clock measurements (i.e. on Windows
+    ///              `win32_frequency` must have been queried already, and on
+    ///              all OSes `offset` must be zeroed out if not known yet).
+    /// \param workload is the workload whose duration should be measured. For
+    ///                 minimal overhead/bias, its definition should be visible
+    ///                 to the compiler at the point where this function is
+    ///                 called, so that it can be inlined into it.
+    /// \param context encodes the parameters that should be passed to
+    ///                `workload`, if any.
+    /// \param num_runs indicates how many timed calls to `workload` should
+    ///                 be performed, see above for tuning advice.
+    /// \param analyzer is a duration analyzer that has been previously set up
+    ///                 via duration_analyzer_initialize() and hasn't been
+    ///                 destroyed via duration_analyzer_finalize() yet.
+    ///
+    /// \returns `workload` execution time statistics in nanoseconds
+    ///
+    /// \internal
+    ///
+    /// This function is marked as `static inline` to encourage the compiler to
+    /// make one copy of it per `workload` and inline `workload` into it,
+    /// assuming the caller did their homework on their side by exposing the
+    /// definition of `workload` at the point where os_clock_measure() is called.
+    UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 5)
+    static inline stats_t os_clock_measure(
+        os_clock_t* clock,
+        void (*workload)(void*),
+        void* context,
+        size_t num_runs,
+        duration_analyzer_t* analyzer
+    ) {
+        if (num_runs > clock->num_durations) {
+            trace("Reallocating storage from %zu to %zu durations...");
+            realtime_liberate(
+                clock->timestamps,
+                (clock->num_durations+1) * sizeof(os_timestamp_t)
+            );
+            realtime_liberate(
+                clock->durations,
+                clock->num_durations * sizeof(signed_duration_ns_t)
+            );
+            clock->num_durations = num_runs;
+            clock->timestamps =
+                realtime_allocate((num_runs+1) * sizeof(os_timestamp_t));
+            clock->durations =
+                realtime_allocate(num_runs * sizeof(signed_duration_ns_t));
+        }
+
+        trace("Performing minimal CPU warmup...");
+        os_timestamp_t* timestamps = clock->timestamps;
+        signed_duration_ns_t* durations = clock->durations;
+        timestamps[0] = os_now();
+        UDIPE_ASSUME_READ(timestamps);
+        workload(context);
+
+        tracef("Performing %zu timed runs...", num_runs);
+        timestamps[0] = os_now();
+        for (size_t run = 0; run < num_runs; ++run) {
+            UDIPE_ASSUME_READ(timestamps);
+            workload(context);
+            timestamps[run+1] = os_now();
+        }
+
+        trace("Analyzing durations...");
+        stats_t result;
+        trace("- Computing central run durations...");
+        for (size_t run = 0; run < num_runs; ++run) {
+            durations[run] = os_duration(clock,
+                                         timestamps[run],
+                                         timestamps[run+1]).center;
+            tracef("- center[%zu] = %zd ns", run, durations[run]);
+        }
+        trace("- Analyzing central run durations...");
+        result.center = analyze_duration(analyzer, durations, num_runs).center;
+        trace("- Computing lower run durations...");
+        for (size_t run = 0; run < num_runs; ++run) {
+            durations[run] = os_duration(clock,
+                                         timestamps[run],
+                                         timestamps[run+1]).low;
+            tracef("- low[%zu] = %zd ns", run, durations[run]);
+        }
+        trace("- Analyzing lower run durations...");
+        result.low = analyze_duration(analyzer, durations, num_runs).low;
+        trace("- Computing higher run durations...");
+        for (size_t run = 0; run < num_runs; ++run) {
+            durations[run] = os_duration(clock,
+                                         timestamps[run],
+                                         timestamps[run+1]).high;
+            tracef("- high[%zu] = %zd ns", run, durations[run]);
+        }
+        trace("- Analyzing higher run durations...");
+        result.high = analyze_duration(analyzer, durations, num_runs).high;
+        return result;
+    }
+
+    /// Destroy the system clock
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param clock is a system clock that has been previously set up
+    ///              via os_clock_initialize() and hasn't been destroyed via
+    ///              os_clock_finalize() yet
+    UDIPE_NON_NULL_ARGS
+    void os_clock_finalize(os_clock_t* clock);
+
+    /// \}
+
+
+    #ifdef X86_64
+        /// \name TSC clock (x86-specific for now)
+        /// \{
+
+        /// x86 TSC clock context
+        ///
+        /// This contains a cache of anything needed to (re)calibrate the x86
+        /// TimeStamp Counter and use it for duration measurements.
+        typedef struct x86_clock_s {
+            /// Duration statistics for the best empty loop, in TSC ticks
+            ///
+            /// This data can be used in several different ways:
+            ///
+            /// - The central value indicates the timed function duration for
+            ///   which the TSC has optimal relative precision on the benchmark
+            ///   loop iteration duration. It can be used as a target when
+            ///   calibrating benchmark run iteration counts.
+            /// - The (low, high) spread indicates the absolute clock precision
+            ///   in the optimal regime where OS interrupts do not play a
+            ///   significant role yet.
+            ///
+            /// The associated empty loop iteration count can be found in the
+            /// \ref os_clock_t against which the TSC was calibrated.
+            stats_t best_empty_stats;
+
+            /// Statistics of x86_timer_start()/x86_timer_end() overhead inside
+            /// of the timed region, in TSC ticks
+            ///
+            /// This is the offset that must be subtracted from TSC differences
+            /// in order to get an unbiased estimator of the duration of the
+            /// benchmarked code, excluding the cost of
+            /// x86_timer_start()/x86_timer_end() themselves.
+            stats_t offset_stats;
+
+            /// Frequency of the TSC clock in ticks/second
+            ///
+            /// This is calibrated against the OS clock, enabling us to turn
+            /// RDTSC readings into nanoseconds as with `win32_frequency`.
+            ///
+            /// Because this frequency is derived from an OS clock measurement,
+            /// it is not perfectly known, as highlighted by the fact that this
+            /// is statistics not an absolute number. This means that
+            /// precision-sensitive computations should ideally be performed in
+            /// terms of TSC ticks, not nanoseconds.
+            stats_t frequency_stats;
+
+            /// Timestamp buffer
+            ///
+            /// This is used for timestamp storage during TSC measurements. It
+            /// contains enough storage for `2*num_durations` timestamps.
+            ///
+            /// In terms of layout, it begins with all the `num_durations` start
+            /// timestamps, followed by all the `num_durations` end timestamps,
+            /// which ensures optimal SIMD processing.
+            ///
+            /// Because the timing thread is pinned to a single CPU core, we do
+            /// not need to keep the CPU IDs around, only to check that the
+            /// pinning is effective at keeping these constant in debug builds.
+            /// Therefore we extract the instant values from the timestamps and
+            /// only keep that around.
+            x86_instant* instants;
+
+            /// Duration buffer
+            ///
+            /// This is used for duration storage during TSC measurements. It
+            /// contains enough storage for `num_durations` durations.
+            x86_duration_ticks* ticks;
+
+            /// Duration buffer capacity
+            ///
+            /// See individual buffer descriptions for more information about
+            /// how buffer capacities derive from this quantity.
+            size_t num_durations;
+        } x86_clock_t;
+
+        /// Set up the TSC clock
+        ///
+        /// The TSC is calibrated against the OS clock, which must therefore be
+        /// calibrated first before the TSC can be calibrated.
+        ///
+        /// TSC calibration should ideally happen immediately after system clock
+        /// setup, so that \ref os_clock_t::best_empty_stats is maximally up to
+        /// date (e.g. CPU clock frequency did not have any time to drift to a
+        /// different value).
+        ///
+        /// This function must be called within the scope of with_logger().
+        ///
+        /// \param os is a system clock context that was freshly initialized
+        ///           with os_clock_initialize(), ideally right before calling
+        ///           this function, and hasn't been finalized with
+        ///           os_clock_finalize() yet.
+        /// \param calibration_analyzer should have been initialized with
+        ///                             duration_analyzer_initialize() based on
+        ///                             the width of the calibration confidence
+        ///                             interval and not have been finalized yet
+        ///
+        /// \returns a TSC clock context that must later be finalized using
+        ///          x86_clock_finalize().
+        UDIPE_NON_NULL_ARGS
+        x86_clock_t
+        x86_clock_initialize(const os_clock_t* os,
+                             duration_analyzer_t* calibration_analyzer);
+
+        /// Measure the execution duration of `workload` using the TSC clock
+        ///
+        /// This works a lot like os_clock_measure(), but it uses the TSC clock
+        /// instead of the system clock, which changes a few things:
+        ///
+        /// - The timing thread that calls this function must have been pinned
+        ///   to a specific CPU core to avoid CPU migrations. This is implicitly
+        ///   taken care of by udipe_benchmark_initialize() before calling
+        ///   benchmark_clock_initialize() and also by udipe_benchmark_run()
+        ///   before calling the user-provided benchmarking routine.
+        /// - Output measurements are provided in clock ticks not nanoseconds.
+        ///   To convert them into nanoseconds, you must use
+        ///   clock->frequency_stats, taking care to widen the output confidence
+        ///   interval based on the associated TSC frequency uncertainty. The
+        ///   x86_duration() function can be used to perform this conversion.
+        ///
+        /// This function must be called within the scope of with_logger().
+        ///
+        /// \param clock mostly works as in os_clock_measure(), except it wants
+        ///              a TSC clock context not an OS clock context
+        /// \param workload works as in os_clock_measure()
+        /// \param context works as in os_clock_measure()
+        /// \param num_runs works as in os_clock_measure()
+        /// \param analyzer works as in os_clock_measure()
+        ///
+        /// \returns `workload` execution time statistics in TSC ticks
+        ///
+        /// \internal
+        ///
+        /// This function is `static inline` for the same reason that
+        /// os_clock_measure() is `static inline`.
+        UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 5)
+        static inline stats_t x86_clock_measure(
+            x86_clock_t* clock,
+            void (*workload)(void*),
+            void* context,
+            size_t num_runs,
+            duration_analyzer_t* analyzer
+        ) {
+            if (num_runs > clock->num_durations) {
+                trace("Reallocating storage from %zu to %zu durations...");
+                realtime_liberate(
+                    clock->instants,
+                    2 * clock->num_durations * sizeof(x86_instant)
+                );
+                realtime_liberate(
+                    clock->ticks,
+                    clock->num_durations * sizeof(x86_duration_ticks)
+                );
+                clock->num_durations = num_runs;
+                clock->instants =
+                    realtime_allocate(2 * num_runs * sizeof(x86_instant));
+                clock->ticks =
+                    realtime_allocate(num_runs * sizeof(x86_duration_ticks));
+            }
+
+            trace("Setting up measurement...");
+            x86_instant* starts = clock->instants;
+            x86_instant* ends = clock->instants + num_runs;
+            x86_duration_ticks* ticks = clock->ticks;
+            const bool strict = false;
+            x86_timestamp_t timestamp = x86_timer_start(strict);
+            const x86_cpu_id initial_cpu_id = timestamp.cpu_id;
+
+            trace("Performing minimal CPU warmup...");
+            starts[0] = timestamp.ticks;
+            UDIPE_ASSUME_READ(starts);
+            workload(context);
+            timestamp = x86_timer_end(strict);
+            assert(timestamp.cpu_id == initial_cpu_id);
+            ends[0] = timestamp.ticks;
+            UDIPE_ASSUME_READ(ends);
+
+            tracef("Performing %zu timed runs...", num_runs);
+            for (size_t run = 0; run < num_runs; ++run) {
+                timestamp = x86_timer_start(strict);
+                assert(timestamp.cpu_id == initial_cpu_id);
+                starts[run] = timestamp.ticks;
+                UDIPE_ASSUME_READ(starts);
+
+                workload(context);
+
+                timestamp = x86_timer_end(strict);
+                assert(timestamp.cpu_id == initial_cpu_id);
+                ends[run] = timestamp.ticks;
+                UDIPE_ASSUME_READ(ends);
+            }
+
+            trace("Analyzing durations...");
+            stats_t result;
+            trace("- Computing central run durations...");
+            for (size_t run = 0; run < num_runs; ++run) {
+                ticks[run] = ends[run] - starts[run] - clock->offset_stats.center;
+                tracef("  * center[%zu] = %zd", run, ticks[run]);
+            }
+            trace("- Analyzing central run durations...");
+            result.center = analyze_duration(analyzer, ticks, num_runs).center;
+            trace("- Computing lower run durations...");
+            for (size_t run = 0; run < num_runs; ++run) {
+                ticks[run] = ends[run] - starts[run] - clock->offset_stats.high;
+                tracef("  * low[%zu] = %zd", run, ticks[run]);
+            }
+            trace("- Analyzing lower run durations...");
+            result.low = analyze_duration(analyzer, ticks, num_runs).low;
+            trace("- Computing higher run durations...");
+            for (size_t run = 0; run < num_runs; ++run) {
+                ticks[run] = ends[run] - starts[run] - clock->offset_stats.low;
+                tracef("  * high[%zu] = %zd", run, ticks[run]);
+            }
+            trace("- Analyzing higher run durations...");
+            result.high = analyze_duration(analyzer, ticks, num_runs).high;
+            return result;
+        }
+
+        /// Convert x86 clock ticks statistics into duration statistics
+        ///
+        /// \param clock is a TSC clock context that was freshly initialized
+        ///              with x86_clock_initialize() and hasn't been finalized
+        ///              with x86_clock_finalize() yet
+        /// \param ticks are TSC tick statistics, typically from
+        ///              x86_clock_measure()
+        ///
+        /// \returns duration statistics in nanoseconds
+        UDIPE_NON_NULL_ARGS
+        static inline stats_t x86_duration(x86_clock_t* clock,
+                                           stats_t ticks) {
+            const int64_t nano = 1000*1000*1000;
+            return (stats_t){
+                .center = ticks.center * nano / clock->frequency_stats.center,
+                .low = ticks.low * nano / clock->frequency_stats.high,
+                .high = ticks.high * nano / clock->frequency_stats.low
+            };
+        }
+
+        /// Destroy the TSC clock
+        ///
+        /// This function must be called within the scope of with_logger().
+        ///
+        /// \param clock is a TSC clock context that has been previously set up
+        ///              via x86_clock_initialize() and hasn't been destroyed
+        ///              via x86_clock_finalize() yet
+        UDIPE_NON_NULL_ARGS
+        void x86_clock_finalize(x86_clock_t* clock);
+
+        /// \}
+    #endif  // X86_64
+
+
+    /// \name Benchmark clock
+    /// \{
+
+    /// Benchmark clock
+    ///
+    /// This is a unified interface to the operating system and CPU clocks,
+    /// which attempts to pick the best clock available on the target operating
+    /// system and CPU architecture.
+    typedef struct benchmark_clock_s {
+        #ifdef X86_64
+            /// TSC clock context
+            ///
+            /// This contains everything needed to recalibrate and use the x86
+            /// TimeStamp Counter clock.
+            x86_clock_t x86;
+        #endif
+
+        /// Duration analyzer for everyday benchmark measurements
+        ///
+        /// This represents a confidence interval of MEASUREMENT_CONFIDENCE and
+        /// is used whenever regular benchmark measurements are taken.
+        duration_analyzer_t measurement_analyzer;
+
+        /// System clock context
+        ///
+        /// This contains everything needed to recalibrate and use the operating
+        /// system clock.
+        os_clock_t os;
+
+        /// Duration analyzer for clock calibration data
+        ///
+        /// This represents a confidence interval of CALIBRATION_CONFIDENCE and
+        /// is used whenever a clock is (re)calibrated.
+        duration_analyzer_t calibration_analyzer;
+    } benchmark_clock_t;
+
+    /// Set up the benchmark clock
+    ///
+    /// Since operating systems do not expose many useful properties of their
+    /// high-resolution clocks, these properties must unfortunately be manually
+    /// calibrated by applications through a set of measurements, which will
+    /// take some time.
+    ///
+    /// Furthermore, some aspects of this initial calibration may not remain
+    /// correct forever, as system operation conditions can change during
+    /// long-running benchmarks. It is therefore strongly recommended to call
+    /// benchmark_clock_recalibrate() between two sets of measurements, so that
+    /// the benchmark clock gets automatically recalibrated whenever necessary.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \returns a benchmark clock configuration that is meant to be integrated
+    ///          into \ref udipe_benchmark_t, and eventually destroyed with
+    ///          benchmark_clock_finalize().
+    benchmark_clock_t benchmark_clock_initialize();
+
+    // TODO: Benchmark clock measurement in raw clock units
+    // TODO: Conversion of measurements from raw clock units to nanoseconds
+
+    /// Check if the benchmark clock needs recalibration, if so recalibrate it
+    ///
+    /// This recalibration process mainly concerns the `best_empty_stats` of
+    /// each clock, which may evolve as the system background workload changes.
+    /// But it is also a good occasion to sanity-check that other clock
+    /// parameters still seem valid.
+    ///
+    /// It should be run at the time where execution shifts from one benchmark
+    /// workload to another, as performing statistics over measurements which
+    /// were using different clock calibrations is fraught with peril.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param clock must be a benchmark clock configuration that was
+    ///              initialized with benchmark_clock_initialize() and hasn't
+    ///             been destroyed with benchmark_clock_finalize() yet.
+    UDIPE_NON_NULL_ARGS
+    void benchmark_clock_recalibrate(benchmark_clock_t* clock);
+
+    /// Destroy the benchmark clock
+    ///
+    /// After this is done, the benchmark clock must not be used again.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param clock must be a benchmark clock configuration that was
+    ///              initialized with benchmark_clock_initialize() and hasn't
+    ///             been destroyed with benchmark_clock_finalize() yet.
+    UDIPE_NON_NULL_ARGS
+    void benchmark_clock_finalize(benchmark_clock_t* clock);
 
     /// \}
 
@@ -493,14 +884,24 @@
         /// Used by udipe_benchmark_run() to decide which benchmarks should run.
         name_filter_t filter;
 
+        /// hwloc topology
+        ///
+        /// Used to pin timing measurement routines on a single CPU core so that
+        /// TSC timing works reliably.
+        hwloc_topology_t topology;
+
+        /// Timing thread cpuset
+        ///
+        /// Probed at benchmark harness initialization time and used to ensure
+        /// that timing measurement routines remain pinned to the same CPU core
+        /// from then on.
+        hwloc_cpuset_t timing_cpuset;
+
         /// Benchmark clock
         ///
         /// Used in the adjustment of benchmark parameters and interpretation of
         /// benchmark results.
         benchmark_clock_t clock;
-
-        // TODO: Will need some kind of cache-friendly buffer setup for
-        //       timestamps, may want to steal the one from buffer.h.
     };
 
 #endif  // UDIPE_BUILD_BENCHMARKS

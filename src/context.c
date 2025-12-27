@@ -8,6 +8,7 @@
 #include "visibility.h"
 
 #include <errno.h>
+#include <hwloc.h>
 #include <stdlib.h>
 
 
@@ -42,8 +43,9 @@ void udipe_finalize(udipe_context_t* context) {
         debug("Finalizing the connection options allocator...");
         connect_options_allocator_finalize(&context->connect_options);
 
-        debug("Destroying the hwloc topology...");
+        debug("Destroying and poisoning the hwloc topology...");
         hwloc_topology_destroy(context->topology);
+        context->topology = NULL;
 
         debug("Freeing the udipe_context_t...");
         realtime_liberate(context, sizeof(udipe_context_t));
