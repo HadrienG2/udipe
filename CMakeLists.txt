@@ -47,9 +47,9 @@ endif()
 
 # These options are only available in standalone builds, not vendored ones
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-    option (UDIPE_BUILD_BENCHMARKS
-            "Build the performance benchmarks"
-            ON)
+    option(UDIPE_BUILD_BENCHMARKS
+           "Build the performance benchmarks"
+           ON)
 
     option(UDIPE_BUILD_DOXYGEN "Build the Doxygen documentation" OFF)
     option(UDIPE_BUILD_DOXYGEN_INTERNAL
@@ -70,7 +70,9 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
         set(UDIPE_BUILD_TESTS ON)
     endif()
     if(UDIPE_BUILD_TESTS)
-        # Some code examples act as doctests
+        # The benchmarking harness is complex enough to warrant some tests
+        set(UDIPE_BUILD_BENCHMARKS ON)
+        # Code examples do double duty as doctests
         set(UDIPE_BUILD_EXAMPLES ON)
     endif()
 endif()

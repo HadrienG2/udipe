@@ -176,36 +176,37 @@
         distribution_t* dist = &builder->inner;
         distribution_layout_t layout = distribution_layout(dist);
         if (dist->num_bins < dist->capacity) {
-            const size_t last_pos = dist->num_bins - 1;
-            if (pos == last_pos) {
-                trace("At end of histogram, can append value directly.");
-                layout.sorted_values[pos] = value;
-                layout.counts_or_cumsum[pos] = 1;
+            trace("There's enough room in the allocation for this new bin.");
+            const size_t end_pos = dist->num_bins;
+            if (pos == end_pos) {
+                trace("New bin is at the end of the histogram, can append it directly.");
+                layout.sorted_values[end_pos] = value;
+                layout.counts[end_pos] = 1;
                 ++(dist->num_bins);
                 return;
             }
 
             tracef("Backing up current bin at position %zu...", pos);
             int64_t next_value = layout.sorted_values[pos];
-            size_t next_count = layout.counts_or_cumsum[pos];
+            size_t next_count = layout.counts[pos];
 
             trace("Inserting new value...");
             layout.sorted_values[pos] = value;
-            layout.counts_or_cumsum[pos] = 1;
+            layout.counts[pos] = 1;
 
             trace("Shifting previous bins up...");
             for (size_t dst = pos + 1; dst < dist->num_bins; ++dst) {
                 int64_t tmp_value = layout.sorted_values[dst];
-                size_t tmp_count = layout.counts_or_cumsum[dst];
+                size_t tmp_count = layout.counts[dst];
                 layout.sorted_values[dst] = next_value;
-                layout.counts_or_cumsum[dst] = next_count;
+                layout.counts[dst] = next_count;
                 next_value = tmp_value;
                 next_count = tmp_count;
             }
 
             trace("Restoring last bin...");
-            layout.sorted_values[dist->num_bins] = next_value;
-            layout.counts_or_cumsum[dist->num_bins] = next_count;
+            layout.sorted_values[end_pos] = next_value;
+            layout.counts[end_pos] = next_count;
             ++(dist->num_bins);
         } else {
             debug("No room for extra bins, must reallocate...");
@@ -216,18 +217,18 @@
             debug("Transferring old values smaller than the new one...");
             for (size_t bin = 0; bin < pos; ++bin) {
                 new_layout.sorted_values[bin] = layout.sorted_values[bin];
-                new_layout.counts_or_cumsum[bin] = layout.counts_or_cumsum[bin];
+                new_layout.counts[bin] = layout.counts[bin];
             }
 
             debug("Inserting new value...");
             new_layout.sorted_values[pos] = value;
-            new_layout.counts_or_cumsum[pos] = 1;
+            new_layout.counts[pos] = 1;
 
             debug("Transferring old values larger than the new one...");
             for (size_t src = pos; src < dist->num_bins; ++src) {
                 const size_t dst = src + 1;
                 new_layout.sorted_values[dst] = layout.sorted_values[src];
-                new_layout.counts_or_cumsum[dst] = layout.counts_or_cumsum[src];
+                new_layout.counts[dst] = layout.counts[src];
             }
 
             debug("Replacing former distribution...");
@@ -238,7 +239,7 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    distribution_t distribution_finish(distribution_builder_t* builder) {
+    distribution_t distribution_build(distribution_builder_t* builder) {
         debug("Extracting the distribution from the builder...");
         distribution_t dist = builder->inner;
         builder->inner = (distribution_t){
@@ -255,16 +256,16 @@
             trace("Final distribution is {");
             for (size_t bin = 0; bin < dist.num_bins; ++bin) {
                 tracef("  %zd: %zu,",
-                       layout.sorted_values[bin], layout.counts_or_cumsum[bin]);
+                       layout.sorted_values[bin], layout.counts[bin]);
             }
             trace("}");
         }
 
-        debug("Turning value counts into a cumulative sum...");
-        size_t cumsum = layout.counts_or_cumsum[0];
-        for (size_t bin = 1; bin < dist.num_bins; ++bin) {
-            cumsum += layout.counts_or_cumsum[bin];
-            layout.counts_or_cumsum[bin] = cumsum;
+        debug("Turning value counts into end indices...");
+        size_t end_idx = 0;
+        for (size_t bin = 0; bin < dist.num_bins; ++bin) {
+            end_idx += layout.counts[bin];
+            layout.end_indices[bin] = end_idx;
         }
         return dist;
     }
@@ -969,5 +970,499 @@
         // benchmarked before other pieces of code that may depend on it
         // TODO: UDIPE_BENCHMARK(benchmark, xyz_micro_benchmarks, NULL);
     }
+
+
+    #ifdef UDIPE_BUILD_TESTS
+
+        static void distribution_unit_tests() {
+            trace("Setting up a distribution...");
+            distribution_builder_t builder = distribution_initialize();
+            const void* const initial_allocation = builder.inner.allocation;
+            const size_t initial_capacity = builder.inner.capacity;
+            ensure_ne(initial_allocation, NULL);
+            ensure_eq(builder.inner.num_bins, (size_t)0);
+            ensure_ge(initial_capacity, (size_t)5);
+
+            trace("Checking initial layout");
+            const distribution_layout_t initial_layout =
+                distribution_layout(&builder.inner);
+            ensure_ne((void*)initial_layout.sorted_values, NULL);
+            ensure_ne((void*)initial_layout.counts, NULL);
+            const size_t values_size =
+                (char*)initial_layout.counts
+                    - (char*)initial_layout.sorted_values;
+            ensure_eq(values_size, initial_capacity * sizeof(int64_t));
+
+            assert(RAND_MAX <= INT64_MAX);
+            const int64_t value3 = rand() - RAND_MAX / 2;
+            tracef("Inserting value3 = %zd for the first time...", value3);
+            distribution_insert(&builder, value3);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)1);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            distribution_layout_t layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value3);
+            ensure_eq(layout.counts[0], (size_t)1);
+
+            trace("Inserting value3 again...");
+            distribution_insert(&builder, value3);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)1);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value3);
+            ensure_eq(layout.counts[0], (size_t)2);
+
+            const int64_t value5 = value3 + 2 + rand() % (INT64_MAX - value3 - 1);
+            tracef("Inserting value5 = %zd for the first time...", value5);
+            distribution_insert(&builder, value5);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)2);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value3);
+            ensure_eq(layout.counts[0], (size_t)2);
+            ensure_eq(layout.sorted_values[1], value5);
+            ensure_eq(layout.counts[1], (size_t)1);
+
+            trace("Inserting value5 again two times...");
+            distribution_insert(&builder, value5);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)2);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value3);
+            ensure_eq(layout.counts[0], (size_t)2);
+            ensure_eq(layout.sorted_values[1], value5);
+            ensure_eq(layout.counts[1], (size_t)2);
+            //
+            distribution_insert(&builder, value5);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)2);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value3);
+            ensure_eq(layout.counts[0], (size_t)2);
+            ensure_eq(layout.sorted_values[1], value5);
+            ensure_eq(layout.counts[1], (size_t)3);
+
+            const int64_t value1 = value3 - 2 - rand() % (value3 - 1 - INT64_MIN);
+            tracef("Inserting value1 = %zd for the first time...", value1);
+            distribution_insert(&builder, value1);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)3);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value1);
+            ensure_eq(layout.counts[0], (size_t)1);
+            ensure_eq(layout.sorted_values[1], value3);
+            ensure_eq(layout.counts[1], (size_t)2);
+            ensure_eq(layout.sorted_values[2], value5);
+            ensure_eq(layout.counts[2], (size_t)3);
+
+            trace("Inserting value1 again three times...");
+            distribution_insert(&builder, value1);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)3);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value1);
+            ensure_eq(layout.counts[0], (size_t)2);
+            ensure_eq(layout.sorted_values[1], value3);
+            ensure_eq(layout.counts[1], (size_t)2);
+            ensure_eq(layout.sorted_values[2], value5);
+            ensure_eq(layout.counts[2], (size_t)3);
+            //
+            distribution_insert(&builder, value1);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)3);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value1);
+            ensure_eq(layout.counts[0], (size_t)3);
+            ensure_eq(layout.sorted_values[1], value3);
+            ensure_eq(layout.counts[1], (size_t)2);
+            ensure_eq(layout.sorted_values[2], value5);
+            ensure_eq(layout.counts[2], (size_t)3);
+            //
+            distribution_insert(&builder, value1);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)3);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value1);
+            ensure_eq(layout.counts[0], (size_t)4);
+            ensure_eq(layout.sorted_values[1], value3);
+            ensure_eq(layout.counts[1], (size_t)2);
+            ensure_eq(layout.sorted_values[2], value5);
+            ensure_eq(layout.counts[2], (size_t)3);
+
+            const int64_t value2 = value1 + 1 + rand() % (value3 - value1 - 1);
+            tracef("Inserting value2 = %zd for the first time...", value2);
+            distribution_insert(&builder, value2);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)4);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts,
+                      (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value1);
+            ensure_eq(layout.counts[0], (size_t)4);
+            ensure_eq(layout.sorted_values[1], value2);
+            ensure_eq(layout.counts[1], (size_t)1);
+            ensure_eq(layout.sorted_values[2], value3);
+            ensure_eq(layout.counts[2], (size_t)2);
+            ensure_eq(layout.sorted_values[3], value5);
+            ensure_eq(layout.counts[3], (size_t)3);
+
+            trace("Inserting value2 again two times...");
+            distribution_insert(&builder, value2);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)4);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts,
+                      (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value1);
+            ensure_eq(layout.counts[0], (size_t)4);
+            ensure_eq(layout.sorted_values[1], value2);
+            ensure_eq(layout.counts[1], (size_t)2);
+            ensure_eq(layout.sorted_values[2], value3);
+            ensure_eq(layout.counts[2], (size_t)2);
+            ensure_eq(layout.sorted_values[3], value5);
+            ensure_eq(layout.counts[3], (size_t)3);
+            //
+            distribution_insert(&builder, value2);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)4);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value1);
+            ensure_eq(layout.counts[0], (size_t)4);
+            ensure_eq(layout.sorted_values[1], value2);
+            ensure_eq(layout.counts[1], (size_t)3);
+            ensure_eq(layout.sorted_values[2], value3);
+            ensure_eq(layout.counts[2], (size_t)2);
+            ensure_eq(layout.sorted_values[3], value5);
+            ensure_eq(layout.counts[3], (size_t)3);
+
+            const int64_t value4 = value3 + 1 + rand() % (value5 - value3 - 1);
+            tracef("Inserting value4 = %zd for the first time...", value4);
+            distribution_insert(&builder, value4);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)5);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value1);
+            ensure_eq(layout.counts[0], (size_t)4);
+            ensure_eq(layout.sorted_values[1], value2);
+            ensure_eq(layout.counts[1], (size_t)3);
+            ensure_eq(layout.sorted_values[2], value3);
+            ensure_eq(layout.counts[2], (size_t)2);
+            ensure_eq(layout.sorted_values[3], value4);
+            ensure_eq(layout.counts[3], (size_t)1);
+            ensure_eq(layout.sorted_values[4], value5);
+            ensure_eq(layout.counts[4], (size_t)3);
+
+            trace("Inserting value4 again three times...");
+            distribution_insert(&builder, value4);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)5);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value1);
+            ensure_eq(layout.counts[0], (size_t)4);
+            ensure_eq(layout.sorted_values[1], value2);
+            ensure_eq(layout.counts[1], (size_t)3);
+            ensure_eq(layout.sorted_values[2], value3);
+            ensure_eq(layout.counts[2], (size_t)2);
+            ensure_eq(layout.sorted_values[3], value4);
+            ensure_eq(layout.counts[3], (size_t)2);
+            ensure_eq(layout.sorted_values[4], value5);
+            ensure_eq(layout.counts[4], (size_t)3);
+            //
+            distribution_insert(&builder, value4);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)5);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value1);
+            ensure_eq(layout.counts[0], (size_t)4);
+            ensure_eq(layout.sorted_values[1], value2);
+            ensure_eq(layout.counts[1], (size_t)3);
+            ensure_eq(layout.sorted_values[2], value3);
+            ensure_eq(layout.counts[2], (size_t)2);
+            ensure_eq(layout.sorted_values[3], value4);
+            ensure_eq(layout.counts[3], (size_t)3);
+            ensure_eq(layout.sorted_values[4], value5);
+            ensure_eq(layout.counts[4], (size_t)3);
+            //
+            distribution_insert(&builder, value4);
+            ensure_eq(builder.inner.allocation, initial_allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)5);
+            ensure_eq(builder.inner.capacity, initial_capacity);
+            layout = distribution_layout(&builder.inner);
+            ensure_eq((void*)layout.sorted_values,
+                      (void*)initial_layout.sorted_values);
+            ensure_eq((void*)layout.counts, (void*)initial_layout.counts);
+            ensure_eq(layout.sorted_values[0], value1);
+            ensure_eq(layout.counts[0], (size_t)4);
+            ensure_eq(layout.sorted_values[1], value2);
+            ensure_eq(layout.counts[1], (size_t)3);
+            ensure_eq(layout.sorted_values[2], value3);
+            ensure_eq(layout.counts[2], (size_t)2);
+            ensure_eq(layout.sorted_values[3], value4);
+            ensure_eq(layout.counts[3], (size_t)4);
+            ensure_eq(layout.sorted_values[4], value5);
+            ensure_eq(layout.counts[4], (size_t)3);
+
+            trace("Setting up an allocation backup...");
+            size_t allocation_size =
+                builder.inner.capacity * distribution_bin_size;
+            void* prev_data = malloc(allocation_size);
+            int64_t* prev_values = (int64_t*)prev_data;
+            size_t* prev_counts = (size_t*)(
+                (char*)prev_data + builder.inner.capacity * sizeof(int64_t)
+            );
+
+            trace("Inserting new values until reallocation...");
+            while (builder.inner.num_bins < builder.inner.capacity) {
+                trace("- No reallocation expected here. Backing up state...");
+                memcpy(prev_data, builder.inner.allocation, allocation_size);
+                const size_t prev_bins = builder.inner.num_bins;
+
+                const int64_t value = rand() - RAND_MAX / 2;
+                tracef("- Inserting value %zd...", value);
+                distribution_insert(&builder, value);
+
+                trace("- Checking global metadata which shouldn't change...");
+                ensure_eq(builder.inner.allocation, initial_allocation);
+                ensure_eq(builder.inner.capacity, initial_capacity);
+
+                trace("- Checking bin contents...");
+                size_t after_offset;
+                size_t insert_pos = SIZE_MAX;
+                for (size_t src_pos = 0; src_pos < prev_bins; ++src_pos) {
+                    tracef("  * Checking former bin #%zu...", src_pos);
+                    if (prev_values[src_pos] < value) {
+                        ensure_eq(layout.sorted_values[src_pos],
+                                  prev_values[src_pos]);
+                        ensure_eq(layout.counts[src_pos], prev_counts[src_pos]);
+                    } else if (prev_values[src_pos] > value) {
+                        if (insert_pos == SIZE_MAX) {
+                            insert_pos = src_pos;
+                            after_offset = 1;
+                        }
+                        const size_t dst_pos = src_pos + after_offset;
+                        ensure_eq(layout.sorted_values[dst_pos],
+                                  prev_values[src_pos]);
+                        ensure_eq(layout.counts[dst_pos], prev_counts[src_pos]);
+                    } else {
+                        assert(prev_values[src_pos] == value);
+                        insert_pos = src_pos;
+                        after_offset = 0;
+                        ensure_eq(layout.sorted_values[src_pos], value);
+                        ensure_eq(layout.counts[src_pos],
+                                  prev_counts[src_pos] + 1);
+                    }
+                }
+
+                const size_t prev_end = prev_bins;
+                const size_t prev_last = prev_end - 1;
+                if (insert_pos == SIZE_MAX) {
+                    trace("- Checking past-the-end insertion...");
+                    ensure_eq(builder.inner.num_bins, prev_end + 1);
+                    ensure_eq(layout.sorted_values[prev_end], value);
+                    ensure_eq(layout.counts[prev_end], (size_t)1);
+                } else {
+                    trace("- Checking internal insertion...");
+                    ensure_eq(builder.inner.num_bins, prev_bins + after_offset);
+                }
+            }
+
+            trace("Testing reallocation...");
+            retry:
+                const int64_t value = rand() - RAND_MAX / 2;
+                tracef("- Checking candidate value %zd...", value);
+                size_t insert_pos = SIZE_MAX;
+                for (size_t pos = 0; pos < builder.inner.num_bins; ++pos) {
+                    if (layout.sorted_values[pos] > value) {
+                        insert_pos = pos;
+                        break;
+                    } else if (layout.sorted_values[pos] == value) {
+                        tracef("  * Value already present in bin #%zu, try again...",
+                               pos);
+                        goto retry;
+                    }
+                }
+                if (insert_pos == SIZE_MAX) insert_pos = builder.inner.num_bins;
+                tracef("  * Value will be inserted as bin #%zu", insert_pos);
+            //
+            trace("- Backing up state...");
+            memcpy(prev_data, builder.inner.allocation, allocation_size);
+            const void* const prev_allocation = builder.inner.allocation;
+            const size_t prev_bins = builder.inner.num_bins;
+            const size_t prev_capacity = builder.inner.capacity;
+            //
+            trace("- Performing insertion which should reallocate...");
+            distribution_insert(&builder, value);
+            //
+            trace("- Checking that reallocation occured...");
+            ensure_ne(builder.inner.allocation, prev_allocation);
+            ensure_eq(builder.inner.num_bins, prev_bins + 1);
+            ensure_gt(builder.inner.capacity, prev_capacity);
+            //
+            trace("- Checking that reallocation changes the layout...");
+            const distribution_layout_t new_layout =
+                distribution_layout(&builder.inner);
+            ensure_ne((void*)new_layout.sorted_values,
+                      (void*)layout.sorted_values);
+            ensure_ne((void*)new_layout.counts, (void*)layout.counts);
+            layout = new_layout;
+            //
+            trace("- Checking bin contents...");
+            ensure_eq(layout.sorted_values[insert_pos], value);
+            ensure_eq(layout.counts[insert_pos], (size_t)1);
+            for (size_t src_pos = 0; src_pos < prev_bins; ++src_pos) {
+                tracef("  * Checking former bin #%zu...", src_pos);
+                const size_t dst_pos = src_pos + (size_t)(src_pos >= insert_pos);
+                ensure_eq(layout.sorted_values[dst_pos],
+                          prev_values[src_pos]);
+                ensure_eq(layout.counts[dst_pos],
+                          prev_counts[src_pos]);
+            }
+
+            trace("Reallocating backup storage to match new capacity...");
+            free(prev_data);
+            allocation_size = builder.inner.capacity * distribution_bin_size;
+            prev_data = malloc(allocation_size);
+            prev_values = (int64_t*)prev_data;
+            prev_counts = (size_t*)(
+                (char*)prev_data + builder.inner.capacity * sizeof(int64_t)
+            );
+
+            trace("Backing up the final distribution builder...");
+            memcpy(prev_data, builder.inner.allocation, allocation_size);
+
+            trace("Building the distribution...");
+            const distribution_t prev_dist = builder.inner;
+            distribution_t dist = distribution_build(&builder);
+            ensure_eq(builder.inner.allocation, NULL);
+            ensure_eq(builder.inner.num_bins, (size_t)0);
+            ensure_eq(builder.inner.capacity, (size_t)0);
+            ensure_eq(dist.allocation, prev_dist.allocation);
+            ensure_eq(dist.num_bins, prev_dist.num_bins);
+            ensure_eq(dist.capacity, prev_dist.capacity);
+
+            trace("Checking the final distribution's bins...");
+            size_t expected_end_idx = 0;
+            size_t* prev_end_indices = prev_counts;
+            for (size_t bin = 0; bin < dist.num_bins; ++bin) {
+                ensure_eq(layout.sorted_values[bin], prev_values[bin]);
+                expected_end_idx += prev_counts[bin];
+                ensure_eq(layout.end_indices[bin], expected_end_idx);
+                prev_end_indices[bin] = expected_end_idx;
+            }
+            prev_counts = NULL;
+
+            trace("Testing distribution sampling...");
+            const size_t num_samples = 10 * dist.num_bins;
+            for (size_t i = 0; i < num_samples; ++i) {
+                trace("- Grabbing one sample...");
+                const int64_t sample = distribution_sample(&dist);
+
+                trace("- Checking const correctness and locating sampled bin...");
+                size_t sampled_bin = SIZE_MAX;
+                for (size_t bin = 0; bin < dist.num_bins; ++bin) {
+                    if (layout.sorted_values[bin] == sample) sampled_bin = bin;
+                    ensure_eq(layout.sorted_values[bin], prev_values[bin]);
+                    ensure_eq(layout.end_indices[bin], prev_end_indices[bin]);
+                }
+                ensure_ne(sampled_bin, SIZE_MAX);
+            }
+
+            trace("Deallocating backup storage...");
+            free(prev_data);
+            prev_data = NULL;
+            prev_values = NULL;
+            prev_end_indices = NULL;
+
+            trace("Destroying the distribution...");
+            distribution_finalize(&dist);
+            ensure_eq(dist.allocation, NULL);
+            ensure_eq(dist.num_bins, (size_t)0);
+            ensure_eq(dist.capacity, (size_t)0);
+        }
+
+        void benchmark_unit_tests() {
+            info("Running benchmark harness unit tests...");
+
+            // TODO: Extract this into a shared utility within the newly created
+            //       header unit_tests.h, use it in all tests that call rand().
+            const char* seed_str = getenv("UDIPE_SEED");
+            if (seed_str) {
+                int seed = atoi(seed_str);
+                ensure_gt(seed, 0);
+                debugf("Reproducing execution enforced via UDIPE_SEED=%u.",
+                       seed);
+                srand(seed);
+            } else {
+                unsigned seed = time(NULL);
+                debugf("To reproduce this execution, set UDIPE_SEED=%u.", seed);
+                srand(seed);
+            }
+
+            debug("Running distribution unit tests...");
+            with_log_level(UDIPE_TRACE, {
+                distribution_unit_tests();
+            });
+
+            // TODO: Test other components
+        }
+
+    #endif  // UDIPE_BUILD_TESTS
 
 #endif  // UDIPE_BUILD_BENCHMARKS

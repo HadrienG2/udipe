@@ -22,6 +22,7 @@
 
     #include <assert.h>
     #include <hwloc.h>
+    #include <stdalign.h>
     #include <stddef.h>
     #include <stdint.h>
 
@@ -68,7 +69,7 @@
     ///   distribution_builder_t.
     /// - Values are then added to the \ref distribution_builder_t using
     ///   distribution_insert().
-    /// - Once all values have been inserted, distribution_finish() is called,
+    /// - Once all values have been inserted, distribution_build() is called,
     ///   turning the \ref distribution_builder_t into a `distribution_t` that
     ///   can be sampled with distribution_sample().
     /// - Once the distribution is no longer useful, it is destroyed using
@@ -117,7 +118,7 @@
     ///
     /// In the case of \ref distribution_builder_t, it is invalidated when the
     /// allocation is grown (as signaled by distribution_grow()) or when it is
-    /// transfered to a \ref distribution_t through distribution_finish().
+    /// transfered to a \ref distribution_t through distribution_build().
     ///
     /// In the case of \ref distribution_t, this information is invalidated when
     /// the distribution is destroyed by distribution_finalize().
@@ -126,10 +127,18 @@
         int64_t* sorted_values;
 
         /// Matching value occurence counts or cumsum thereof
-        ///
-        /// This contains occurence counts for \ref distribution_builder_t and
-        /// a cumulative sum of these occurence counts for \ref distribution_t.
-        size_t* counts_or_cumsum;
+        union {
+            /// Value occurence counts from a \ref distribution_builder_t
+            size_t* counts;
+
+            /// Cumulative occurence counts from all bins up to and including
+            /// the current bin of a \ref distribution_t.
+            ///
+            /// This is the cumulative sum of the `counts` from the \ref
+            /// distribution_builder_t that was used to build this \ref
+            /// distribution_t.
+            size_t* end_indices;
+        };
     } distribution_layout_t;
 
     /// Determine the layout of a duration-based value distribution
@@ -146,7 +155,7 @@
         assert(alignof(int64_t) >= alignof(size_t));
         return (distribution_layout_t){
             .sorted_values = (int64_t*)(dist->allocation),
-            .counts_or_cumsum = (size_t*)(
+            .counts = (size_t*)(
                 (char*)(dist->allocation) + dist->capacity * sizeof(int64_t)
             )
         };
@@ -166,7 +175,7 @@
     ///
     /// \returns a \ref distribution_builder_t that can be filled with values
     ///          via distribution_insert(), then turned into a \ref
-    ///          distribution_t via distribution_finish().
+    ///          distribution_t via distribution_build().
     distribution_builder_t distribution_initialize();
 
     /// Create a new histogram bin
@@ -195,7 +204,7 @@
     /// \param dist must be a \ref distribution_builder_t that has previously
     ///             been set up via distribution_initialize() and hasn't yet
     ///             been turned into a \ref distribution_t by a call to
-    ///             distribution_finish().
+    ///             distribution_build().
     /// \param pos is the index at which the newly inserted bin will be
     ///            inserted. It must match the constraints spelled out earlier
     ///            in this documentation.
@@ -217,7 +226,7 @@
     /// \param dist must be a \ref distribution_builder_t that has previously
     ///             been set up via distribution_initialize() and hasn't yet
     ///             been turned into a \ref distribution_t via
-    ///             distribution_finish().
+    ///             distribution_build().
     /// \param value is the value to be inserted.
     // TODO: Like any algorithm based on binary search, this could use tests.
     UDIPE_NON_NULL_ARGS
@@ -227,11 +236,11 @@
         distribution_t* dist = &builder->inner;
         distribution_layout_t layout = distribution_layout(dist);
         const size_t end_pos = dist->num_bins;
-        tracef("Asked to insert value %zd into histogram with %zu bins.",
+        tracef("Asked to insert value %zd into an histogram with %zu bins.",
                value, dist->num_bins);
 
         // Handle the empty histogram edge case
-        if (end_pos == 0) {
+        if (dist->num_bins == 0) {
             trace("Histogram is empty, will create first bin.");
             distribution_create_bin(builder, end_pos, value);
             return;
@@ -242,15 +251,14 @@
         const int64_t last_value = layout.sorted_values[last_pos];
         if (value > last_value) {
             tracef("Value is past the end of histogram %zd, "
-                   "will become the new last bin at position %zu.",
-                   last_value, last_pos + 1);
-            distribution_create_bin(builder, last_pos + 1, value);
+                   "will become new last bin #%zu.",
+                   last_value, end_pos);
+            distribution_create_bin(builder, end_pos, value);
             return;
         } else if (value == last_value) {
-            tracef("Value belongs to the last bin at position %zu, "
-                   "will increment it.",
+            tracef("Value belongs to last bin #%zu, will increment it.",
                    last_pos);
-            ++layout.counts_or_cumsum[last_pos];
+            ++layout.counts[last_pos];
             return;
         }
         assert(value < last_value);
@@ -260,13 +268,13 @@
         const int64_t first_value = layout.sorted_values[first_pos];
         if (value < first_value) {
             tracef("Value is before the start of histogram %zd, "
-                   "will become the new first bin.",
+                   "will become new first bin.",
                    first_value);
             distribution_create_bin(builder, first_pos, value);
             return;
         } else if (value == first_value) {
-            trace("Value belongs to the first bin, will increment it.");
-            ++layout.counts_or_cumsum[first_pos];
+            trace("Value belongs to first bin, will increment it.");
+            ++layout.counts[first_pos];
             return;
         }
         assert(value > first_value);
@@ -288,8 +296,7 @@
             assert(below_value < value);
             const int64_t above_value = layout.sorted_values[above_pos];
             assert(above_value > value);
-            tracef("Current value search interval is ]%zd; %zd[ "
-                   "(positions ]%zu; %zu[).",
+            tracef("- Value is in range ]%zd; %zd[ from bins ]%zu; %zu[.",
                    below_value, above_value, below_pos, above_pos);
 
             const size_t middle_pos = below_pos + (above_pos - below_pos) / 2;
@@ -298,29 +305,29 @@
             const int64_t middle_value = layout.sorted_values[middle_pos];
             assert(below_value <= middle_value);
             assert(middle_value < above_value);
-            tracef("Investigating middle value %zd at position %zu...",
+            tracef("- Investigating middle value %zd from bin #%zu...",
                    middle_value, middle_pos);
 
             if (middle_value > value) {
-                trace("It's larger: can eliminate all subsequent bins.");
+                trace("- It's larger: can eliminate all subsequent bins.");
                 above_pos = middle_pos;
                 continue;
             } else if (middle_value < value) {
-                trace("It's smaller: can eliminate all previous bins.");
+                trace("- It's smaller: can eliminate all previous bins.");
                 below_pos = middle_pos;
                 continue;
             } else {
                 assert(middle_value == value);
-                trace("It's our bin: increment count and return.");
-                ++layout.counts_or_cumsum[middle_pos];
+                trace("- It's a bin for this value: increment count and return.");
+                ++layout.counts[middle_pos];
                 return;
             }
         }
 
         // Narrowed down a pair of bins between which the value belongs, insert
         // a new bin at the appropriate position
-        tracef("Narrowed search interval to 1-bin position gap ]%zu; %zu[, "
-               "will insert new bin at position %zu.",
+        tracef("Narrowed search interval to 1-bin gap ]%zu; %zu[: "
+               "must insert new bin at position #%zu.",
                below_pos, above_pos, above_pos);
         assert(above_pos == below_pos + 1);
         assert(value > layout.sorted_values[below_pos]);
@@ -338,11 +345,11 @@
     /// \param dist must be a \ref distribution_builder_t that has previously
     ///             received at least one value via distribution_insert() and
     ///             hasn't yet been turned into a \ref distribution_t via
-    ///             distribution_finish().
+    ///             distribution_build().
     ///
     /// \returns a distribution that can be sampled via distribution_sample()
     UDIPE_NON_NULL_ARGS
-    distribution_t distribution_finish(distribution_builder_t* builder);
+    distribution_t distribution_build(distribution_builder_t* builder);
 
     /// Sample a value from a duration-based distribution
     ///
@@ -350,8 +357,8 @@
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via
-    ///             distribution_finish() and hasn't yet been destroyed via
-    ///             distribution_finish().
+    ///             distribution_build() and hasn't yet been destroyed via
+    ///             distribution_build().
     ///
     /// \returns One of the values that was previously inserted into the
     ///          distribution via distribution_insert().
@@ -365,15 +372,15 @@
         // array of duplicated values
         assert(dist->num_bins >= (size_t)1);
         const size_t last_pos = dist->num_bins - 1;
-        const size_t num_values = layout.counts_or_cumsum[last_pos];
+        const size_t num_values = layout.end_indices[last_pos];
         const size_t value_idx = rand() % num_values;
-        tracef("Sampling %zu-th value from histogram with %zu values, "
+        tracef("Sampling %zu-th value from a distribution containing %zu values, "
                "spread across %zu bins.",
                value_idx, num_values, dist->num_bins);
 
         // Handle the case where the value is in the first histogram bin
         const size_t first_pos = 0;
-        const size_t first_end_idx = layout.counts_or_cumsum[first_pos];
+        const size_t first_end_idx = layout.end_indices[first_pos];
         if (value_idx < first_end_idx) {
             const int64_t first_value = layout.sorted_values[first_pos];
             tracef("This is value %zd from first bin with end index %zu.",
@@ -396,40 +403,38 @@
               "will now find where via binary search...");
         while (above_pos - below_pos > 1) {
             assert(below_pos < above_pos);
-            const size_t below_end_idx = layout.counts_or_cumsum[below_pos];
+            const size_t below_end_idx = layout.end_indices[below_pos];
             assert(below_end_idx <= value_idx);
-            const size_t above_end_idx = layout.counts_or_cumsum[above_pos];
+            const size_t above_end_idx = layout.end_indices[above_pos];
             assert(above_end_idx > value_idx);
-            tracef("Current index search interval is [%zd; %zd[ "
-                   "(positions ]%zu; %zu]).",
+            tracef("- Value index is in range [%zd; %zd[ from bins ]%zu; %zu].",
                    below_end_idx, above_end_idx, below_pos, above_pos);
 
             const size_t middle_pos = below_pos + (above_pos - below_pos) / 2;
             assert(below_pos <= middle_pos);
             assert(middle_pos < above_pos);
-            const size_t middle_end_idx = layout.counts_or_cumsum[middle_pos];
+            const size_t middle_end_idx = layout.end_indices[middle_pos];
             assert(below_end_idx <= middle_end_idx);
             assert(middle_end_idx < above_end_idx);
-            tracef("Investigating middle end index %zd at position %zu...",
+            tracef("- Investigating middle end index %zd from bin #%zu...",
                    middle_end_idx, middle_pos);
 
             if (middle_end_idx > value_idx) {
-                trace("It's larger: can eliminate all subsequent bins.");
+                trace("- It's larger: can eliminate all subsequent bins.");
                 above_pos = middle_pos;
             } else {
-                trace("It's smaller: can eliminate all previous bins.");
+                trace("- It's smaller: can eliminate all previous bins.");
                 assert(middle_end_idx <= value_idx);
                 below_pos = middle_pos;
             }
         }
 
         // Narrowed down the pair of bins to which value_idx belongs
-        const size_t below_end_idx = layout.counts_or_cumsum[below_pos];
-        const size_t above_end_idx = layout.counts_or_cumsum[above_pos];
-        tracef("Narrowed search interval to 1-bin position gap ]%zu; %zu], "
-               "corresponding to end index range [%zd; %zd[, "
-               "so selected value_idx corresponds to bin position %zu.",
-               below_pos, above_pos, below_end_idx, above_end_idx, above_pos);
+        const size_t below_end_idx = layout.end_indices[below_pos];
+        const size_t above_end_idx = layout.end_indices[above_pos];
+        tracef("Narrowed search to single bin ]%zu; %zu]: "
+               "value_idx must come from bin #%zu.",
+               below_pos, above_pos, above_pos);
         assert(above_pos == below_pos + 1);
         assert(value_idx >= below_end_idx);
         assert(value_idx < above_end_idx);
@@ -442,8 +447,8 @@
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via
-    ///             distribution_finish() and hasn't yet been destroyed via
-    ///             distribution_finish().
+    ///             distribution_build() and hasn't yet been destroyed via
+    ///             distribution_build().
     UDIPE_NON_NULL_ARGS
     void distribution_finalize(distribution_t* dist);
 
@@ -1343,5 +1348,14 @@
         /// benchmark results.
         benchmark_clock_t clock;
     };
+
+
+    #ifdef UDIPE_BUILD_TESTS
+        /// Unit tests
+        ///
+        /// This function runs all the unit tests for this module. It must be called
+        /// within the scope of with_logger().
+        void benchmark_unit_tests();
+    #endif
 
 #endif  // UDIPE_BUILD_BENCHMARKS
