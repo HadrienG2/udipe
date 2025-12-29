@@ -2,6 +2,7 @@
 
 #include "error.h"
 #include "log.h"
+#include "unit_tests.h"
 
 #include <assert.h>
 #include <pthread.h>
@@ -340,6 +341,7 @@ const char* get_thread_name() {
 
     void thread_name_unit_tests() {
         info("Running thread name unit tests...");
+        configure_rand();
 
         debug("Checking the initial thread name...");
         const char* actual_thread_name;

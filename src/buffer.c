@@ -392,7 +392,7 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
 
     /// Configuration callback that applies a predefined configuration
     /// without thread-specific adjustments
-    udipe_buffer_config_t apply_shared_configuration(void* context) {
+    static udipe_buffer_config_t apply_test_configuration(void* context) {
         const udipe_buffer_config_t* config = (udipe_buffer_config_t*)context;
         return *config;
     }
@@ -423,7 +423,7 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
             });
 
             debug("Preparing for manual configurations...");
-            configurator.callback = apply_shared_configuration;
+            configurator.callback = apply_test_configuration;
             configurator.context = (void*)&config;
 
             debug("Testing a minimal configuration (1 x 1500B)...");

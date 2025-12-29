@@ -6,6 +6,7 @@
     #include <udipe/pointer.h>
 
     #include "memory.h"
+    #include "unit_tests.h"
     #include "visibility.h"
 
     #include <assert.h>
@@ -974,7 +975,7 @@
 
     #ifdef UDIPE_BUILD_TESTS
 
-        static void distribution_unit_tests() {
+        static void test_distibution() {
             trace("Setting up a distribution...");
             distribution_builder_t builder = distribution_initialize();
             const void* const initial_allocation = builder.inner.allocation;
@@ -1439,25 +1440,11 @@
 
         void benchmark_unit_tests() {
             info("Running benchmark harness unit tests...");
-
-            // TODO: Extract this into a shared utility within the newly created
-            //       header unit_tests.h, use it in all tests that call rand().
-            const char* seed_str = getenv("UDIPE_SEED");
-            if (seed_str) {
-                int seed = atoi(seed_str);
-                ensure_gt(seed, 0);
-                debugf("Reproducing execution enforced via UDIPE_SEED=%u.",
-                       seed);
-                srand(seed);
-            } else {
-                unsigned seed = time(NULL);
-                debugf("To reproduce this execution, set UDIPE_SEED=%u.", seed);
-                srand(seed);
-            }
+            configure_rand();
 
             debug("Running distribution unit tests...");
             with_log_level(UDIPE_TRACE, {
-                distribution_unit_tests();
+                test_distibution();
             });
 
             // TODO: Test other components

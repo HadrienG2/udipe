@@ -4,6 +4,7 @@
     #include "bits.h"
 
     #include "error.h"
+    #include "unit_tests.h"
 
     #include <stdlib.h>
 
@@ -465,6 +466,7 @@
 
     void bit_array_unit_tests() {
         info("Running bit array unit tests...");
+        configure_rand();
         for (size_t length = 0; length <= 3 * BITS_PER_WORD; ++length) {
             if (is_interesting_input(length)) {
                 debugf("Testing with a bit array of length %zu.", length);

@@ -1,6 +1,6 @@
 #ifdef UDIPE_BUILD_TESTS
 
-    #include <udipe/unit_tests.h>
+    #include "unit_tests.h"
 
     #include <udipe/log.h>
 
@@ -18,6 +18,21 @@
 
     #include <string.h>
 
+
+    void configure_rand() {
+        const char* seed_str = getenv("UDIPE_SEED");
+        if (seed_str) {
+            int seed = atoi(seed_str);
+            ensure_gt(seed, 0);
+            debugf("Reproducing execution enforced via UDIPE_SEED=%u.",
+                   seed);
+            srand(seed);
+        } else {
+            unsigned seed = time(NULL);
+            debugf("To reproduce this execution, set UDIPE_SEED=%u.", seed);
+            srand(seed);
+        }
+    }
 
     DEFINE_PUBLIC void udipe_unit_tests(int argc, char *argv[]) {
         // Set up logging

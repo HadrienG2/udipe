@@ -142,6 +142,7 @@ target_sources(udipe
                        src/thread_name.c
                        src/thread_name.h
                        src/unit_tests.c
+                       src/unit_tests.h
                        src/visibility.h)
 if (UDIPE_BUILD_TESTS)
     target_compile_definitions(udipe PUBLIC UDIPE_BUILD_BENCHMARKS)
