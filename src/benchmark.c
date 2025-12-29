@@ -38,18 +38,14 @@
     static_assert(NUM_MEDIAN_SAMPLES % 2 == 1,
                   "Medians should be computed over an odd number of samples");
 
-    /// Confidence interval used for final measurements
-    ///
-    /// Picked because 95% is kinda the standard in statistics, so it is what
-    /// the end user will most likely be used to.
-    #define MEASUREMENT_CONFIDENCE 95.0
-
     /// Confidence interval used for clock calibration
     ///
     /// Setting this much tighter than \ref RESULT_CONFIDENCE ensures that if
     /// the calibration deviates a bit from its optimal value, it will have a
     /// smaller impact on the end results.
     #define CALIBRATION_CONFIDENCE 99.0
+    static_assert(CALIBRATION_CONFIDENCE >= MEASUREMENT_CONFIDENCE,
+                  "Calibration should be at least as strict as user measurements");
 
     /// Desired number of measurements on either side of the confidence interval
     ///
@@ -130,12 +126,162 @@
 
     /// Comparison function for applying qsort() to int64_t[]
     static inline int compare_i64(const void* v1, const void* v2) {
-        const int64_t* d1 = (const int64_t*)v1;
-        const int64_t* d2 = (const int64_t*)v2;
+        const int64_t* const d1 = (const int64_t*)v1;
+        const int64_t* const d2 = (const int64_t*)v2;
         if (*d1 < *d2) return -1;
         if (*d1 > *d2) return 1;
         return 0;
     }
+
+
+    /// Logical size of a bin from a \ref distribution_t
+    ///
+    /// \ref distribution_t internally uses a structure-of-array layout, so it
+    /// is not literally an array of `(int64_t, size_t)` pairs but rather an
+    /// array of `int64_t` followed by an array of `size_t`.
+    const size_t distribution_bin_size = sizeof(int64_t) + sizeof(size_t);
+
+    /// Allocate a distribution of duration-based values
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param capacity is the number of bins that the distribution should be
+    ///                 able to hold internally before reallocating.
+    ///
+    /// \returns a distribution that must later been liberated using
+    ///          distribution_finalize().
+    static distribution_t distribution_allocate(size_t capacity) {
+        void* const allocation = malloc(capacity * distribution_bin_size);
+        exit_on_null(allocation, "Failed to allocate distribution storage");
+        debugf("Allocated storage for %zu bins at location %p.",
+               capacity, allocation);
+        return (distribution_t){
+            .allocation = allocation,
+            .num_bins = 0,
+            .capacity = capacity
+        };
+    }
+
+    distribution_builder_t distribution_initialize() {
+        const size_t capacity = EXPECTED_MIN_PAGE_SIZE / distribution_bin_size;
+        return (distribution_builder_t){
+            .inner = distribution_allocate(capacity)
+        };
+    }
+
+    UDIPE_NON_NULL_ARGS
+    void distribution_create_bin(distribution_builder_t* builder,
+                                 size_t pos,
+                                 int64_t value) {
+        distribution_t* dist = &builder->inner;
+        distribution_layout_t layout = distribution_layout(dist);
+        if (dist->num_bins < dist->capacity) {
+            const size_t last_pos = dist->num_bins - 1;
+            if (pos == last_pos) {
+                trace("At end of histogram, can append value directly.");
+                layout.sorted_values[pos] = value;
+                layout.counts_or_cumsum[pos] = 1;
+                ++(dist->num_bins);
+                return;
+            }
+
+            tracef("Backing up current bin at position %zu...", pos);
+            int64_t next_value = layout.sorted_values[pos];
+            size_t next_count = layout.counts_or_cumsum[pos];
+
+            trace("Inserting new value...");
+            layout.sorted_values[pos] = value;
+            layout.counts_or_cumsum[pos] = 1;
+
+            trace("Shifting previous bins up...");
+            for (size_t dst = pos + 1; dst < dist->num_bins; ++dst) {
+                int64_t tmp_value = layout.sorted_values[dst];
+                size_t tmp_count = layout.counts_or_cumsum[dst];
+                layout.sorted_values[dst] = next_value;
+                layout.counts_or_cumsum[dst] = next_count;
+                next_value = tmp_value;
+                next_count = tmp_count;
+            }
+
+            trace("Restoring last bin...");
+            layout.sorted_values[dist->num_bins] = next_value;
+            layout.counts_or_cumsum[dist->num_bins] = next_count;
+            ++(dist->num_bins);
+        } else {
+            debug("No room for extra bins, must reallocate...");
+            assert(dist->num_bins == dist->capacity);
+            distribution_t new_dist = distribution_allocate(2 * dist->capacity);
+            distribution_layout_t new_layout = distribution_layout(&new_dist);
+
+            debug("Transferring old values smaller than the new one...");
+            for (size_t bin = 0; bin < pos; ++bin) {
+                new_layout.sorted_values[bin] = layout.sorted_values[bin];
+                new_layout.counts_or_cumsum[bin] = layout.counts_or_cumsum[bin];
+            }
+
+            debug("Inserting new value...");
+            new_layout.sorted_values[pos] = value;
+            new_layout.counts_or_cumsum[pos] = 1;
+
+            debug("Transferring old values larger than the new one...");
+            for (size_t src = pos; src < dist->num_bins; ++src) {
+                const size_t dst = src + 1;
+                new_layout.sorted_values[dst] = layout.sorted_values[src];
+                new_layout.counts_or_cumsum[dst] = layout.counts_or_cumsum[src];
+            }
+
+            debug("Replacing former distribution...");
+            new_dist.num_bins = dist->num_bins + 1;
+            distribution_finalize(dist);
+            builder->inner = new_dist;
+        }
+    }
+
+    UDIPE_NON_NULL_ARGS
+    distribution_t distribution_finish(distribution_builder_t* builder) {
+        debug("Extracting the distribution from the builder...");
+        distribution_t dist = builder->inner;
+        builder->inner = (distribution_t){
+            .allocation = NULL,
+            .num_bins = 0,
+            .capacity = 0
+        };
+
+        debug("Ensuring the distribution can be sampled...");
+        ensure_ge(dist.num_bins, (size_t)1);
+
+        distribution_layout_t layout = distribution_layout(&dist);
+        if (log_enabled(UDIPE_TRACE)) {
+            trace("Final distribution is {");
+            for (size_t bin = 0; bin < dist.num_bins; ++bin) {
+                tracef("  %zd: %zu,",
+                       layout.sorted_values[bin], layout.counts_or_cumsum[bin]);
+            }
+            trace("}");
+        }
+
+        debug("Turning value counts into a cumulative sum...");
+        size_t cumsum = layout.counts_or_cumsum[0];
+        for (size_t bin = 1; bin < dist.num_bins; ++bin) {
+            cumsum += layout.counts_or_cumsum[bin];
+            layout.counts_or_cumsum[bin] = cumsum;
+        }
+        return dist;
+    }
+
+    UDIPE_NON_NULL_ARGS
+    void distribution_finalize(distribution_t* dist) {
+        debugf("Liberating storage at location %p...", dist->allocation);
+        free(dist->allocation);
+
+        debug("Poisoning distribution state to detect future invalid usage...");
+        *dist = (distribution_t){
+            .allocation = NULL,
+            .num_bins = 0,
+            .capacity = 0
+        };
+    }
+
 
     duration_analyzer_t duration_analyzer_initialize(float confidence_f) {
         debug("Checking analysis parameters...");
@@ -226,6 +372,7 @@
         analyzer->low_idx = SIZE_MAX;
         analyzer->high_idx = SIZE_MAX;
     }
+
 
     /// Empty benchmark workload
     ///
@@ -352,6 +499,11 @@
                               "- Clock offset",
                               clock.offset_stats,
                               "ns");
+        // TODO: This way of combining confidence intervals is not statistically
+        //       correct and will lead confidence intervals to be
+        //       over-estimated. A proper bootstrap resampling approach would be
+        //       to randomly sample pairs of offsets and compute their
+        //       difference.
         infof("- Offset correction will increase %g%% CI by [%+zd; %+zd] ns.",
               CALIBRATION_CONFIDENCE,
               clock.offset_stats.center-clock.offset_stats.high,
@@ -389,6 +541,11 @@
         clock.best_empty_iters = num_iters;
         clock.best_empty_stats = loop_duration;
         double best_uncertainty = relative_uncertainty(loop_duration);
+        // TODO: This way of combining confidence intervals is not statistically
+        //       correct and will lead confidence intervals to be
+        //       over-estimated. A proper bootstrap resampling approach would be
+        //       to randomly sample pairs of offsets and compute statistics over
+        //       their difference.
         int64_t best_precision =
             (clock.offset_stats.high - clock.offset_stats.low)
             - (clock.offset_stats.low - clock.offset_stats.high);
@@ -529,11 +686,24 @@
                                   "- Clock offset",
                                   clock.offset_stats,
                                   "ticks");
+            // TODO: This way of combining confidence intervals is not
+            //       statistically correct and will lead confidence intervals to
+            //       be over-estimated. A proper bootstrap resampling approach
+            //       would be to keep around the offset dataset and subtract
+            //       another random point from the offset dataset from each
+            //       point, thus producing a difference-of-offsets dataset over
+            //       which statistics can be computed.
             infof("- Offset correction will increase %g%% CI by [%+zd; %+zd] ticks.",
                   CALIBRATION_CONFIDENCE,
                   clock.offset_stats.center-clock.offset_stats.high,
                   clock.offset_stats.center-clock.offset_stats.low);
 
+            // TODO: This way of combining confidence intervals is not
+            //       statistically correct and will lead confidence intervals to
+            //       be over-estimated. A proper bootstrap resampling approach
+            //       would be to keep around the offset dataset and subtract a
+            //       random offset from this dataset from each of the (end -
+            //       start) raw deltas, then compute statistics over that.
             debug("Applying offset correction to best loop duration...");
             clock.best_empty_stats = (stats_t){
                 .center = raw_empty_stats.center - clock.offset_stats.center,
@@ -552,6 +722,12 @@
 
             info("Deducing TSC tick frequency...");
             const int64_t nano = 1000*1000*1000;
+            // TODO: This way of combining confidence intervals is not
+            //       statistically correct and will lead confidence intervals to
+            //       be over-estimated. A proper bootstrap resampling approach
+            //       would be to keep around the best empty loop dataset from
+            //       the OS clock and divide each point from the TSC dataset by
+            //       a random point from the OS clock dataset.
             clock.frequency_stats = (stats_t){
                 .center = clock.best_empty_stats.center * nano / os->best_empty_stats.center,
                 .low = clock.best_empty_stats.low * nano / os->best_empty_stats.high,
@@ -664,6 +840,7 @@
         duration_analyzer_finalize(&(clock->calibration_analyzer));
     }
 
+
     DEFINE_PUBLIC
     UDIPE_NON_NULL_ARGS
     UDIPE_NON_NULL_RESULT
@@ -726,7 +903,7 @@
     UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 3)
     bool udipe_benchmark_run(udipe_benchmark_t* benchmark,
                              const char* name,
-                             udipe_callable_t callable,
+                             udipe_benchmark_runnable_t runnable,
                              void* context) {
         bool name_matches;
         with_logger(&benchmark->logger, {
@@ -747,7 +924,7 @@
                 //       is by default halfway through the entire realtime
                 //       priority range. Start writing an environment variable
                 //       doc that covers this + UDIPE_LOG.
-                callable(context, benchmark);
+                runnable(context, benchmark);
 
                 trace("Recalibrating benchmark clock...");
                 benchmark_clock_recalibrate(&benchmark->clock);
@@ -785,6 +962,7 @@
         });
         logger_finalize(&logger);
     }
+
 
     DEFINE_PUBLIC void udipe_micro_benchmarks(udipe_benchmark_t* benchmark) {
         // Microbenchmarks are ordered such that a piece of code is

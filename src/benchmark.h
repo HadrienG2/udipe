@@ -22,6 +22,7 @@
 
     #include <assert.h>
     #include <hwloc.h>
+    #include <stddef.h>
     #include <stdint.h>
 
     #ifdef __unix__
@@ -30,6 +31,425 @@
     #elif defined(_WIN32)
         #include <profileapi.h>
     #endif
+
+
+    /// \name Duration-based value distribution
+    /// \{
+
+    /// Mechanism for recording then sampling the distribution of a
+    /// duration-based dataset
+    ///
+    /// This encodes a set of duration-based values with a sparse histogram
+    /// format. If we denote `N` the number of histogram bins, which is the
+    /// number of distinct values that were inserted into the distribution so
+    /// far, then this data structure has...
+    ///
+    /// - `O(N)` memory usage (and thus `O(N)` cache footprint)
+    /// - `O(N)` cost for inserting a previously unseen value
+    /// - `O(log(N))` cost for incrementing a known value's occurence count
+    /// - `O(log(N))` cost for randomly sampling a value
+    ///
+    /// This works well because execution time datasets tend to feature many
+    /// occurences of a few values, which in turn happens because...
+    ///
+    /// - Computer clocks have a rather coarse granularity, which leads slightly
+    ///   different durations to be measured as the same duration.
+    /// - Program execution durations tend to exhibit multi-modal timing laws
+    ///   for various reasons (whether some data is in cache or not, whether a
+    ///   CPU backend slot is available at the start of a loop or not...).
+    ///
+    /// To maximize code sharing between different clocks (system, CPU...) and
+    /// different stages of the benchmarking process (calibration,
+    /// measurement...), the unit of inner values is purposely left unspecified.
+    ///
+    /// A \ref distribution_t has a multi-stage lifecycle:
+    ///
+    /// - At first, distribution_initialize() is called, returning an empty \ref
+    ///   distribution_builder_t.
+    /// - Values are then added to the \ref distribution_builder_t using
+    ///   distribution_insert().
+    /// - Once all values have been inserted, distribution_finish() is called,
+    ///   turning the \ref distribution_builder_t into a `distribution_t` that
+    ///   can be sampled with distribution_sample().
+    /// - Once the distribution is no longer useful, it is destroyed using
+    ///   distribution_finalize().
+    typedef struct distribution_s {
+        /// Memory allocation in which the histogram is stored
+        ///
+        /// Histogram data layout is as follows:
+        ///
+        /// 1. At the start of the allocation, there is a sorted array of `len`
+        ///    distinct values of type `int64_t`.
+        /// 2. At byte offset `capacity * sizeof(int64_t)`, there is an array
+        ///    of `len` values of type `size_t`, whose contents depends on the
+        ///    current stage of the distribution lifecycle:
+        ///     - At the initial \ref distribution_builder_t stage, this array
+        ///       contains the number of occurences of each value, which is most
+        ///       convenient while inserting values.
+        ///     - At the final \ref distribution_t stage, this array instead
+        ///       contains the number of occurences of values smaller than or
+        ///       equal to the current value, i.e. the cumulative sum of the
+        ///       aforementioned quantity.
+        void* allocation;
+
+        /// Number of bins that the histogram currently has
+        ///
+        /// See `allocation` for more information about how histogram bin data
+        /// is laid out in memory depending on this parameter.
+        size_t num_bins;
+
+        /// Maximum number of bins that the histogram can hold
+        ///
+        /// Allocation size is `capacity * sizeof(int64_t) + capacity *
+        /// sizeof(size_t)`.
+        ///
+        /// Every time this capacity limit is reached, a new allocation of
+        /// double capacity is allocated, then the contents of the old
+        /// allocation are migrated in there, then the old allocation is
+        /// liberated, a strategy borrowed from C++'s `std::vector` which
+        /// ensures that allocation costs are amortized constant not linear.
+        size_t capacity;
+    } distribution_t;
+
+    /// Memory layout of a \ref distribution_builder_t or \ref distribution_t
+    ///
+    /// This layout information is be computed using distribution_layout().
+    ///
+    /// In the case of \ref distribution_builder_t, it is invalidated when the
+    /// allocation is grown (as signaled by distribution_grow()) or when it is
+    /// transfered to a \ref distribution_t through distribution_finish().
+    ///
+    /// In the case of \ref distribution_t, this information is invalidated when
+    /// the distribution is destroyed by distribution_finalize().
+    typedef struct distribution_layout_s {
+        /// Sorted list of previously inserted values
+        int64_t* sorted_values;
+
+        /// Matching value occurence counts or cumsum thereof
+        ///
+        /// This contains occurence counts for \ref distribution_builder_t and
+        /// a cumulative sum of these occurence counts for \ref distribution_t.
+        size_t* counts_or_cumsum;
+    } distribution_layout_t;
+
+    /// Determine the layout of a duration-based value distribution
+    ///
+    /// \param allocation is the internal `allocation` of a \ref
+    ///                   distribution_builder_t or \ref distribution_t.
+    /// \param capacity is the internal `capacity` of a \ref
+    ///                 distribution_builder_t or \ref distribution_t.
+    ///
+    /// \returns layout information that is valid until the point specified in
+    ///          the documentation of \ref distribution_layout_t.
+    static inline
+    distribution_layout_t distribution_layout(const distribution_t* dist) {
+        assert(alignof(int64_t) >= alignof(size_t));
+        return (distribution_layout_t){
+            .sorted_values = (int64_t*)(dist->allocation),
+            .counts_or_cumsum = (size_t*)(
+                (char*)(dist->allocation) + dist->capacity * sizeof(int64_t)
+            )
+        };
+    }
+
+    /// \ref distribution_t wrapper used during initial data recording
+    ///
+    /// This is a \ref distribution_t that is wrapped into a different type in
+    /// order
+    typedef struct distribution_builder_s {
+        distribution_t inner;  ///< Internal data collection backend
+    } distribution_builder_t;
+
+    /// Set up storage for a distribution
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \returns a \ref distribution_builder_t that can be filled with values
+    ///          via distribution_insert(), then turned into a \ref
+    ///          distribution_t via distribution_finish().
+    distribution_builder_t distribution_initialize();
+
+    /// Create a new histogram bin
+    ///
+    /// This is an implementation detail of distribution_insert() that should
+    /// not be used directly.
+    ///
+    /// \internal
+    ///
+    /// This creates a new histogram bin associated with value `value` at
+    /// position `pos`, with an occurence count of 1. It reallocates storage and
+    /// moves existing data around as needed to make room for this new bin.
+    ///
+    /// The caller of this function must honor the histogram invariants:
+    ///
+    /// - `pos` must be in range `[0; dist->num_bins]`, i.e. it must either
+    ///   correspond to the position of an existing bin or lie one bin past the
+    ///   end of the histogram.
+    /// - `value` must be strictly larger than the value associated with the
+    ///   existing histogram bin at position `pos - 1`, if any.
+    /// - `value` must be strictly smaller than the value assocated with the
+    ///   histogram bin that was formerly at position `pos`, if any.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param dist must be a \ref distribution_builder_t that has previously
+    ///             been set up via distribution_initialize() and hasn't yet
+    ///             been turned into a \ref distribution_t by a call to
+    ///             distribution_finish().
+    /// \param pos is the index at which the newly inserted bin will be
+    ///            inserted. It must match the constraints spelled out earlier
+    ///            in this documentation.
+    /// \param value is the value that will be inserted at this position. It
+    ///              must match the constraints spelled out earlier in this
+    ///              documentation.
+    UDIPE_NON_NULL_ARGS
+    void distribution_create_bin(distribution_builder_t* builder,
+                                 size_t pos,
+                                 int64_t value);
+
+    /// Insert a value into a distribution
+    ///
+    /// This inserts a new occurence of `value` into the distribution histogram,
+    /// creating a new bin if needed to make room for it.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param dist must be a \ref distribution_builder_t that has previously
+    ///             been set up via distribution_initialize() and hasn't yet
+    ///             been turned into a \ref distribution_t via
+    ///             distribution_finish().
+    /// \param value is the value to be inserted.
+    // TODO: Like any algorithm based on binary search, this could use tests.
+    UDIPE_NON_NULL_ARGS
+    static inline void distribution_insert(distribution_builder_t* builder,
+                                           int64_t value) {
+        // Determine the histogram's memory layout
+        distribution_t* dist = &builder->inner;
+        distribution_layout_t layout = distribution_layout(dist);
+        const size_t end_pos = dist->num_bins;
+        tracef("Asked to insert value %zd into histogram with %zu bins.",
+               value, dist->num_bins);
+
+        // Handle the empty histogram edge case
+        if (end_pos == 0) {
+            trace("Histogram is empty, will create first bin.");
+            distribution_create_bin(builder, end_pos, value);
+            return;
+        }
+
+        // Handle values at or above the histogram's maximum value
+        const size_t last_pos = end_pos - 1;
+        const int64_t last_value = layout.sorted_values[last_pos];
+        if (value > last_value) {
+            tracef("Value is past the end of histogram %zd, "
+                   "will become the new last bin at position %zu.",
+                   last_value, last_pos + 1);
+            distribution_create_bin(builder, last_pos + 1, value);
+            return;
+        } else if (value == last_value) {
+            tracef("Value belongs to the last bin at position %zu, "
+                   "will increment it.",
+                   last_pos);
+            ++layout.counts_or_cumsum[last_pos];
+            return;
+        }
+        assert(value < last_value);
+
+        // Handle values at or below the histogram's minimum value
+        const size_t first_pos = 0;
+        const int64_t first_value = layout.sorted_values[first_pos];
+        if (value < first_value) {
+            tracef("Value is before the start of histogram %zd, "
+                   "will become the new first bin.",
+                   first_value);
+            distribution_create_bin(builder, first_pos, value);
+            return;
+        } else if (value == first_value) {
+            trace("Value belongs to the first bin, will increment it.");
+            ++layout.counts_or_cumsum[first_pos];
+            return;
+        }
+        assert(value > first_value);
+
+        // At this point, we have established the following:
+        // - There are at least two bins in the histogram
+        // - The input value is strictly greater than the minimum value
+        // - The input value is strictly smaller than the maximum value
+        //
+        // Use binary search to locate either the bin where the input value
+        // belongs or the pair of bins between which it should be inserted.
+        size_t below_pos = first_pos;
+        size_t above_pos = last_pos;
+        trace("Value belongs to the middle of the histogram, "
+              "will now find where via binary search...");
+        while (above_pos - below_pos > 1) {
+            assert(below_pos < above_pos);
+            const int64_t below_value = layout.sorted_values[below_pos];
+            assert(below_value < value);
+            const int64_t above_value = layout.sorted_values[above_pos];
+            assert(above_value > value);
+            tracef("Current value search interval is ]%zd; %zd[ "
+                   "(positions ]%zu; %zu[).",
+                   below_value, above_value, below_pos, above_pos);
+
+            const size_t middle_pos = below_pos + (above_pos - below_pos) / 2;
+            assert(below_pos <= middle_pos);
+            assert(middle_pos < above_pos);
+            const int64_t middle_value = layout.sorted_values[middle_pos];
+            assert(below_value <= middle_value);
+            assert(middle_value < above_value);
+            tracef("Investigating middle value %zd at position %zu...",
+                   middle_value, middle_pos);
+
+            if (middle_value > value) {
+                trace("It's larger: can eliminate all subsequent bins.");
+                above_pos = middle_pos;
+                continue;
+            } else if (middle_value < value) {
+                trace("It's smaller: can eliminate all previous bins.");
+                below_pos = middle_pos;
+                continue;
+            } else {
+                assert(middle_value == value);
+                trace("It's our bin: increment count and return.");
+                ++layout.counts_or_cumsum[middle_pos];
+                return;
+            }
+        }
+
+        // Narrowed down a pair of bins between which the value belongs, insert
+        // a new bin at the appropriate position
+        tracef("Narrowed search interval to 1-bin position gap ]%zu; %zu[, "
+               "will insert new bin at position %zu.",
+               below_pos, above_pos, above_pos);
+        assert(above_pos == below_pos + 1);
+        assert(value > layout.sorted_values[below_pos]);
+        assert(value < layout.sorted_values[above_pos]);
+        distribution_create_bin(builder, above_pos, value);
+    }
+
+    /// Switch a distribution from the building stage to the sampling stage
+    ///
+    /// This can only be done after at least one value has been inserted into
+    /// the distribution via distribution_insert().
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param dist must be a \ref distribution_builder_t that has previously
+    ///             received at least one value via distribution_insert() and
+    ///             hasn't yet been turned into a \ref distribution_t via
+    ///             distribution_finish().
+    ///
+    /// \returns a distribution that can be sampled via distribution_sample()
+    UDIPE_NON_NULL_ARGS
+    distribution_t distribution_finish(distribution_builder_t* builder);
+
+    /// Sample a value from a duration-based distribution
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_finish() and hasn't yet been destroyed via
+    ///             distribution_finish().
+    ///
+    /// \returns One of the values that was previously inserted into the
+    ///          distribution via distribution_insert().
+    // TODO: Like any algorithm based on binary search, this could use tests.
+    UDIPE_NON_NULL_ARGS
+    static inline int64_t distribution_sample(const distribution_t* dist) {
+        // Determine the histogram's memory layout
+        distribution_layout_t layout = distribution_layout(dist);
+
+        // Sample one value as the index that this value would have in a dense
+        // array of duplicated values
+        assert(dist->num_bins >= (size_t)1);
+        const size_t last_pos = dist->num_bins - 1;
+        const size_t num_values = layout.counts_or_cumsum[last_pos];
+        const size_t value_idx = rand() % num_values;
+        tracef("Sampling %zu-th value from histogram with %zu values, "
+               "spread across %zu bins.",
+               value_idx, num_values, dist->num_bins);
+
+        // Handle the case where the value is in the first histogram bin
+        const size_t first_pos = 0;
+        const size_t first_end_idx = layout.counts_or_cumsum[first_pos];
+        if (value_idx < first_end_idx) {
+            const int64_t first_value = layout.sorted_values[first_pos];
+            tracef("This is value %zd from first bin with end index %zu.",
+                   first_value, first_end_idx);
+            return first_value;
+        }
+
+        // At this point, we have established the following:
+        // - There are at least two bins in the histogram, because value_idx
+        //   must belong to at least one bin and it's not the first one
+        // - value_idx does not belong to the first bin
+        // - value_idx is in bounds, so it must belong to the last bin or one of
+        //   the previous bins
+        //
+        // Use binary search to locate the bin to which value_idx belongs, which
+        // is the first bin whose end index is strictly greater than value_idx.
+        size_t below_pos = first_pos;
+        size_t above_pos = last_pos;
+        trace("Value belongs to the middle of the histogram, "
+              "will now find where via binary search...");
+        while (above_pos - below_pos > 1) {
+            assert(below_pos < above_pos);
+            const size_t below_end_idx = layout.counts_or_cumsum[below_pos];
+            assert(below_end_idx <= value_idx);
+            const size_t above_end_idx = layout.counts_or_cumsum[above_pos];
+            assert(above_end_idx > value_idx);
+            tracef("Current index search interval is [%zd; %zd[ "
+                   "(positions ]%zu; %zu]).",
+                   below_end_idx, above_end_idx, below_pos, above_pos);
+
+            const size_t middle_pos = below_pos + (above_pos - below_pos) / 2;
+            assert(below_pos <= middle_pos);
+            assert(middle_pos < above_pos);
+            const size_t middle_end_idx = layout.counts_or_cumsum[middle_pos];
+            assert(below_end_idx <= middle_end_idx);
+            assert(middle_end_idx < above_end_idx);
+            tracef("Investigating middle end index %zd at position %zu...",
+                   middle_end_idx, middle_pos);
+
+            if (middle_end_idx > value_idx) {
+                trace("It's larger: can eliminate all subsequent bins.");
+                above_pos = middle_pos;
+            } else {
+                trace("It's smaller: can eliminate all previous bins.");
+                assert(middle_end_idx <= value_idx);
+                below_pos = middle_pos;
+            }
+        }
+
+        // Narrowed down the pair of bins to which value_idx belongs
+        const size_t below_end_idx = layout.counts_or_cumsum[below_pos];
+        const size_t above_end_idx = layout.counts_or_cumsum[above_pos];
+        tracef("Narrowed search interval to 1-bin position gap ]%zu; %zu], "
+               "corresponding to end index range [%zd; %zd[, "
+               "so selected value_idx corresponds to bin position %zu.",
+               below_pos, above_pos, below_end_idx, above_end_idx, above_pos);
+        assert(above_pos == below_pos + 1);
+        assert(value_idx >= below_end_idx);
+        assert(value_idx < above_end_idx);
+        return layout.sorted_values[above_pos];
+    }
+
+    /// Destroy a duration-based distribution
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_finish() and hasn't yet been destroyed via
+    ///             distribution_finish().
+    UDIPE_NON_NULL_ARGS
+    void distribution_finalize(distribution_t* dist);
+
+    // TODO: Add unit tests, then integrate it everywhere.
+
+    /// \}
 
 
     /// \name Statistical analysis of timing data
@@ -44,9 +464,9 @@
     ///
     /// To maximize statistical analysis code sharing between the code paths
     /// associated with different clocks and different stages of the benchmark
-    /// harness setup process, the quantity that is being measured (nanoseconds,
-    /// clock ticks, TSC frequency...) and the width of the confidence interval
-    /// are purposely left unspecified.
+    /// harness setup and usage process, the quantity that is being measured
+    /// (nanoseconds, clock ticks, TSC frequency...) and the width of the
+    /// confidence interval are purposely left unspecified.
     typedef struct stats_s {
         /// Most likely value of the duration-based measurement
         ///
@@ -378,6 +798,12 @@
         #else
             #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
         #endif
+        // TODO: This way of combining confidence intervals is not statistically
+        //       correct and will lead to over-estimated confidence intervals.
+        //       Instead we should keep around the distribution of offsets, draw
+        //       a random point from it, subtract it from the raw clock readout
+        //       and return that. This will give us an offset-unbiased duration
+        //       estimator, over which statistics can then be computed.
         return (stats_t){
             .center = uncorrected_ns - clock->offset_stats.center,
             .low = uncorrected_ns - clock->offset_stats.high,
@@ -482,6 +908,8 @@
 
         trace("Analyzing durations...");
         stats_t result;
+        // TODO: This way of combining confidence intervals is not correct.
+        //       See os_duration() comment for more details.
         trace("- Computing central run durations...");
         for (size_t run = 0; run < num_runs; ++run) {
             durations[run] = os_duration(clock,
@@ -718,6 +1146,13 @@
 
             trace("Analyzing durations...");
             stats_t result;
+            // TODO: This way of combining confidence intervals is not
+            //       statistically correct and will lead to over-estimated
+            //       confidence intervals. Instead we should keep around the
+            //       distribution of offsets, and for each raw clock readout
+            //       draw a random point from the offset dataset and subtract
+            //       it. This will give us an offset-unbiased duration
+            //       estimator, over which statistics can then be computed.
             trace("- Computing central run durations...");
             for (size_t run = 0; run < num_runs; ++run) {
                 ticks[run] = ends[run] - starts[run] - clock->offset_stats.center;
@@ -755,6 +1190,14 @@
         static inline stats_t x86_duration(x86_clock_t* clock,
                                            stats_t ticks) {
             const int64_t nano = 1000*1000*1000;
+            // TODO: This way of combining confidence intervals is not
+            //       statistically correct and will lead to over-estimated
+            //       confidence intervals. Instead we should start from the
+            //       ticks dataset, keep around a frequency dataset, and divide
+            //       each point of the ticks dataset by a random point from the
+            //       frequency dataset. This will give us an offset-unbiased
+            //       duration estimator, over which statistics can then be
+            //       computed.
             return (stats_t){
                 .center = ticks.center * nano / clock->frequency_stats.center,
                 .low = ticks.low * nano / clock->frequency_stats.high,
@@ -831,9 +1274,6 @@
     ///          into \ref udipe_benchmark_t, and eventually destroyed with
     ///          benchmark_clock_finalize().
     benchmark_clock_t benchmark_clock_initialize();
-
-    // TODO: Benchmark clock measurement in raw clock units
-    // TODO: Conversion of measurements from raw clock units to nanoseconds
 
     /// Check if the benchmark clock needs recalibration, if so recalibrate it
     ///

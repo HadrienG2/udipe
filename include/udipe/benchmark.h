@@ -13,7 +13,15 @@
     #include "visibility.h"
 
     #include <stdbool.h>
+    #include <stddef.h>
+    #include <stdint.h>
 
+
+    /// Confidence interval used for final measurements
+    ///
+    /// Picked because 95% is kinda the standard in statistics, so it is what
+    /// the end user will most likely be used to.
+    #define MEASUREMENT_CONFIDENCE 95.0
 
     /// \name Benchmark harness
     /// \{
@@ -44,10 +52,17 @@
 
     /// Callable that UDIPE_BENCHMARK()/udipe_benchmark_run() may execute
     ///
+    /// This is an implementation detail of binaries from the benches/ directory
+    /// that you should not use directly.
+    ///
+    /// \internal
+    ///
     /// Notice the traditional `void* context` argument for providing
     /// user-defined args to this callable.
-    typedef void (*udipe_callable_t)(void* /*context */,
-                                     udipe_benchmark_t* /* benchmark */);
+    typedef void (*udipe_benchmark_runnable_t)(
+        void* /*context */,
+        udipe_benchmark_t* /* benchmark */
+    );
 
     /// Execute a benchmark if it passes user filtering conditions
     ///
@@ -90,17 +105,106 @@
     ///                  with benchmark_finalize() yet.
     /// \param name is the name of the function that one is intending to
     ///             benchmark.
-    /// \param callable is the function that should be called to execute the
-    ///                 benchmark if its name passes the filter.
+    /// \param runnable is the function that should be called to execute the
+    ///                 benchmark if `name` passes the filter.
     /// \param context is an arbitrary user-defined pointer that is passed to
-    ///                the callable if it is called.
-    /// \returns the truth that the benchmark has been run.
+    ///                `runnable` if it is called.
+    ///
+    /// \returns the truth that `runnable` has been run.
     UDIPE_PUBLIC
     UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 3)
     bool udipe_benchmark_run(udipe_benchmark_t* benchmark,
                              const char* name,
-                             udipe_callable_t callable,
+                             udipe_benchmark_runnable_t runnable,
                              void* context);
+
+    /// Function whose execution time udipe_benchmark_measure() can measure
+    ///
+    /// This is an implementation detail of binaries from the benches/ directory
+    /// that you should not use directly.
+    ///
+    /// \internal
+    ///
+    /// Notice the traditional `void* context` argument for providing
+    /// user-defined args to this callable.
+    ///
+    /// The function targeted by this pointer must internally execute a loop of
+    /// that performs the operation of interest `num_iterations` times. To avoid
+    /// excessive compiler optimization based on the knowledge that this is
+    /// redundant work, recuring inputs should be passed through
+    /// UDIPE_ASSUME_ACCESSED() to make the compiler believes that they are
+    /// changing, while outputs should be passed through UDIPE_ASSUME_READ() to
+    /// make the compiler believe that they are being used.
+    ///
+    /// Before it initiates the internal loop, the target function is allowed to
+    /// generate a new input dataset whose size does not depend on
+    /// `num_iterations`. This will increase the realism of the measured timing
+    /// distribution by virtue of testing the code of interest in multiple input
+    /// configurations, at the expense of increasing time-to-measurement and
+    /// reducing output measurement precision.
+    typedef void (*udipe_benchmark_measurable_t)(
+        void* /*context */,
+        size_t /*num_iterations*/
+    );
+
+    /// Measure the iteration time of `measurable` in an unspecified time unit
+    ///
+    /// This is an implementation detail of binaries from the benches/
+    /// directory that you should not use directly.
+    ///
+    /// \internal
+    ///
+    /// This function must be called in the context of a \ref
+    /// udipe_benchmark_runnable_t that is being executed by
+    /// udipe_benchmark_run().
+    ///
+    /// The measurement process goes through several stages that can each be
+    /// controlled via environment variables:
+    ///
+    /// 1. Iteration count is ramped up until a meaningful iteration duration
+    ///    can be measured.
+    ///     - TODO tunables description, should have both min-runs and
+    ///       min-duration for each stage. Acquire a first estimate of duration
+    ///       offset i.e. duration of loop with no iteration. Target a run
+    ///       duration that is a configurable multiple of the duration offset,
+    ///       maybe 10x ?
+    /// 2. Iteration count is tuned to achieve an empirically optimal benchmark
+    ///    run duration.
+    ///     - TODO tunables description, start by targeting best empty loop
+    ///       timing then tune down by 2x steps until optimal relative precision
+    ///       is achieved. Can use faster methods than basic doubling for the
+    ///       initial ramp-up e.g. estimate iteration duration then use a simple
+    ///       affine model based on that + duration offset estimate to estimate
+    ///       number of iteration required to achieve a certain run duration, go
+    ///       there, refine iteration duration estimate, adjust iteration count,
+    ///       etc.
+    /// 3. Precise measurements of the iteration duration are acquired.
+    ///     - TODO tunables description, figure out if some kind of warmup or
+    ///       increased run count is useful here. Finish with a more precise
+    ///       measurement of empty-loop duration offset.
+    /// 4. Iteration duration statistics are displayed on stdout. If the clock
+    ///    uses a native duration unit other than nanoseconds, then measurements
+    ///    are displayed using this unit in addition to nanoseconds, as the
+    ///    conversion factor between the two may not be perfectly known and this
+    ///    introduces additional measurement error.
+    ///     - TODO tunables description, if needed
+    ///
+    /// \param benchmark is a benchmark harness that was passed into a \ref
+    ///                  udipe_benchmark_runnable_t callback by
+    ///                  udipe_benchmark_run().
+    /// \param measurable is a function that executes a loop whose iteration
+    ///                   count can be controlled by this benchmarking harness.
+    ///                   See the documentation of \ref
+    ///                   udipe_benchmark_measurable_t for more information
+    ///                   about how this function should behave.
+    /// \param context is a parameter of your choosing that will be passed back
+    ///                to every invocation of `measurable`.
+    //
+    // TODO: implement, finish docs
+    UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2)
+    void udipe_benchmark_measure(udipe_benchmark_t* benchmark,
+                                 udipe_benchmark_measurable_t measurable,
+                                 void* context);
 
     /// Tear down a benchmarking harness
     ///
@@ -309,6 +413,11 @@
 
         /// Make the compiler assume that the result `x` is used by something
         ///
+        /// This is an implementation detail of binaries from the benches/
+        /// directory that you should not use directly.
+        ///
+        /// \internal
+        ///
         /// Benchmarks tend to do the same thing in a loop. But when optimizing
         /// compilers realize that the result of a loop iteration is unused,
         /// they love to optimize it out, or worse, optimize out parts of it
@@ -391,6 +500,11 @@
 
         /// Make the compiler assume that the result `x` is used by something,
         /// then replaced with a totally different value.
+        ///
+        /// This is an implementation detail of binaries from the benches/
+        /// directory that you should not use directly.
+        ///
+        /// \internal
         ///
         /// This does everything that UDIPE_ASSUME_READ() does and additionally
         /// makes the compiler believe that the value of `x` changes to
@@ -492,6 +606,11 @@
 
         /// Make the compiler assume that the result `x` is used by something
         ///
+        /// This is an implementation detail of binaries from the benches/
+        /// directory that you should not use directly.
+        ///
+        /// \internal
+        ///
         /// Benchmarks tend to do the same thing in a loop. But when optimizing
         /// compilers realize that the result of a loop iteration is unused,
         /// they love to optimize it out, or worse, optimize out parts of it
@@ -526,6 +645,11 @@
 
         /// Make the compiler assume that the result `x` is used by something,
         /// then replaced with a totally different value.
+        ///
+        /// This is an implementation detail of binaries from the benches/
+        /// directory that you should not use directly.
+        ///
+        /// \internal
         ///
         /// This does everything that UDIPE_ASSUME_READ() does and additionally
         /// makes the compiler believe that the value of `x` changes to
