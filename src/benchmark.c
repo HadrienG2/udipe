@@ -39,13 +39,19 @@
     static_assert(NUM_MEDIAN_SAMPLES % 2 == 1,
                   "Medians should be computed over an odd number of samples");
 
+    /// Confidence interval used for final measurements
+    ///
+    /// Picked because 95% is kinda the standard in statistics, so it is what
+    /// the end user will most likely be used to.
+    #define MEASUREMENT_CONFIDENCE 95.0
+
     /// Confidence interval used for clock calibration
     ///
-    /// Setting this much tighter than \ref RESULT_CONFIDENCE ensures that if
-    /// the calibration deviates a bit from its optimal value, it will have a
-    /// smaller impact on the end results.
+    /// Using a tighter tolerance than the standard \ref MEASUREMENT_CONFIDENCE
+    /// because getting calibration wrong is considered more serious than
+    /// getting measurements wrong.
     #define CALIBRATION_CONFIDENCE 99.0
-    static_assert(CALIBRATION_CONFIDENCE >= MEASUREMENT_CONFIDENCE,
+    static_assert(CALIBRATION_CONFIDENCE > MEASUREMENT_CONFIDENCE,
                   "Calibration should be at least as strict as user measurements");
 
     /// Desired number of measurements on either side of the confidence interval
@@ -285,7 +291,7 @@
     }
 
 
-    duration_analyzer_t duration_analyzer_initialize(float confidence_f) {
+    stats_analyzer_t stats_analyzer_initialize(float confidence_f) {
         debug("Checking analysis parameters...");
         double confidence = (double)confidence_f;
         ensure_gt(confidence, 0.0);
@@ -303,7 +309,7 @@
         debug("Finishing setup...");
         double low_quantile = (1.0 - 0.01*confidence) / 2.0;
         double high_quantile = 1.0 - low_quantile;
-        return (duration_analyzer_t){
+        return (stats_analyzer_t){
             .medians = medians,
             .num_medians = num_medians,
             .low_idx = (size_t)(low_quantile * num_medians),
@@ -313,9 +319,9 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    stats_t analyze_duration(duration_analyzer_t* analyzer,
-                             int64_t durations[],
-                             size_t durations_len) {
+    stats_t stats_analyze(stats_analyzer_t* analyzer,
+                          int64_t durations[],
+                          size_t durations_len) {
         trace("Computing medians...");
         ensure_gt(durations_len, (size_t)0);
         int64_t median_samples[NUM_MEDIAN_SAMPLES];
@@ -362,7 +368,7 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    void duration_analyzer_finalize(duration_analyzer_t* analyzer) {
+    void stats_analyzer_finalize(stats_analyzer_t* analyzer) {
         debug("Liberating storage...");
         realtime_liberate(analyzer->medians,
                           analyzer->num_medians * sizeof(int64_t));
@@ -467,7 +473,7 @@
         } while(false)
 
     UDIPE_NON_NULL_ARGS
-    os_clock_t os_clock_initialize(duration_analyzer_t* calibration_analyzer) {
+    os_clock_t os_clock_initialize(stats_analyzer_t* calibration_analyzer) {
         // Zero out all clock fields initially
         //
         // This is a valid (if incorrect) value for some fields but not all of
@@ -633,7 +639,7 @@
         UDIPE_NON_NULL_ARGS
         x86_clock_t
         x86_clock_initialize(const os_clock_t* os,
-                             duration_analyzer_t* calibration_analyzer) {
+                             stats_analyzer_t* calibration_analyzer) {
             // Zero out all clock fields initially
             //
             // This is a valid (if incorrect) value for some fields but not all
@@ -798,7 +804,7 @@
 
         debug("Setting up clock calibration analysis...");
         clock.calibration_analyzer =
-            duration_analyzer_initialize(CALIBRATION_CONFIDENCE);
+            stats_analyzer_initialize(CALIBRATION_CONFIDENCE);
 
         info("Setting up the OS clock...");
         clock.os = os_clock_initialize(&clock.calibration_analyzer);
@@ -811,7 +817,7 @@
 
         debug("Setting up duration measurement analysis...");
         clock.measurement_analyzer =
-            duration_analyzer_initialize(MEASUREMENT_CONFIDENCE);
+            stats_analyzer_initialize(MEASUREMENT_CONFIDENCE);
         return clock;
     }
 
@@ -828,7 +834,7 @@
     UDIPE_NON_NULL_ARGS
     void benchmark_clock_finalize(benchmark_clock_t* clock) {
         debug("Liberating the measurement analyzer...");
-        duration_analyzer_finalize(&(clock->measurement_analyzer));
+        stats_analyzer_finalize(&(clock->measurement_analyzer));
 
         #ifdef X86_64
             debug("Liberating the TSC clock...");
@@ -839,7 +845,7 @@
         os_clock_finalize(&clock->os);
 
         debug("Liberating the calibration analyzer...");
-        duration_analyzer_finalize(&(clock->calibration_analyzer));
+        stats_analyzer_finalize(&(clock->calibration_analyzer));
     }
 
 

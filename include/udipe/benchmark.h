@@ -17,12 +17,6 @@
     #include <stdint.h>
 
 
-    /// Confidence interval used for final measurements
-    ///
-    /// Picked because 95% is kinda the standard in statistics, so it is what
-    /// the end user will most likely be used to.
-    #define MEASUREMENT_CONFIDENCE 95.0
-
     /// \name Benchmark harness
     /// \{
 

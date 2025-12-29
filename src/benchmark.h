@@ -50,8 +50,8 @@
     /// - `O(log(N))` cost for incrementing a known value's occurence count
     /// - `O(log(N))` cost for randomly sampling a value
     ///
-    /// This works well because execution time datasets tend to feature many
-    /// occurences of a few values, which in turn happens because...
+    /// This works well in practice because duration datasets tend to feature
+    /// many occurences of a few values, which in turn happens because...
     ///
     /// - Computer clocks have a rather coarse granularity, which leads slightly
     ///   different durations to be measured as the same duration.
@@ -85,12 +85,11 @@
         ///    of `len` values of type `size_t`, whose contents depends on the
         ///    current stage of the distribution lifecycle:
         ///     - At the initial \ref distribution_builder_t stage, this array
-        ///       contains the number of occurences of each value, which is most
-        ///       convenient while inserting values.
+        ///       contains the number of occurences of the target value.
         ///     - At the final \ref distribution_t stage, this array instead
         ///       contains the number of occurences of values smaller than or
-        ///       equal to the current value, i.e. the cumulative sum of the
-        ///       aforementioned quantity.
+        ///       equal to the target value, i.e. the cumulative sum of the
+        ///       aforementioned occurence count.
         void* allocation;
 
         /// Number of bins that the histogram currently has
@@ -228,7 +227,6 @@
     ///             been turned into a \ref distribution_t via
     ///             distribution_build().
     /// \param value is the value to be inserted.
-    // TODO: Like any algorithm based on binary search, this could use tests.
     UDIPE_NON_NULL_ARGS
     static inline void distribution_insert(distribution_builder_t* builder,
                                            int64_t value) {
@@ -362,7 +360,6 @@
     ///
     /// \returns One of the values that was previously inserted into the
     ///          distribution via distribution_insert().
-    // TODO: Like any algorithm based on binary search, this could use tests.
     UDIPE_NON_NULL_ARGS
     static inline int64_t distribution_sample(const distribution_t* dist) {
         // Determine the histogram's memory layout
@@ -452,12 +449,12 @@
     UDIPE_NON_NULL_ARGS
     void distribution_finalize(distribution_t* dist);
 
-    // TODO: Add unit tests, then integrate it everywhere.
+    // TODO: Integrate this everywhere.
 
     /// \}
 
 
-    /// \name Statistical analysis of timing data
+    /// \name Statistical analysis of duration-based data
     /// \{
 
     /// Result of the statistical analysis of a duration-based dataset
@@ -509,57 +506,56 @@
         int64_t high;
     } stats_t;
 
-    /// Harness for statistically analyzing duration data with a certain
-    /// confidence interval
+    /// Statistical analyzer for duration-based data
     ///
     /// We will typically end up analyzing many timing datasets with the same
     /// confidence interval, which means that it is beneficial to keep around
     /// the associated memory allocation and layout information.
-    typedef struct duration_analyzer_s {
+    typedef struct stats_analyzer_s {
         int64_t* medians;  ///< Storage for median duration samples
         size_t num_medians;  ///< Number of samples within `medians`
         size_t low_idx;  ///< Confidence interval start location
         size_t center_idx;  ///< Median location
         size_t high_idx;  ///< Confidence interval end location
-    } duration_analyzer_t;
+    } stats_analyzer_t;
 
-    /// Set up a \ref duration_analyzer_t
+    /// Set up a statistical analyzer
     ///
-    /// Given a confidence interval, get ready to analyze duration data with
-    /// this confidence interval.
+    /// Given a confidence interval, get ready to analyze duration-based data
+    /// with this confidence interval.
     ///
     /// This function must be called within the scope of with_logger().
     ///
     /// \param confidence is the desired width of confidence intervals in
     ///                   percentage points (i.e. between 0.0 and 100.0,
     ///                   excluding both bounds)
-    duration_analyzer_t duration_analyzer_initialize(float confidence);
+    stats_analyzer_t stats_analyzer_initialize(float confidence);
 
-    /// Statistically analyze timing data
+    /// Statistically analyze duration-based data data
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param analyzer is a duration analyzer that has been previously set up
-    ///                 via duration_analyzer_initialize() and hasn't been
-    ///                 destroyed via duration_analyzer_finalize() yet
+    /// \param analyzer is a statistical analyzer that has been previously set
+    ///                 up via stats_analyzer_initialize() and hasn't been
+    ///                 destroyed via stats_analyzer_finalize() yet
     /// \param durations is the raw duration data from your clock
     /// \param durations_len is the number of data points within `durations`
     ///
     /// \returns the timing statistics associated with the input durations
     UDIPE_NON_NULL_ARGS
-    stats_t analyze_duration(duration_analyzer_t* analyzer,
-                             int64_t durations[],
-                             size_t durations_len);
+    stats_t stats_analyze(stats_analyzer_t* analyzer,
+                          int64_t durations[],
+                          size_t durations_len);
 
-    /// Destroy a \ref duration_analyzer_t
+    /// Destroy a statistical analyzer
     ///
     /// This function must be called within the scope of with_logger().
     ///
     /// \param analyzer is a duration analyzer that has been previously set up
-    ///                 via duration_analyzer_initialize() and hasn't been
-    ///                 destroyed via duration_analyzer_finalize() yet
+    ///                 via stats_analyzer_initialize() and hasn't been
+    ///                 destroyed via stats_analyzer_finalize() yet
     UDIPE_NON_NULL_ARGS
-    void duration_analyzer_finalize(duration_analyzer_t* analyzer);
+    void stats_analyzer_finalize(stats_analyzer_t* analyzer);
 
     /// \}
 
@@ -727,14 +723,14 @@
     /// This function must be called within the scope of with_logger().
     ///
     /// \param calibration_analyzer should have been initialized with
-    ///                             duration_analyzer_initialize() based on the
+    ///                             stats_analyzer_initialize() based on the
     ///                             width of the calibration confidence interval
     ///                             and not have been finalized yet
     ///
     /// \returns a system clock context that must later be finalized using
     ///          os_clock_finalize()
     UDIPE_NON_NULL_ARGS
-    os_clock_t os_clock_initialize(duration_analyzer_t* calibration_analyzer);
+    os_clock_t os_clock_initialize(stats_analyzer_t* calibration_analyzer);
 
     /// Read the system clock
     ///
@@ -859,9 +855,9 @@
     ///                `workload`, if any.
     /// \param num_runs indicates how many timed calls to `workload` should
     ///                 be performed, see above for tuning advice.
-    /// \param analyzer is a duration analyzer that has been previously set up
-    ///                 via duration_analyzer_initialize() and hasn't been
-    ///                 destroyed via duration_analyzer_finalize() yet.
+    /// \param analyzer is a statistical analyzer that has been previously set
+    ///                 up via stats_analyzer_initialize() and hasn't been
+    ///                 destroyed via stats_analyzer_finalize() yet.
     ///
     /// \returns `workload` execution time statistics in nanoseconds
     ///
@@ -877,7 +873,7 @@
         void (*workload)(void*),
         void* context,
         size_t num_runs,
-        duration_analyzer_t* analyzer
+        stats_analyzer_t* analyzer
     ) {
         if (num_runs > clock->num_durations) {
             trace("Reallocating storage from %zu to %zu durations...");
@@ -923,7 +919,7 @@
             tracef("- center[%zu] = %zd ns", run, durations[run]);
         }
         trace("- Analyzing central run durations...");
-        result.center = analyze_duration(analyzer, durations, num_runs).center;
+        result.center = stats_analyze(analyzer, durations, num_runs).center;
         trace("- Computing lower run durations...");
         for (size_t run = 0; run < num_runs; ++run) {
             durations[run] = os_duration(clock,
@@ -932,7 +928,7 @@
             tracef("- low[%zu] = %zd ns", run, durations[run]);
         }
         trace("- Analyzing lower run durations...");
-        result.low = analyze_duration(analyzer, durations, num_runs).low;
+        result.low = stats_analyze(analyzer, durations, num_runs).low;
         trace("- Computing higher run durations...");
         for (size_t run = 0; run < num_runs; ++run) {
             durations[run] = os_duration(clock,
@@ -941,7 +937,7 @@
             tracef("- high[%zu] = %zd ns", run, durations[run]);
         }
         trace("- Analyzing higher run durations...");
-        result.high = analyze_duration(analyzer, durations, num_runs).high;
+        result.high = stats_analyze(analyzer, durations, num_runs).high;
         return result;
     }
 
@@ -1050,7 +1046,7 @@
         ///           this function, and hasn't been finalized with
         ///           os_clock_finalize() yet.
         /// \param calibration_analyzer should have been initialized with
-        ///                             duration_analyzer_initialize() based on
+        ///                             stats_analyzer_initialize() based on
         ///                             the width of the calibration confidence
         ///                             interval and not have been finalized yet
         ///
@@ -1059,7 +1055,7 @@
         UDIPE_NON_NULL_ARGS
         x86_clock_t
         x86_clock_initialize(const os_clock_t* os,
-                             duration_analyzer_t* calibration_analyzer);
+                             stats_analyzer_t* calibration_analyzer);
 
         /// Measure the execution duration of `workload` using the TSC clock
         ///
@@ -1098,7 +1094,7 @@
             void (*workload)(void*),
             void* context,
             size_t num_runs,
-            duration_analyzer_t* analyzer
+            stats_analyzer_t* analyzer
         ) {
             if (num_runs > clock->num_durations) {
                 trace("Reallocating storage from %zu to %zu durations...");
@@ -1164,21 +1160,21 @@
                 tracef("  * center[%zu] = %zd", run, ticks[run]);
             }
             trace("- Analyzing central run durations...");
-            result.center = analyze_duration(analyzer, ticks, num_runs).center;
+            result.center = stats_analyze(analyzer, ticks, num_runs).center;
             trace("- Computing lower run durations...");
             for (size_t run = 0; run < num_runs; ++run) {
                 ticks[run] = ends[run] - starts[run] - clock->offset_stats.high;
                 tracef("  * low[%zu] = %zd", run, ticks[run]);
             }
             trace("- Analyzing lower run durations...");
-            result.low = analyze_duration(analyzer, ticks, num_runs).low;
+            result.low = stats_analyze(analyzer, ticks, num_runs).low;
             trace("- Computing higher run durations...");
             for (size_t run = 0; run < num_runs; ++run) {
                 ticks[run] = ends[run] - starts[run] - clock->offset_stats.low;
                 tracef("  * high[%zu] = %zd", run, ticks[run]);
             }
             trace("- Analyzing higher run durations...");
-            result.high = analyze_duration(analyzer, ticks, num_runs).high;
+            result.high = stats_analyze(analyzer, ticks, num_runs).high;
             return result;
         }
 
@@ -1241,11 +1237,11 @@
             x86_clock_t x86;
         #endif
 
-        /// Duration analyzer for everyday benchmark measurements
+        /// Statistical analyzer for everyday benchmark measurements
         ///
         /// This represents a confidence interval of MEASUREMENT_CONFIDENCE and
         /// is used whenever regular benchmark measurements are taken.
-        duration_analyzer_t measurement_analyzer;
+        stats_analyzer_t measurement_analyzer;
 
         /// System clock context
         ///
@@ -1253,11 +1249,11 @@
         /// system clock.
         os_clock_t os;
 
-        /// Duration analyzer for clock calibration data
+        /// Statistical analyzer for clock calibration data
         ///
         /// This represents a confidence interval of CALIBRATION_CONFIDENCE and
         /// is used whenever a clock is (re)calibrated.
-        duration_analyzer_t calibration_analyzer;
+        stats_analyzer_t calibration_analyzer;
     } benchmark_clock_t;
 
     /// Set up the benchmark clock
