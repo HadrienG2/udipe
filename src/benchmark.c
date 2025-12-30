@@ -42,23 +42,11 @@
     static_assert(NUM_MEDIAN_SAMPLES % 2 == 1,
                   "Medians are computed over an odd number of samples");
 
-    /// Confidence interval used for final measurements
+    /// Confidence interval used for all statistics
     ///
     /// Picked because 95% is kinda the standard in statistics, so it is what
     /// the end user will most likely be used to.
-    #define MEASUREMENT_CONFIDENCE 95.0
-
-    /// Confidence interval used for clock calibration
-    ///
-    /// Using a tighter tolerance than the standard \ref MEASUREMENT_CONFIDENCE
-    /// because getting calibration wrong is considered more serious than
-    /// getting measurements wrong.
-    //
-    // TODO: If 95% turns out to work well, remove calibration/measurement
-    //       tolerance distinction
-    #define CALIBRATION_CONFIDENCE 95.0
-    static_assert(CALIBRATION_CONFIDENCE >= MEASUREMENT_CONFIDENCE,
-                  "Calibration should be at least as strict as user measurements");
+    #define CONFIDENCE 95.0
 
     /// Desired number of measurements on either side of the confidence interval
     ///
@@ -526,7 +514,7 @@
                        (header),  \
                        udipe_duration.center,  \
                        (unit),  \
-                       CALIBRATION_CONFIDENCE,  \
+                       CONFIDENCE,  \
                        udipe_duration.low,  \
                        udipe_duration.high);  \
         } while(false)
@@ -567,7 +555,7 @@
                        udipe_stats_decimals,  \
                        udipe_center,  \
                        (unit),  \
-                       CALIBRATION_CONFIDENCE,  \
+                       CONFIDENCE,  \
                        udipe_stats_decimals,  \
                        udipe_low,  \
                        udipe_stats_decimals,  \
@@ -577,7 +565,7 @@
         } while(false)
 
     UDIPE_NON_NULL_ARGS
-    os_clock_t os_clock_initialize(stats_analyzer_t* calibration_analyzer) {
+    os_clock_t os_clock_initialize(stats_analyzer_t* analyzer) {
         // Zero out all clock fields initially
         //
         // This is a valid (if incorrect) value for some fields but not all of
@@ -610,21 +598,19 @@
             NULL,
             NUM_RUNS_OFFSET_OS,
             &clock.builder,
-            calibration_analyzer
+            analyzer
         );
         clock.builder = distribution_reset(&clock.offsets);
         clock.offsets = tmp_offsets;
         distribution_poison(&tmp_offsets);
-        const stats_t offset_stats = stats_analyze(calibration_analyzer,
-                                                   &clock.offsets);
+        const stats_t offset_stats = stats_analyze(analyzer, &clock.offsets);
         log_calibration_stats(UDIPE_INFO, "- Clock offset", offset_stats, "ns");
 
         info("Deducing clock baseline...");
         distribution_t tmp_zeros = distribution_sub(&clock.builder,
                                                     &clock.offsets,
                                                     &clock.offsets);
-        const stats_t zero_stats = stats_analyze(calibration_analyzer,
-                                                 &tmp_zeros);
+        const stats_t zero_stats = stats_analyze(analyzer, &tmp_zeros);
         clock.builder = distribution_reset(&tmp_zeros);
         log_calibration_stats(UDIPE_INFO,
                               "- Baseline",
@@ -643,10 +629,9 @@
                 &num_iters,
                 NUM_RUNS_SHORTEST_LOOP,
                 &clock.builder,
-                calibration_analyzer
+                analyzer
             );
-            loop_duration_stats = stats_analyze(calibration_analyzer,
-                                                &loop_durations);
+            loop_duration_stats = stats_analyze(analyzer, &loop_durations);
             log_calibration_stats(UDIPE_DEBUG,
                                   "  * Loop duration",
                                   loop_duration_stats,
@@ -681,10 +666,9 @@
                 &num_iters,
                 NUM_RUNS_BEST_LOOP_OS,
                 &clock.builder,
-                calibration_analyzer
+                analyzer
             );
-            loop_duration_stats = stats_analyze(calibration_analyzer,
-                                                &loop_durations);
+            loop_duration_stats = stats_analyze(analyzer, &loop_durations);
             log_calibration_stats(UDIPE_DEBUG,
                                   "  * Loop duration",
                                   loop_duration_stats,
@@ -760,7 +744,7 @@
         UDIPE_NON_NULL_ARGS
         x86_clock_t
         x86_clock_initialize(os_clock_t* os,
-                             stats_analyzer_t* calibration_analyzer) {
+                             stats_analyzer_t* analyzer) {
             // Zero out all clock fields initially
             //
             // This is a valid (if incorrect) value for some fields but not all
@@ -801,12 +785,11 @@
                 &best_empty_iters,
                 NUM_RUNS_BEST_LOOP_X86,
                 &builder,
-                calibration_analyzer
+                analyzer
             );
             log_calibration_stats(UDIPE_INFO,
                                   "- Offset-biased best loop",
-                                  stats_analyze(calibration_analyzer,
-                                                &raw_empty_ticks),
+                                  stats_analyze(analyzer, &raw_empty_ticks),
                                   "ticks");
 
             info("Measuring clock offset...");
@@ -817,23 +800,21 @@
                 NULL,
                 NUM_RUNS_OFFSET_X86,
                 &builder,
-                calibration_analyzer
+                analyzer
             );
             builder = distribution_reset(&clock.offsets);
             clock.offsets = tmp_offsets;
             distribution_poison(&tmp_offsets);
             log_calibration_stats(UDIPE_INFO,
                                   "- Clock offset",
-                                  stats_analyze(calibration_analyzer,
-                                                &clock.offsets),
+                                  stats_analyze(analyzer, &clock.offsets),
                                   "ticks");
 
             info("Deducing clock baseline...");
             distribution_t tmp_zeros = distribution_sub(&builder,
                                                         &clock.offsets,
                                                         &clock.offsets);
-            const stats_t zero_stats = stats_analyze(calibration_analyzer,
-                                                     &tmp_zeros);
+            const stats_t zero_stats = stats_analyze(analyzer, &tmp_zeros);
             builder = distribution_reset(&tmp_zeros);
             log_calibration_stats(UDIPE_INFO,
                                   "- Baseline",
@@ -847,7 +828,7 @@
                 &clock.offsets
             );
             builder = distribution_reset(&raw_empty_ticks);
-            clock.best_empty_stats = stats_analyze(calibration_analyzer,
+            clock.best_empty_stats = stats_analyze(analyzer,
                                                    &corrected_empty_ticks);
             log_calibration_stats(UDIPE_DEBUG,
                                   "- Offset-corrected best loop",
@@ -870,8 +851,7 @@
             // `builder` cannot be used after this point
             log_calibration_stats(UDIPE_INFO,
                                   "- TSC frequency",
-                                  stats_analyze(calibration_analyzer,
-                                                &clock.frequencies),
+                                  stats_analyze(analyzer, &clock.frequencies),
                                   "ticks/sec");
 
             debug("Deducing best loop duration...");
@@ -879,7 +859,7 @@
                 &clock,
                 &os->builder,
                 &corrected_empty_ticks,
-                calibration_analyzer
+                analyzer
             );
             log_calibration_stats(UDIPE_DEBUG,
                                   "- Best loop duration",
@@ -939,22 +919,16 @@
         // them. We will take care of the missing fields later on.
         benchmark_clock_t clock = { 0 };
 
-        debug("Setting up clock calibration analysis...");
-        clock.calibration_analyzer =
-            stats_analyzer_initialize(CALIBRATION_CONFIDENCE);
+        debug("Setting up statistical analysis...");
+        clock.analyzer = stats_analyzer_initialize(CONFIDENCE);
 
         info("Setting up the OS clock...");
-        clock.os = os_clock_initialize(&clock.calibration_analyzer);
+        clock.os = os_clock_initialize(&clock.analyzer);
 
         #ifdef X86_64
             info("Setting up the TSC clock...");
-            clock.x86 = x86_clock_initialize(&clock.os,
-                                             &clock.calibration_analyzer);
+            clock.x86 = x86_clock_initialize(&clock.os, &clock.analyzer);
         #endif
-
-        debug("Setting up duration measurement analysis...");
-        clock.measurement_analyzer =
-            stats_analyzer_initialize(MEASUREMENT_CONFIDENCE);
         return clock;
     }
 
@@ -970,8 +944,8 @@
 
     UDIPE_NON_NULL_ARGS
     void benchmark_clock_finalize(benchmark_clock_t* clock) {
-        debug("Liberating the measurement analyzer...");
-        stats_analyzer_finalize(&(clock->measurement_analyzer));
+        debug("Liberating the statistical analyzer...");
+        stats_analyzer_finalize(&clock->analyzer);
 
         #ifdef X86_64
             debug("Liberating the TSC clock...");
@@ -980,9 +954,6 @@
 
         debug("Liberating the OS clock...");
         os_clock_finalize(&clock->os);
-
-        debug("Liberating the calibration analyzer...");
-        stats_analyzer_finalize(&(clock->calibration_analyzer));
     }
 
 

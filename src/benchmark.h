@@ -821,10 +821,9 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param calibration_analyzer should have been initialized with
-    ///                             stats_analyzer_initialize() based on the
-    ///                             width of the calibration confidence interval
-    ///                             and not have been finalized yet
+    /// \param analyzer should have been initialized with
+    ///                 stats_analyzer_initialize() and not have been finalized
+    ///                 yet
     ///
     /// \returns a system clock context that must later be finalized using
     ///          os_clock_finalize()
@@ -1100,17 +1099,16 @@
         ///           with os_clock_initialize(), ideally right before calling
         ///           this function, and hasn't been used for any other purpose
         ///           or finalized with os_clock_finalize() yet.
-        /// \param calibration_analyzer should have been initialized with
-        ///                             stats_analyzer_initialize() based on
-        ///                             the width of the calibration confidence
-        ///                             interval and not have been finalized yet
+        /// \param analyzer should have been initialized with
+        ///                 stats_analyzer_initialize() and not have been
+        ///                 finalized yet
         ///
         /// \returns a TSC clock context that must later be finalized using
         ///          x86_clock_finalize().
         UDIPE_NON_NULL_ARGS
         x86_clock_t
         x86_clock_initialize(os_clock_t* os,
-                             stats_analyzer_t* calibration_analyzer);
+                             stats_analyzer_t* analyzer);
 
         /// Measure the execution duration of `workload` using the TSC clock
         ///
@@ -1266,23 +1264,16 @@
             x86_clock_t x86;
         #endif
 
-        /// Statistical analyzer for everyday benchmark measurements
+        /// Statistical analyzer for benchmark measurements
         ///
-        /// This represents a confidence interval of MEASUREMENT_CONFIDENCE and
-        /// is used whenever regular benchmark measurements are taken.
-        stats_analyzer_t measurement_analyzer;
+        /// This represents a confidence interval of CONFIDENCE.
+        stats_analyzer_t analyzer;
 
         /// System clock context
         ///
         /// This contains everything needed to recalibrate and use the operating
         /// system clock.
         os_clock_t os;
-
-        /// Statistical analyzer for clock calibration data
-        ///
-        /// This represents a confidence interval of CALIBRATION_CONFIDENCE and
-        /// is used whenever a clock is (re)calibrated.
-        stats_analyzer_t calibration_analyzer;
     } benchmark_clock_t;
 
     /// Set up the benchmark clock
