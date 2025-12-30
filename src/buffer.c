@@ -216,8 +216,7 @@ void buffer_allocator_finalize(buffer_allocator_t* allocator) {
         allocator->config.buffer_size * allocator->config.buffer_count
     );
 
-    debug("Poisoning the finalized allocator so that any later (invalid) "
-          "allocation attempt deadlocks or fails...");
+    debug("Poisoning the finalized allocator...");
     bit_array_range_set(allocator->buffer_availability,
                         UDIPE_MAX_BUFFERS,
                         BIT_ARRAY_START,

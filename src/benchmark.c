@@ -18,26 +18,29 @@
     #include <string.h>
 
 
-    /// Dataset size for median duration computations
+    /// Number of samples used for median duration computations
     ///
     /// To reduce the impact of outliers, we don't directly handle raw
-    /// durations, we handle medians of a small number of duration samples. The
-    /// number of samples in use is controlled by this parameter.
+    /// durations, we handle medians of a small number of duration samples. This
+    /// parameter controls the number of samples that are used.
     ///
-    /// This parameter should be tuned as follows:
+    /// Tuning this parameter has many consequences:
     ///
-    /// - To avoid inventing output durations that weren't present in input
-    ///   data, this parameter should be odd, not even.
-    /// - If this parameter is too small, then outlier regression will become
-    ///   ineffective. But since outliers are very rare, a typical median
-    ///   duration input only contains 0 or 1 outlier, so it doesn't take a huge
-    ///   median dataset size to minimize the effect of outliers.
-    /// - If this parameter is too large, then output statistics will require a
-    ///   larger amount of input data to converge, will be more expensive to
-    ///   compute, and will be less sensitive to small changes of input data.
-    #define NUM_MEDIAN_SAMPLES ((size_t)11)
+    /// - It can only take odd values. No pseudo-median allowed.
+    /// - Tuning it higher allows you to tolerate more OS interrupts, and thus
+    ///   work with benchmark run durations that are closer to the
+    ///   inter-interrupt spacing. Given a fixed run timing precision, these
+    ///   longer benchmark runs let you achieve lower uncertainty on the
+    ///   benchmark iteration duration.
+    /// - Tuning it higher makes statistics more sensitive to the difference
+    ///   between the empirical duration distribution and the true duration
+    ///   distribution, therefore you need to collect more benchmark run
+    ///   duration data points for the statistics to converge. When combined
+    ///   with the use of longer benchmark runs, this means that benchmarks will
+    ///   take longer to execute before stable results are achieved.
+    #define NUM_MEDIAN_SAMPLES ((size_t)7)
     static_assert(NUM_MEDIAN_SAMPLES % 2 == 1,
-                  "Medians should be computed over an odd number of samples");
+                  "Medians are computed over an odd number of samples");
 
     /// Confidence interval used for final measurements
     ///
@@ -50,83 +53,67 @@
     /// Using a tighter tolerance than the standard \ref MEASUREMENT_CONFIDENCE
     /// because getting calibration wrong is considered more serious than
     /// getting measurements wrong.
-    #define CALIBRATION_CONFIDENCE 99.0
-    static_assert(CALIBRATION_CONFIDENCE > MEASUREMENT_CONFIDENCE,
+    //
+    // TODO: If 95% turns out to work well, remove calibration/measurement
+    //       tolerance distinction
+    #define CALIBRATION_CONFIDENCE 95.0
+    static_assert(CALIBRATION_CONFIDENCE >= MEASUREMENT_CONFIDENCE,
                   "Calibration should be at least as strict as user measurements");
 
     /// Desired number of measurements on either side of the confidence interval
     ///
-    /// This parameter should be tuned up until multiple runs of the analysis
-    /// process over the same input data consistently produce the same results.
+    /// Tune this up if you observe unstable duration statistics even though the
+    /// underlying duration distributions are stable.
     ///
     /// Tuning it too high will increase the overhead of the statistical
     /// analysis process for no good reason.
-    #define NUM_EDGE_MEASUREMENTS ((size_t)10)
+    //
+    // TODO: Tune on more system
+    #define NUM_EDGE_MEASUREMENTS ((size_t)512)
 
     /// Number of benchmark runs used for OS clock offset calibration
     ///
-    /// This should be tuned high enough that the OS clock offset calibration
-    /// produces reproducible results.
+    /// Tune this up if clock offset calibration is unstable, as evidenced by
+    /// the fact that short loops get a nonzero median duration.
     //
-    // TODO: Current value is the minimum required run count needed for
-    //       reproducibility on the author's laptop. This minimum should be
-    //       tuned up through testing on a more diverse set of systems, then
-    //       once the pool of available testing systems is exhausted, some extra
-    //       safety margin (maybe 2-4x?) should be applied on top of the final
-    //       result to account for unknown systems.
-    #define NUM_RUNS_OFFSET_OS ((size_t)32*1024)
+    // TODO: Tune on more systems
+    #define NUM_RUNS_OFFSET_OS ((size_t)8*1024)
 
     /// Number of benchmark runs used for shortest loop calibration
     ///
-    /// This should be tuned high enough that the shortest loop calibration
-    /// consistently ends at a number of loop iterations smaller than the
-    /// optimal number of loop iterations.
+    /// Tune this up if the shortest loop calibration is unstable and does not
+    /// converge to a constant loop size.
     //
-    // TODO: Generally speaking, doing statistics on less than 100 samples makes
-    //       the author nervous, and on the author's laptop that is already
-    //       enough. Test on more systems and tune up if needed.
-    #define NUM_RUNS_SHORTEST_LOOP ((size_t)128)
+    // TODO: Tune on more systems
+    #define NUM_RUNS_SHORTEST_LOOP ((size_t)1024)
 
     /// Number of benchmark run used for optimal loop calibration, when using
     /// the system clock to perform said calibration
     ///
-    /// This should be tuned high enough that the optimal loop calibration
-    /// consistently ends at the same number of loop iterations and yields
-    /// similar final statistics.
+    /// Tune this up if the optimal loop calibration is unstable and does not
+    /// converge to sufficiently reproducible statistics.
     //
-    // TODO: Current value is the minimum required run count needed for
-    //       reproducibility on the author's laptop. This minimum should be
-    //       tuned up through testing on a more diverse set of systems, then
-    //       once the pool of available testing systems is exhausted, some extra
-    //       safety margin (maybe 2-4x?) should be applied on top of the final
-    //       result to account for unknown systems.
-    #define NUM_RUNS_BEST_LOOP_OS ((size_t)8*1024)
+    // TODO: Tune on more systems
+    #define NUM_RUNS_BEST_LOOP_OS ((size_t)4*1024)
 
     #ifdef X86_64
 
         /// Number of benchmark runs used when measuring the duration of the
         /// optimal loop using the x86 TimeStamp Counter
         ///
-        /// This should be tuned high enough that the optimal loop measurement
-        /// produces reproducible results.
+        /// Tune this up if the optimal loop calibration does not yield
+        /// reproducible results.
         //
-        // TODO: Current value is the minimum required run count needed for
-        //       reproducibility on the author's laptop. This minimum should be
-        //       tuned up through testing on a more diverse set of systems, then
-        //       once the pool of available testing systems is exhausted, some
-        //       extra safety margin (maybe 2-4x?) should be applied on top of
-        //       the final result to account for unknown systems.
+        // TODO: Tune on more systems
         #define NUM_RUNS_BEST_LOOP_X86 ((size_t)512)
 
         /// Number of benchmark runs used for TSC clock offset calibration
         ///
-        /// This should be tuned high enough that the TSC clock offset
-        /// calibration produces reproducible results.
+        /// Tune this up if the TSC offset calibration does not yield
+        /// reproducible results.
         //
-        // TODO: Generally speaking, doing statistics on less than 100 samples
-        //       makes the author nervous, and on the author's laptop that is
-        //       already enough. Test on more systems and tune up if needed.
-        #define NUM_RUNS_OFFSET_X86 ((size_t)128)
+        // TODO: Tune on more systems
+        #define NUM_RUNS_OFFSET_X86 ((size_t)2*1024)
 
     #endif  // X86_64
 
@@ -155,7 +142,7 @@
     /// \param capacity is the number of bins that the distribution should be
     ///                 able to hold internally before reallocating.
     ///
-    /// \returns a distribution that must later been liberated using
+    /// \returns a distribution that must later be liberated using
     ///          distribution_finalize().
     static distribution_t distribution_allocate(size_t capacity) {
         void* const allocation = malloc(capacity * distribution_bin_size);
@@ -221,54 +208,63 @@
             distribution_t new_dist = distribution_allocate(2 * dist->capacity);
             distribution_layout_t new_layout = distribution_layout(&new_dist);
 
-            debug("Transferring old values smaller than the new one...");
+            trace("Transferring old values smaller than the new one...");
             for (size_t bin = 0; bin < pos; ++bin) {
                 new_layout.sorted_values[bin] = layout.sorted_values[bin];
                 new_layout.counts[bin] = layout.counts[bin];
             }
 
-            debug("Inserting new value...");
+            trace("Inserting new value...");
             new_layout.sorted_values[pos] = value;
             new_layout.counts[pos] = 1;
 
-            debug("Transferring old values larger than the new one...");
+            trace("Transferring old values larger than the new one...");
             for (size_t src = pos; src < dist->num_bins; ++src) {
                 const size_t dst = src + 1;
                 new_layout.sorted_values[dst] = layout.sorted_values[src];
                 new_layout.counts[dst] = layout.counts[src];
             }
 
-            debug("Replacing former distribution...");
+            trace("Replacing former distribution...");
             new_dist.num_bins = dist->num_bins + 1;
             distribution_finalize(dist);
             builder->inner = new_dist;
         }
     }
 
-    UDIPE_NON_NULL_ARGS
-    distribution_t distribution_build(distribution_builder_t* builder) {
-        debug("Extracting the distribution from the builder...");
-        distribution_t dist = builder->inner;
-        builder->inner = (distribution_t){
+    /// Mark a distribution as poisoned so it cannot be used anymore
+    ///
+    /// This is used when a distribution is either liberated or moved to a
+    /// different variable, in order to ensure that incorrect
+    /// user-after-free/move can be detected.
+    static inline void distribution_poison(distribution_t* dist) {
+        *dist = (distribution_t){
             .allocation = NULL,
             .num_bins = 0,
             .capacity = 0
         };
+    }
 
-        debug("Ensuring the distribution can be sampled...");
+    UDIPE_NON_NULL_ARGS
+    distribution_t distribution_build(distribution_builder_t* builder) {
+        trace("Extracting the distribution from the builder...");
+        distribution_t dist = builder->inner;
+        distribution_poison(&builder->inner);
+
+        trace("Ensuring the distribution can be sampled...");
         ensure_ge(dist.num_bins, (size_t)1);
 
         distribution_layout_t layout = distribution_layout(&dist);
-        if (log_enabled(UDIPE_TRACE)) {
-            trace("Final distribution is {");
+        if (log_enabled(UDIPE_DEBUG)) {
+            debug("Final distribution is {");
             for (size_t bin = 0; bin < dist.num_bins; ++bin) {
-                tracef("  %zd: %zu,",
+                debugf("  %zd: %zu,",
                        layout.sorted_values[bin], layout.counts[bin]);
             }
-            trace("}");
+            debug("}");
         }
 
-        debug("Turning value counts into end indices...");
+        trace("Turning value counts into end indices...");
         size_t end_idx = 0;
         for (size_t bin = 0; bin < dist.num_bins; ++bin) {
             end_idx += layout.counts[bin];
@@ -278,18 +274,131 @@
     }
 
     UDIPE_NON_NULL_ARGS
+    distribution_t distribution_sub(distribution_builder_t* builder,
+                                    const distribution_t* left,
+                                    const distribution_t* right) {
+        // To avoid "amplifying" outliers by using multiple copies, we iterate
+        // over the shortest distribution and sample from the longest one
+        assert(builder->inner.num_bins == 0);
+        const distribution_t* shorter;
+        const distribution_t* longer;
+        int64_t diff_sign;
+        if (distribution_len(left) <= distribution_len(right)) {
+            trace("Left distribution is shorter, will iterate over left and sample from right.");
+            shorter = left;
+            longer = right;
+            diff_sign = +1;
+        } else {
+            trace("Right distribution is shorter, will iterate over right and sample from left.");
+            shorter = right;
+            longer = left;
+            diff_sign = -1;
+        }
+
+        const distribution_layout_t short_layout = distribution_layout(shorter);
+        const size_t short_bins = shorter->num_bins;
+        tracef("Iterating over the %zu bins of the shorter distribution...",
+               short_bins);
+        size_t prev_short_end_idx = 0;
+        for (size_t short_pos = 0; short_pos < short_bins; ++short_pos) {
+            const int64_t short_value = short_layout.sorted_values[short_pos];
+            const size_t short_end_idx = short_layout.end_indices[short_pos];
+            const size_t short_count = short_end_idx - prev_short_end_idx;
+            tracef("- Bin #%zu contains %zu occurences of value %zd.",
+                   short_pos, short_count, short_value);
+            for (size_t long_sample = 0; long_sample < short_count; ++long_sample) {
+                const int64_t diff = short_value - distribution_sample(longer);
+                tracef("  * Random short-long difference is %zd.", diff);
+                const int64_t signed_diff = diff_sign * diff;
+                tracef("  * Random left-right difference is %zd.", signed_diff);
+                distribution_insert(builder, signed_diff);
+            }
+            prev_short_end_idx = short_end_idx;
+        }
+        return distribution_build(builder);
+    }
+
+    UDIPE_NON_NULL_ARGS
+    distribution_t distribution_scaled_div(distribution_builder_t* builder,
+                                           const distribution_t* num,
+                                           int64_t factor,
+                                           const distribution_t* denom) {
+        // To avoid "amplifying" outliers by using multiple copies, we iterate
+        // over the shortest distribution and sample from the longest one
+        assert(builder->inner.num_bins == 0);
+        if (distribution_len(num) <= distribution_len(num)) {
+            trace("Numerator distribution is shorter, will iterate over num and sample from denom.");
+            const distribution_layout_t num_layout = distribution_layout(num);
+            const size_t num_bins = num->num_bins;
+            tracef("Iterating over the %zu bins of the numerator distribution...",
+                   num_bins);
+            size_t prev_end_idx = 0;
+            for (size_t num_pos = 0; num_pos < num_bins; ++num_pos) {
+                const int64_t num_value = num_layout.sorted_values[num_pos];
+                const size_t curr_end_idx = num_layout.end_indices[num_pos];
+                const size_t num_count = curr_end_idx - prev_end_idx;
+                tracef("- Numerator bin #%zu contains %zu occurences of value %zd.",
+                       num_pos, num_count, num_value);
+                for (size_t denom_sample = 0; denom_sample < num_count; ++denom_sample) {
+                    const int64_t denom_value = distribution_sample(denom);
+                    tracef("  * Sampled random denominator value %zd.", denom_value);
+                    const int64_t scaled_ratio = num_value * factor / denom_value;
+                    tracef("  * Scaled ratio sample is %zd.", scaled_ratio);
+                    distribution_insert(builder, scaled_ratio);
+                }
+                prev_end_idx = curr_end_idx;
+            }
+            return distribution_build(builder);
+        } else {
+            trace("Denominator distribution is shorter, will iterate over denom and sample from num.");
+            const distribution_layout_t denom_layout = distribution_layout(denom);
+            const size_t denom_bins = denom->num_bins;
+            tracef("Iterating over the %zu bins of the denominator distribution...",
+                   denom_bins);
+            size_t prev_end_idx = 0;
+            for (size_t denom_pos = 0; denom_pos < denom_bins; ++denom_pos) {
+                const int64_t denom_value = denom_layout.sorted_values[denom_pos];
+                const size_t curr_end_idx = denom_layout.end_indices[denom_pos];
+                const size_t denom_count = curr_end_idx - prev_end_idx;
+                tracef("- Denominator bin #%zu contains %zu occurences of value %zd.",
+                       denom_pos, denom_count, denom_value);
+                for (size_t num_sample = 0; num_sample < denom_count; ++num_sample) {
+                    const int64_t num_value = distribution_sample(num);
+                    tracef("  * Sampled random numerator value %zd.", num_value);
+                    const int64_t scaled_ratio = num_value * factor / denom_value;
+                    tracef("  * Scaled ratio sample is %zd.", scaled_ratio);
+                    distribution_insert(builder, scaled_ratio);
+                }
+                prev_end_idx = curr_end_idx;
+            }
+            return distribution_build(builder);
+        }
+    }
+
+    UDIPE_NON_NULL_ARGS
+    distribution_builder_t distribution_reset(distribution_t* dist) {
+        tracef("Resetting storage at location %p...", dist->allocation);
+        distribution_builder_t result = (distribution_builder_t){
+            .inner = (distribution_t){
+                .allocation = dist->allocation,
+                .num_bins = 0,
+                .capacity = dist->capacity
+            }
+        };
+
+        trace("Poisoning distribution state to detect invalid usage...");
+        distribution_poison(dist);
+        return result;
+    }
+
+    UDIPE_NON_NULL_ARGS
     void distribution_finalize(distribution_t* dist) {
         debugf("Liberating storage at location %p...", dist->allocation);
         free(dist->allocation);
 
-        debug("Poisoning distribution state to detect future invalid usage...");
-        *dist = (distribution_t){
-            .allocation = NULL,
-            .num_bins = 0,
-            .capacity = 0
-        };
+        trace("Poisoning distribution state to detect invalid usage...");
+        distribution_poison(dist);
     }
-
 
     stats_analyzer_t stats_analyzer_initialize(float confidence_f) {
         debug("Checking analysis parameters...");
@@ -320,35 +429,30 @@
 
     UDIPE_NON_NULL_ARGS
     stats_t stats_analyze(stats_analyzer_t* analyzer,
-                          int64_t durations[],
-                          size_t durations_len) {
+                          const distribution_t* dist) {
         trace("Computing medians...");
-        ensure_gt(durations_len, (size_t)0);
         int64_t median_samples[NUM_MEDIAN_SAMPLES];
         for (size_t median = 0; median < analyzer->num_medians; ++median) {
             tracef("- Computing medians[%zu]...", median);
             for (size_t sample = 0; sample < NUM_MEDIAN_SAMPLES; ++sample) {
-                size_t duration_idx = rand() % durations_len;
-                int64_t duration = durations[duration_idx];
-                tracef("  * Picked %zu-th sample durations[%zu] = %zd, inserting...",
-                       sample, duration_idx, duration);
-
+                const int64_t value = distribution_sample(dist);
+                tracef("  * Inserting sample %zd...", value);
                 ptrdiff_t prev;
                 for (prev = sample - 1; prev >= 0; --prev) {
                     int64_t pivot = median_samples[prev];
                     tracef("    - Checking median_samples[%zd] = %zd...",
                            prev, pivot);
-                    if (pivot > duration) {
+                    if (pivot > value) {
                         trace("    - Too high, shift that up to make room.");
                         median_samples[prev + 1] = median_samples[prev];
                         continue;
                     } else {
-                        trace("    - Small enough, sample goes after that.");
+                        trace("    - Small enough, value goes after that.");
                         break;
                     }
                 }
                 tracef("  * Sample inserted at median_samples[%zd].", prev + 1);
-                median_samples[prev + 1] = duration;
+                median_samples[prev + 1] = value;
             }
             analyzer->medians[median] = median_samples[NUM_MEDIAN_SAMPLES / 2];
             tracef("  * medians[%zu] is therefore %zd.",
@@ -485,60 +589,76 @@
             clock.win32_frequency = QueryPerformanceFrequency().QuadPart;
         #endif
 
-        debug("Allocating timestamp and duration buffers...");
+        debug("Allocating timestamp buffer and duration distribution...");
         size_t max_runs = NUM_RUNS_OFFSET_OS;
         if (max_runs < NUM_RUNS_SHORTEST_LOOP) max_runs = NUM_RUNS_SHORTEST_LOOP;
         if (max_runs < NUM_RUNS_BEST_LOOP_OS) max_runs = NUM_RUNS_BEST_LOOP_OS;
         const size_t timestamps_size = (max_runs+1) * sizeof(os_timestamp_t);
-        const size_t durations_size = max_runs * sizeof(signed_duration_ns_t);
         clock.timestamps = realtime_allocate(timestamps_size);
-        clock.durations = realtime_allocate(durations_size);
         clock.num_durations = max_runs;
+        clock.builder = distribution_initialize();
 
-        info("Calibrating clock offset...");
-        clock.offset_stats = os_clock_measure(
+        info("Bootstrapping clock offset to 0 ns...");
+        distribution_insert(&clock.builder, 0);
+        clock.offsets = distribution_build(&clock.builder);
+        clock.builder = distribution_initialize();
+
+        info("Measuring actual clock offset...");
+        distribution_t tmp_offsets = os_clock_measure(
             &clock,
             nothing,
             NULL,
             NUM_RUNS_OFFSET_OS,
+            &clock.builder,
             calibration_analyzer
         );
+        clock.builder = distribution_reset(&clock.offsets);
+        clock.offsets = tmp_offsets;
+        distribution_poison(&tmp_offsets);
+        const stats_t offset_stats = stats_analyze(calibration_analyzer,
+                                                   &clock.offsets);
+        log_calibration_stats(UDIPE_INFO, "- Clock offset", offset_stats, "ns");
+
+        info("Deducing clock baseline...");
+        distribution_t tmp_zeros = distribution_sub(&clock.builder,
+                                                    &clock.offsets,
+                                                    &clock.offsets);
+        const stats_t zero_stats = stats_analyze(calibration_analyzer,
+                                                 &tmp_zeros);
+        clock.builder = distribution_reset(&tmp_zeros);
         log_calibration_stats(UDIPE_INFO,
-                              "- Clock offset",
-                              clock.offset_stats,
+                              "- Baseline",
+                              zero_stats,
                               "ns");
-        // TODO: This way of combining confidence intervals is not statistically
-        //       correct and will lead confidence intervals to be
-        //       over-estimated. A proper bootstrap resampling approach would be
-        //       to randomly sample pairs of offsets and compute their
-        //       difference.
-        infof("- Offset correction will increase %g%% CI by [%+zd; %+zd] ns.",
-              CALIBRATION_CONFIDENCE,
-              clock.offset_stats.center-clock.offset_stats.high,
-              clock.offset_stats.center-clock.offset_stats.low);
 
         info("Finding minimal measurable loop...");
-        stats_t loop_duration;
+        distribution_t loop_durations;
+        stats_t loop_duration_stats;
         size_t num_iters = 1;
         do {
             debugf("- Trying loop with %zu iteration(s)...", num_iters);
-            loop_duration = os_clock_measure(
+            loop_durations = os_clock_measure(
                 &clock,
                 empty_loop,
                 &num_iters,
                 NUM_RUNS_SHORTEST_LOOP,
+                &clock.builder,
                 calibration_analyzer
             );
+            loop_duration_stats = stats_analyze(calibration_analyzer,
+                                                &loop_durations);
             log_calibration_stats(UDIPE_DEBUG,
                                   "  * Loop duration",
-                                  loop_duration,
+                                  loop_duration_stats,
                                   "ns");
-            if (loop_duration.low > clock.offset_stats.high) {
+            if (loop_duration_stats.low > offset_stats.high) {
                 debug("  * Loop finally contributes more to measurements than clock offset!");
+                clock.builder = distribution_initialize();
                 break;
             } else {
                 debug("  * That's not even the clock offset, try a longer loop...");
                 num_iters *= 2;
+                clock.builder = distribution_reset(&loop_durations);
                 continue;
             }
         } while(true);
@@ -547,47 +667,51 @@
 
         info("Finding optimal loop duration...");
         clock.best_empty_iters = num_iters;
-        clock.best_empty_stats = loop_duration;
-        double best_uncertainty = relative_uncertainty(loop_duration);
-        // TODO: This way of combining confidence intervals is not statistically
-        //       correct and will lead confidence intervals to be
-        //       over-estimated. A proper bootstrap resampling approach would be
-        //       to randomly sample pairs of offsets and compute statistics over
-        //       their difference.
-        int64_t best_precision =
-            (clock.offset_stats.high - clock.offset_stats.low)
-            - (clock.offset_stats.low - clock.offset_stats.high);
+        clock.best_empty_durations = loop_durations;
+        distribution_poison(&loop_durations);
+        clock.best_empty_stats = loop_duration_stats;
+        const int64_t best_precision = zero_stats.high - zero_stats.low;
+        double best_uncertainty = relative_uncertainty(loop_duration_stats);
         do {
             num_iters *= 2;
             debugf("- Trying loop with %zu iterations...", num_iters);
-            loop_duration = os_clock_measure(
+            loop_durations = os_clock_measure(
                 &clock,
                 empty_loop,
                 &num_iters,
                 NUM_RUNS_BEST_LOOP_OS,
+                &clock.builder,
                 calibration_analyzer
             );
+            loop_duration_stats = stats_analyze(calibration_analyzer,
+                                                &loop_durations);
             log_calibration_stats(UDIPE_DEBUG,
                                   "  * Loop duration",
-                                  loop_duration,
+                                  loop_duration_stats,
                                   "ns");
             log_iteration_stats(UDIPE_DEBUG,
                                 "  *",
-                                loop_duration,
+                                loop_duration_stats,
                                 num_iters,
                                 "ns");
-            const double uncertainty = relative_uncertainty(loop_duration);
-            if (loop_duration.high - loop_duration.low > 2*best_precision) {
+            const double uncertainty = relative_uncertainty(loop_duration_stats);
+            const int64_t precision = loop_duration_stats.high - loop_duration_stats.low;
+            if (precision > 2*best_precision) {
                 debug("  * Timing precision degraded by >2x. Time to stop!");
+                clock.builder = distribution_reset(&loop_durations);
                 break;
             } else if (uncertainty < best_uncertainty) {
                 debug("  * This is our new best loop. Can we do even better?");
-                clock.best_empty_iters = num_iters;
                 best_uncertainty = uncertainty;
-                clock.best_empty_stats = loop_duration;
+                clock.best_empty_iters = num_iters;
+                clock.builder = distribution_reset(&clock.best_empty_durations);
+                clock.best_empty_durations = loop_durations;
+                distribution_poison(&loop_durations);
+                clock.best_empty_stats = loop_duration_stats;
                 continue;
             } else {
                 debug("  * That's not much worse. Keep trying...");
+                clock.builder = distribution_reset(&loop_durations);
                 continue;
             }
         } while(true);
@@ -607,24 +731,21 @@
 
     UDIPE_NON_NULL_ARGS
     void os_clock_finalize(os_clock_t* clock) {
-        debug("Liberating and poisoning measurement storage...");
+        debug("Liberating and poisoning timestamp storage...");
         realtime_liberate(clock->timestamps,
                           (clock->num_durations+1) * sizeof(os_timestamp_t));
         clock->timestamps = NULL;
-        realtime_liberate(clock->durations,
-                          clock->num_durations * sizeof(signed_duration_ns_t));
-        clock->durations = NULL;
         clock->num_durations = 0;
 
-        debug("Poisoning the now-invalid OS clock...");
+        debug("Destroying duration distributions...");
+        distribution_finalize(&clock->offsets);
+        distribution_finalize(&clock->best_empty_durations);
+        distribution_finalize(&clock->builder.inner);
+
+        debug("Poisoning the rest of the OS clock...");
         #ifdef _WIN32
             clock->win32_frequency = 0;
         #endif
-        clock->offset_stats = (stats_t){
-            .low = INT64_MIN,
-            .center = INT64_MIN,
-            .high = INT64_MIN
-        };
         clock->best_empty_iters = SIZE_MAX;
         clock->best_empty_stats = (stats_t){
             .low = INT64_MIN,
@@ -638,7 +759,7 @@
 
         UDIPE_NON_NULL_ARGS
         x86_clock_t
-        x86_clock_initialize(const os_clock_t* os,
+        x86_clock_initialize(os_clock_t* os,
                              stats_analyzer_t* calibration_analyzer) {
             // Zero out all clock fields initially
             //
@@ -646,14 +767,18 @@
             // of them. We will take care of the missing fields later on.
             x86_clock_t clock = { 0 };
 
-            debug("Allocating timestamp and duration buffers...");
+            debug("Allocating timestamp and duration distribution...");
             size_t max_runs = NUM_RUNS_BEST_LOOP_X86;
             if (max_runs < NUM_RUNS_OFFSET_X86) max_runs = NUM_RUNS_OFFSET_X86;
             const size_t instants_size = 2 * max_runs * sizeof(x86_instant);
-            const size_t ticks_size = max_runs * sizeof(x86_duration_ticks);
             clock.instants = realtime_allocate(instants_size);
-            clock.ticks = realtime_allocate(ticks_size);
             clock.num_durations = max_runs;
+            distribution_builder_t builder = distribution_initialize();
+
+            info("Bootstrapping clock offset to 0 ticks...");
+            distribution_insert(&builder, 0);
+            clock.offsets = distribution_build(&builder);
+            builder = distribution_initialize();
 
             // This should happen as soon as possible to reduce the risk of CPU
             // clock frequency changes, which would degrade the quality of our
@@ -670,56 +795,62 @@
             //       configuration changes over time, the results remain stable.
             info("Measuring optimal loop again with the TSC...");
             size_t best_empty_iters = os->best_empty_iters;
-            const stats_t raw_empty_stats = x86_clock_measure(
+            distribution_t raw_empty_ticks = x86_clock_measure(
                 &clock,
                 empty_loop,
                 &best_empty_iters,
                 NUM_RUNS_BEST_LOOP_X86,
+                &builder,
                 calibration_analyzer
             );
             log_calibration_stats(UDIPE_INFO,
-                                  "- Offset-biased best loop stats",
-                                  raw_empty_stats,
+                                  "- Offset-biased best loop",
+                                  stats_analyze(calibration_analyzer,
+                                                &raw_empty_ticks),
                                   "ticks");
 
-            info("Calibrating TSC offset...");
-            clock.offset_stats = x86_clock_measure(
+            info("Measuring clock offset...");
+            builder = distribution_initialize();
+            distribution_t tmp_offsets = x86_clock_measure(
                 &clock,
                 nothing,
                 NULL,
                 NUM_RUNS_OFFSET_X86,
+                &builder,
                 calibration_analyzer
             );
+            builder = distribution_reset(&clock.offsets);
+            clock.offsets = tmp_offsets;
+            distribution_poison(&tmp_offsets);
             log_calibration_stats(UDIPE_INFO,
                                   "- Clock offset",
-                                  clock.offset_stats,
+                                  stats_analyze(calibration_analyzer,
+                                                &clock.offsets),
                                   "ticks");
-            // TODO: This way of combining confidence intervals is not
-            //       statistically correct and will lead confidence intervals to
-            //       be over-estimated. A proper bootstrap resampling approach
-            //       would be to keep around the offset dataset and subtract
-            //       another random point from the offset dataset from each
-            //       point, thus producing a difference-of-offsets dataset over
-            //       which statistics can be computed.
-            infof("- Offset correction will increase %g%% CI by [%+zd; %+zd] ticks.",
-                  CALIBRATION_CONFIDENCE,
-                  clock.offset_stats.center-clock.offset_stats.high,
-                  clock.offset_stats.center-clock.offset_stats.low);
 
-            // TODO: This way of combining confidence intervals is not
-            //       statistically correct and will lead confidence intervals to
-            //       be over-estimated. A proper bootstrap resampling approach
-            //       would be to keep around the offset dataset and subtract a
-            //       random offset from this dataset from each of the (end -
-            //       start) raw deltas, then compute statistics over that.
+            info("Deducing clock baseline...");
+            distribution_t tmp_zeros = distribution_sub(&builder,
+                                                        &clock.offsets,
+                                                        &clock.offsets);
+            const stats_t zero_stats = stats_analyze(calibration_analyzer,
+                                                     &tmp_zeros);
+            builder = distribution_reset(&tmp_zeros);
+            log_calibration_stats(UDIPE_INFO,
+                                  "- Baseline",
+                                  zero_stats,
+                                  "ticks");
+
             debug("Applying offset correction to best loop duration...");
-            clock.best_empty_stats = (stats_t){
-                .center = raw_empty_stats.center - clock.offset_stats.center,
-                .low = raw_empty_stats.low - clock.offset_stats.high,
-                .high = raw_empty_stats.high - clock.offset_stats.low
-            };
+            distribution_t corrected_empty_ticks = distribution_sub(
+                &builder,
+                &raw_empty_ticks,
+                &clock.offsets
+            );
+            builder = distribution_reset(&raw_empty_ticks);
+            clock.best_empty_stats = stats_analyze(calibration_analyzer,
+                                                   &corrected_empty_ticks);
             log_calibration_stats(UDIPE_DEBUG,
-                                  "- Offset-corrected best loop stats",
+                                  "- Offset-corrected best loop",
                                   clock.best_empty_stats,
                                   "ticks");
             log_iteration_stats(UDIPE_DEBUG,
@@ -730,26 +861,25 @@
 
             info("Deducing TSC tick frequency...");
             const int64_t nano = 1000*1000*1000;
-            // TODO: This way of combining confidence intervals is not
-            //       statistically correct and will lead confidence intervals to
-            //       be over-estimated. A proper bootstrap resampling approach
-            //       would be to keep around the best empty loop dataset from
-            //       the OS clock and divide each point from the TSC dataset by
-            //       a random point from the OS clock dataset.
-            clock.frequency_stats = (stats_t){
-                .center = clock.best_empty_stats.center * nano / os->best_empty_stats.center,
-                .low = clock.best_empty_stats.low * nano / os->best_empty_stats.high,
-                .high = clock.best_empty_stats.high * nano / os->best_empty_stats.low
-            };
+            clock.frequencies = distribution_scaled_div(
+                &builder,
+                &corrected_empty_ticks,
+                nano,
+                &os->best_empty_durations
+            );
+            // `builder` cannot be used after this point
             log_calibration_stats(UDIPE_INFO,
                                   "- TSC frequency",
-                                  clock.frequency_stats,
+                                  stats_analyze(calibration_analyzer,
+                                                &clock.frequencies),
                                   "ticks/sec");
 
             debug("Deducing best loop duration...");
             const stats_t best_empty_duration = x86_duration(
                 &clock,
-                clock.best_empty_stats
+                &os->builder,
+                &corrected_empty_ticks,
+                calibration_analyzer
             );
             log_calibration_stats(UDIPE_DEBUG,
                                   "- Best loop duration",
@@ -764,28 +894,35 @@
         }
 
         UDIPE_NON_NULL_ARGS
+        stats_t x86_duration(x86_clock_t* clock,
+                             distribution_builder_t* tmp_builder,
+                             const distribution_t* ticks,
+                             stats_analyzer_t* analyzer) {
+            const int64_t nano = 1000*1000*1000;
+            distribution_t tmp_durations =
+                distribution_scaled_div(tmp_builder,
+                                        ticks,
+                                        nano,
+                                        &clock->frequencies);
+            const stats_t result = stats_analyze(analyzer, &tmp_durations);
+            *tmp_builder = distribution_reset(&tmp_durations);
+            return result;
+        }
+
+        UDIPE_NON_NULL_ARGS
         void x86_clock_finalize(x86_clock_t* clock) {
-            debug("Liberating and poisoning measurement storage...");
+            debug("Liberating and poisoning timestamp storage...");
             realtime_liberate(clock->instants,
                               2 * clock->num_durations * sizeof(x86_instant));
             clock->instants = NULL;
-            realtime_liberate(clock->ticks,
-                              clock->num_durations * sizeof(x86_duration_ticks));
-            clock->ticks = NULL;
             clock->num_durations = 0;
+
+            debug("Destroying offset and frequency distributions...");
+            distribution_finalize(&clock->offsets);
+            distribution_finalize(&clock->frequencies);
 
             debug("Poisoning the now-invalid TSC clock...");
             clock->best_empty_stats = (stats_t){
-                .low = INT64_MIN,
-                .center = INT64_MIN,
-                .high = INT64_MIN
-            };
-            clock->offset_stats = (stats_t){
-                .low = INT64_MIN,
-                .center = INT64_MIN,
-                .high = INT64_MIN
-            };
-            clock->frequency_stats = (stats_t){
                 .low = INT64_MIN,
                 .center = INT64_MIN,
                 .high = INT64_MIN
@@ -1395,7 +1532,7 @@
             memcpy(prev_data, builder.inner.allocation, allocation_size);
 
             trace("Building the distribution...");
-            const distribution_t prev_dist = builder.inner;
+            distribution_t prev_dist = builder.inner;
             distribution_t dist = distribution_build(&builder);
             ensure_eq(builder.inner.allocation, NULL);
             ensure_eq(builder.inner.num_bins, (size_t)0);
@@ -1414,6 +1551,7 @@
                 prev_end_indices[bin] = expected_end_idx;
             }
             prev_counts = NULL;
+            ensure_eq(distribution_len(&dist), expected_end_idx);
 
             trace("Testing distribution sampling...");
             const size_t num_samples = 10 * dist.num_bins;
@@ -1437,11 +1575,21 @@
             prev_values = NULL;
             prev_end_indices = NULL;
 
-            trace("Destroying the distribution...");
-            distribution_finalize(&dist);
+            trace("Resetting the distribution...");
+            prev_dist = dist;
+            builder = distribution_reset(&dist);
             ensure_eq(dist.allocation, NULL);
             ensure_eq(dist.num_bins, (size_t)0);
             ensure_eq(dist.capacity, (size_t)0);
+            ensure_eq(builder.inner.allocation, prev_dist.allocation);
+            ensure_eq(builder.inner.num_bins, (size_t)0);
+            ensure_eq(builder.inner.capacity, prev_dist.capacity);
+
+            trace("Destroying the distribution...");
+            distribution_finalize(&builder.inner);
+            ensure_eq(builder.inner.allocation, NULL);
+            ensure_eq(builder.inner.num_bins, (size_t)0);
+            ensure_eq(builder.inner.capacity, (size_t)0);
         }
 
         void benchmark_unit_tests() {
@@ -1452,6 +1600,8 @@
             with_log_level(UDIPE_TRACE, {
                 test_distibution();
             });
+
+            // TODO: Add unit tests for stats, then clocks
 
             // TODO: Test other components
         }

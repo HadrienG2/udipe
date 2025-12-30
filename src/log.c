@@ -265,10 +265,8 @@ UDIPE_NON_NULL_ARGS
 void logger_finalize(logger_t* logger) {
     logger_t* curr_logger = udipe_thread_logger;
     with_logger(logger, {
-        debug("Liberating logger, which should not be in use...");
+        debug("Poisoning logger...");
         ensure_ne((void*)curr_logger, (void*)logger);
-
-        debug("Poisoning logger so that further (invalid) use fails...");
     });
     logger->callback = NULL;
     logger->context = NULL;

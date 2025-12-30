@@ -9,6 +9,10 @@
     //! `udipe/benchmarks.h` with private utilities that can only be used within
     //! the libudipe codebase and microbenchmarks thereof.
 
+    // TODO: Consider splitting this module into a directory of more specialized
+    //       benchmarking modules like benchmark/distribution.h,
+    //       benchmark/stats.h, benchmark/clock.h...
+
     #include <udipe/benchmark.h>
 
     #include <udipe/pointer.h>
@@ -53,7 +57,7 @@
     /// This works well in practice because duration datasets tend to feature
     /// many occurences of a few values, which in turn happens because...
     ///
-    /// - Computer clocks have a rather coarse granularity, which leads slightly
+    /// - Computer clocks have a coarse granularity, which leads slightly
     ///   different durations to be measured as the same duration.
     /// - Program execution durations tend to exhibit multi-modal timing laws
     ///   for various reasons (whether some data is in cache or not, whether a
@@ -67,35 +71,36 @@
     ///
     /// - At first, distribution_initialize() is called, returning an empty \ref
     ///   distribution_builder_t.
-    /// - Values are then added to the \ref distribution_builder_t using
+    /// - Values are then added into this \ref distribution_builder_t using
     ///   distribution_insert().
     /// - Once all values have been inserted, distribution_build() is called,
     ///   turning the \ref distribution_builder_t into a `distribution_t` that
     ///   can be sampled with distribution_sample().
-    /// - Once the distribution is no longer useful, it is destroyed using
-    ///   distribution_finalize().
+    /// - Once the distribution is no longer useful, it can either be turned
+    ///   back into an empty \ref distribution_builder_t using
+    ///   distribution_reset() or destroyed using distribution_finalize().
     typedef struct distribution_s {
         /// Memory allocation in which the histogram is stored
         ///
         /// Histogram data layout is as follows:
         ///
         /// 1. At the start of the allocation, there is a sorted array of `len`
-        ///    distinct values of type `int64_t`.
+        ///    previously inserted values of type `int64_t`.
         /// 2. At byte offset `capacity * sizeof(int64_t)`, there is an array
         ///    of `len` values of type `size_t`, whose contents depends on the
         ///    current stage of the distribution lifecycle:
         ///     - At the initial \ref distribution_builder_t stage, this array
-        ///       contains the number of occurences of the target value.
+        ///       contains the number of occurences of each value.
         ///     - At the final \ref distribution_t stage, this array instead
         ///       contains the number of occurences of values smaller than or
-        ///       equal to the target value, i.e. the cumulative sum of the
+        ///       equal to each value, i.e. the cumulative sum of the
         ///       aforementioned occurence count.
         void* allocation;
 
         /// Number of bins that the histogram currently has
         ///
         /// See `allocation` for more information about how histogram bin data
-        /// is laid out in memory depending on this parameter.
+        /// is laid out in memory.
         size_t num_bins;
 
         /// Maximum number of bins that the histogram can hold
@@ -106,8 +111,8 @@
         /// Every time this capacity limit is reached, a new allocation of
         /// double capacity is allocated, then the contents of the old
         /// allocation are migrated in there, then the old allocation is
-        /// liberated, a strategy borrowed from C++'s `std::vector` which
-        /// ensures that allocation costs are amortized constant not linear.
+        /// liberated. This strategy borrowed from C++'s `std::vector` ensures
+        /// that allocation costs are amortized constant not linear.
         size_t capacity;
     } distribution_t;
 
@@ -117,10 +122,11 @@
     ///
     /// In the case of \ref distribution_builder_t, it is invalidated when the
     /// allocation is grown (as signaled by distribution_grow()) or when it is
-    /// transfered to a \ref distribution_t through distribution_build().
+    /// turned into a \ref distribution_t through distribution_build().
     ///
-    /// In the case of \ref distribution_t, this information is invalidated when
-    /// the distribution is destroyed by distribution_finalize().
+    /// In the case of \ref distribution_t, it is invalidated when the
+    /// distribution is recycled into a \ref distribution_builder_t by
+    /// distribution_reset() or when it is destroyed by distribution_finalize().
     typedef struct distribution_layout_s {
         /// Sorted list of previously inserted values
         int64_t* sorted_values;
@@ -134,7 +140,7 @@
             /// the current bin of a \ref distribution_t.
             ///
             /// This is the cumulative sum of the `counts` from the \ref
-            /// distribution_builder_t that was used to build this \ref
+            /// distribution_builder_t that was used to build a \ref
             /// distribution_t.
             size_t* end_indices;
         };
@@ -149,8 +155,10 @@
     ///
     /// \returns layout information that is valid until the point specified in
     ///          the documentation of \ref distribution_layout_t.
+    UDIPE_NON_NULL_ARGS
     static inline
     distribution_layout_t distribution_layout(const distribution_t* dist) {
+        assert(dist->allocation);
         assert(alignof(int64_t) >= alignof(size_t));
         return (distribution_layout_t){
             .sorted_values = (int64_t*)(dist->allocation),
@@ -163,7 +171,7 @@
     /// \ref distribution_t wrapper used during initial data recording
     ///
     /// This is a \ref distribution_t that is wrapped into a different type in
-    /// order
+    /// order to check for correct usage at compile time.
     typedef struct distribution_builder_s {
         distribution_t inner;  ///< Internal data collection backend
     } distribution_builder_t;
@@ -340,14 +348,33 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param dist must be a \ref distribution_builder_t that has previously
-    ///             received at least one value via distribution_insert() and
-    ///             hasn't yet been turned into a \ref distribution_t via
-    ///             distribution_build().
+    /// \param builder must be a \ref distribution_builder_t that has previously
+    ///                received at least one value via distribution_insert() and
+    ///                hasn't yet been turned into a \ref distribution_t via
+    ///                distribution_build().
     ///
     /// \returns a distribution that can be sampled via distribution_sample()
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_build(distribution_builder_t* builder);
+
+    /// Number of values that were inserted into a \ref distribution_builder_t
+    /// before the associated \ref distribution_t was built
+    ///
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_build() and hasn't yet been recycled via
+    ///             distribution_reset() or destroyed via
+    ///             distribution_finalize().
+    ///
+    /// \returns the number of values that were inserted into the \ref
+    ///          distribution_builder_t from which this `distribution_t` was
+    ///          built.
+    UDIPE_NON_NULL_ARGS
+    static inline size_t distribution_len(const distribution_t* dist) {
+        assert(dist->num_bins >= (size_t)1);
+        distribution_layout_t layout = distribution_layout(dist);
+        return layout.end_indices[dist->num_bins - 1];
+    }
 
     /// Sample a value from a duration-based distribution
     ///
@@ -355,21 +382,21 @@
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via
-    ///             distribution_build() and hasn't yet been destroyed via
-    ///             distribution_build().
+    ///             distribution_build() and hasn't yet been recycled via
+    ///             distribution_reset() or destroyed via
+    ///             distribution_finalize().
     ///
     /// \returns One of the values that was previously inserted into the
     ///          distribution via distribution_insert().
     UDIPE_NON_NULL_ARGS
     static inline int64_t distribution_sample(const distribution_t* dist) {
         // Determine the histogram's memory layout
-        distribution_layout_t layout = distribution_layout(dist);
+        const distribution_layout_t layout = distribution_layout(dist);
 
         // Sample one value as the index that this value would have in a dense
         // array of duplicated values
         assert(dist->num_bins >= (size_t)1);
-        const size_t last_pos = dist->num_bins - 1;
-        const size_t num_values = layout.end_indices[last_pos];
+        const size_t num_values = distribution_len(dist);
         const size_t value_idx = rand() % num_values;
         tracef("Sampling %zu-th value from a distribution containing %zu values, "
                "spread across %zu bins.",
@@ -395,7 +422,7 @@
         // Use binary search to locate the bin to which value_idx belongs, which
         // is the first bin whose end index is strictly greater than value_idx.
         size_t below_pos = first_pos;
-        size_t above_pos = last_pos;
+        size_t above_pos = dist->num_bins - 1;
         trace("Value belongs to the middle of the histogram, "
               "will now find where via binary search...");
         while (above_pos - below_pos > 1) {
@@ -438,18 +465,86 @@
         return layout.sorted_values[above_pos];
     }
 
+    /// Estimate a distribution of `left - right` differences
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param builder is a distribution builder within which output data will
+    ///                be inserted, which should initially be empty (either
+    ///                freshly built via distribution_initialize() or freshly
+    ///                recycled via distribution_reset()). It will be turned
+    ///                into the output distribution returned by this function,
+    ///                and therefore cannot be used after calling this function.
+    /// \param left is the distribution from which data points associated with
+    ///             the left hand side of the subtraction will be taken.
+    /// \param right is the distribution from which data points associated with
+    ///              the right hand side of the subtraction will be taken.
+    ///
+    /// \returns an estimated distribution of `left - right` differences
+    UDIPE_NON_NULL_ARGS
+    distribution_t distribution_sub(distribution_builder_t* builder,
+                                    const distribution_t* left,
+                                    const distribution_t* right);
+
+    /// Estimate a distribution of `num * factor / denom` differences
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param builder is a distribution builder within which output data will
+    ///                be inserted, which should initially be empty (either
+    ///                freshly built via distribution_initialize() or freshly
+    ///                recycled via distribution_reset()). It will be turned
+    ///                into the output distribution returned by this function,
+    ///                and therefore cannot be used after calling this function.
+    /// \param num is the distribution from which data points associated with
+    ///            the numerator of the ratio will be taken.
+    /// \param factor is a constant factor by which every data point from `num`
+    ///               will be multiplied before division by the data point from
+    ///               `denom` occurs.
+    /// \param denom is the distribution from which data points associated with
+    ///              the denominator of the ratio will be taken.
+    ///
+    /// \returns an estimated distribution of `num * factor / denom` scaled
+    ///          ratios
+    UDIPE_NON_NULL_ARGS
+    distribution_t distribution_scaled_div(distribution_builder_t* builder,
+                                           const distribution_t* num,
+                                           int64_t factor,
+                                           const distribution_t* denom);
+
+    /// Recycle a duration-based distribution for data recording
+    ///
+    /// This discards all data points from a distribution and switches it back
+    /// to the \ref distribution_builder_t state where data points can be
+    /// inserted into it again.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_build() and hasn't yet been recycled via
+    ///             distribution_reset() or destroyed via
+    ///             distribution_finalize(). It will be turned into the output
+    ///             distribution builder returned by this function, and
+    ///             therefore cannot be used after calling this function.
+    ///
+    /// \returns an empty \ref distribution_builder_t that reuses the storage
+    ///          allocation of `dist`.
+    UDIPE_NON_NULL_ARGS
+    distribution_builder_t distribution_reset(distribution_t* dist);
+
     /// Destroy a duration-based distribution
     ///
     /// This function must be called within the scope of with_logger().
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via
-    ///             distribution_build() and hasn't yet been destroyed via
-    ///             distribution_build().
+    ///             distribution_build() and hasn't yet been recycled via
+    ///             distribution_reset() or destroyed via
+    ///             distribution_finalize(). It will be liberated by this
+    ///             function, and therefore cannot be used after calling it.
     UDIPE_NON_NULL_ARGS
     void distribution_finalize(distribution_t* dist);
-
-    // TODO: Integrate this everywhere.
 
     /// \}
 
@@ -538,14 +633,12 @@
     /// \param analyzer is a statistical analyzer that has been previously set
     ///                 up via stats_analyzer_initialize() and hasn't been
     ///                 destroyed via stats_analyzer_finalize() yet
-    /// \param durations is the raw duration data from your clock
-    /// \param durations_len is the number of data points within `durations`
+    /// \param dist is the distribution that you want to analyze
     ///
-    /// \returns the timing statistics associated with the input durations
+    /// \returns statistics associated with the data from `dist`
     UDIPE_NON_NULL_ARGS
     stats_t stats_analyze(stats_analyzer_t* analyzer,
-                          int64_t durations[],
-                          size_t durations_len);
+                          const distribution_t* dist);
 
     /// Destroy a statistical analyzer
     ///
@@ -670,15 +763,15 @@
             uint64_t win32_frequency;
         #endif
 
-        /// Clock offset statistics in nanoseconds
+        /// Clock offset distribution in nanoseconds
         ///
         /// This is the offset that must be subtracted from OS clock durations
         /// in order to get an unbiased estimator of the duration of the code
         /// that is being benchmarked, excluding the cost of os_now() itself.
         ///
         /// You do not need to perform this offset subtraction yourself,
-        /// os_duration() will take care of it for you.
-        stats_t offset_stats;
+        /// os_duration() and os_clock_measure() will take care of it for you.
+        distribution_t offsets;
 
         /// Empty loop iteration count at which the best relative precision on
         /// the loop iteration duration is achieved
@@ -687,29 +780,35 @@
         /// or when calibrating a different clock based on the system clock.
         size_t best_empty_iters;
 
-        /// Duration statistics for the best empty loop, in nanoseconds
+        /// Empty loop duration distribution in nanoseconds
         ///
-        /// This data can be used in several different ways:
+        /// This field contains the distribution of execution times for the best
+        /// empty loop (as defined above). It can be used to calibrate the tick
+        /// rate of another clock like the x86 TSC clock by making said other
+        /// clock measure the same loop immediately afterwards then computing
+        /// the tick rate as a ticks-to-seconds ratio.
+        distribution_t best_empty_durations;
+
+        /// Duration statistics for `best_empty_dist`
         ///
-        /// - The central value indicates the timed function duration for which
-        ///   the OS clock has optimal relative precision on the benchmark loop
-        ///   iteration duration. It can be used as a target when calibrating
-        ///   benchmark run iteration counts.
-        /// - The (low, high) spread indicates the absolute clock precision in
-        ///   the optimal regime where OS interrupts do not play a role yet.
+        /// This is used when calibrating the duration of a benchmark run
+        /// towards the region where the system clock is most precise.
         stats_t best_empty_stats;
+
+        /// Unused \ref distribution_builder_t
+        ///
+        /// The clock calibration process uses one more \ref
+        /// distribution_builder_t than is required by the calibrated clock at
+        /// the end therefore this \ref distribution_builder_t remains around,
+        /// and can be reused to momentarily store user durations during the
+        /// benchmarking process as long as it is reset in the end.
+        distribution_builder_t builder;
 
         /// Timestamp buffer
         ///
         /// This is used for timestamp storage during OS clock measurements. It
         /// contains enough storage for `num_durations + 1` timestamps.
         os_timestamp_t* timestamps;
-
-        /// Duration buffer
-        ///
-        /// This is used for duration storage during OS clock measurements. It
-        /// contains enough storage for `num_durations` durations.
-        signed_duration_ns_t* durations;
 
         /// Duration buffer capacity
         ///
@@ -782,34 +881,23 @@
     /// \returns an offset-corrected estimate of the amount of time that elapsed
     ///          between `start` and `end`, in nanoseconds.
     UDIPE_NON_NULL_ARGS
-    static inline stats_t os_duration(os_clock_t* clock,
-                                      os_timestamp_t start,
-                                      os_timestamp_t end) {
+    static inline signed_duration_ns_t os_duration(os_clock_t* clock,
+                                                   os_timestamp_t start,
+                                                   os_timestamp_t end) {
         assert(os_timestamp_le(start, end));
-        const uint64_t nano = 1000 * 1000 * 1000;
+        const signed_duration_ns_t nano = 1000 * 1000 * 1000;
         signed_duration_ns_t uncorrected_ns;
         #if defined(_POSIX_TIMERS)
-            uncorrected_ns = (end.tv_sec - start.tv_sec) * nano;
-            if (start.tv_nsec > end.tv_nsec) uncorrected_ns -= nano;
-            int nanosecs = abs((int)end.tv_nsec - (int)start.tv_nsec);
-            uncorrected_ns += nanosecs;
+            const int64_t secs = (int64_t)end.tv_sec - (int64_t)start.tv_sec;
+            uncorrected_ns = secs * nano;
+            uncorrected_ns += (int64_t)end.tv_nsec - (int64_t)start.tv_nsec;
         #elif defined(_WIN32)
             assert(clock->win32_frequency > 0);
             uncorrected_ns = (end.QuadPart - start.QuadPart) * nano / clock->win32_frequency;
         #else
             #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
         #endif
-        // TODO: This way of combining confidence intervals is not statistically
-        //       correct and will lead to over-estimated confidence intervals.
-        //       Instead we should keep around the distribution of offsets, draw
-        //       a random point from it, subtract it from the raw clock readout
-        //       and return that. This will give us an offset-unbiased duration
-        //       estimator, over which statistics can then be computed.
-        return (stats_t){
-            .center = uncorrected_ns - clock->offset_stats.center,
-            .low = uncorrected_ns - clock->offset_stats.high,
-            .high = uncorrected_ns - clock->offset_stats.low
-        };
+        return uncorrected_ns - distribution_sample(&clock->offsets);
     }
 
     /// Measure the execution duration of `workload` using the OS clock
@@ -830,8 +918,6 @@
     /// `num_runs` controls how many timed calls to `workload` will occur, it
     /// should be tuned such that...
     ///
-    /// - Output timestamps fit in `timestamps` and output durations fit in
-    ///   `durations`.
     /// - Results are reproducible enough across benchmark executions (what
     ///   constitutes "reproducible enough" is context dependent, a parameter
     ///   autotuning loop can typically work with less steady timing data than
@@ -855,11 +941,17 @@
     ///                `workload`, if any.
     /// \param num_runs indicates how many timed calls to `workload` should
     ///                 be performed, see above for tuning advice.
+    /// \param builder is a distribution builder within which output data will
+    ///                be inserted, which should initially be empty (either
+    ///                freshly built via distribution_initialize() or freshly
+    ///                recycled via distribution_reset()). It will be turned
+    ///                into the output distribution returned by this function,
+    ///                and therefore cannot be used after calling this function.
     /// \param analyzer is a statistical analyzer that has been previously set
     ///                 up via stats_analyzer_initialize() and hasn't been
     ///                 destroyed via stats_analyzer_finalize() yet.
     ///
-    /// \returns `workload` execution time statistics in nanoseconds
+    /// \returns the distribution of measured execution times in nanoseconds
     ///
     /// \internal
     ///
@@ -867,12 +959,13 @@
     /// make one copy of it per `workload` and inline `workload` into it,
     /// assuming the caller did their homework on their side by exposing the
     /// definition of `workload` at the point where os_clock_measure() is called.
-    UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 5)
-    static inline stats_t os_clock_measure(
+    UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 5, 6)
+    static inline distribution_t os_clock_measure(
         os_clock_t* clock,
         void (*workload)(void*),
         void* context,
         size_t num_runs,
+        distribution_builder_t* builder,
         stats_analyzer_t* analyzer
     ) {
         if (num_runs > clock->num_durations) {
@@ -881,20 +974,13 @@
                 clock->timestamps,
                 (clock->num_durations+1) * sizeof(os_timestamp_t)
             );
-            realtime_liberate(
-                clock->durations,
-                clock->num_durations * sizeof(signed_duration_ns_t)
-            );
             clock->num_durations = num_runs;
             clock->timestamps =
                 realtime_allocate((num_runs+1) * sizeof(os_timestamp_t));
-            clock->durations =
-                realtime_allocate(num_runs * sizeof(signed_duration_ns_t));
         }
 
         trace("Performing minimal CPU warmup...");
         os_timestamp_t* timestamps = clock->timestamps;
-        signed_duration_ns_t* durations = clock->durations;
         timestamps[0] = os_now();
         UDIPE_ASSUME_READ(timestamps);
         workload(context);
@@ -906,38 +992,17 @@
             workload(context);
             timestamps[run+1] = os_now();
         }
+        UDIPE_ASSUME_READ(timestamps);
 
-        trace("Analyzing durations...");
-        stats_t result;
-        // TODO: This way of combining confidence intervals is not correct.
-        //       See os_duration() comment for more details.
-        trace("- Computing central run durations...");
+        trace("Building duration distribution...");
         for (size_t run = 0; run < num_runs; ++run) {
-            durations[run] = os_duration(clock,
-                                         timestamps[run],
-                                         timestamps[run+1]).center;
-            tracef("- center[%zu] = %zd ns", run, durations[run]);
+            distribution_insert(builder,
+                                os_duration(clock,
+                                            timestamps[run],
+                                            timestamps[run+1]));
         }
-        trace("- Analyzing central run durations...");
-        result.center = stats_analyze(analyzer, durations, num_runs).center;
-        trace("- Computing lower run durations...");
-        for (size_t run = 0; run < num_runs; ++run) {
-            durations[run] = os_duration(clock,
-                                         timestamps[run],
-                                         timestamps[run+1]).low;
-            tracef("- low[%zu] = %zd ns", run, durations[run]);
-        }
-        trace("- Analyzing lower run durations...");
-        result.low = stats_analyze(analyzer, durations, num_runs).low;
-        trace("- Computing higher run durations...");
-        for (size_t run = 0; run < num_runs; ++run) {
-            durations[run] = os_duration(clock,
-                                         timestamps[run],
-                                         timestamps[run+1]).high;
-            tracef("- high[%zu] = %zd ns", run, durations[run]);
-        }
-        trace("- Analyzing higher run durations...");
-        result.high = stats_analyze(analyzer, durations, num_runs).high;
+        distribution_t result = distribution_build(builder);
+        assert(distribution_len(&result) == num_runs);
         return result;
     }
 
@@ -963,42 +1028,38 @@
         /// This contains a cache of anything needed to (re)calibrate the x86
         /// TimeStamp Counter and use it for duration measurements.
         typedef struct x86_clock_s {
-            /// Duration statistics for the best empty loop, in TSC ticks
+            /// Clock offset distribution in TSC ticks
             ///
-            /// This data can be used in several different ways:
+            /// This is the offset that must be subtracted from TSC timestamp
+            /// differences in order to get an unbiased estimator of the
+            /// duration of the code that is being benchmarked, excluding the
+            /// cost of x86_timer_start()/x86_timer_end() itself.
             ///
-            /// - The central value indicates the timed function duration for
-            ///   which the TSC has optimal relative precision on the benchmark
-            ///   loop iteration duration. It can be used as a target when
-            ///   calibrating benchmark run iteration counts.
-            /// - The (low, high) spread indicates the absolute clock precision
-            ///   in the optimal regime where OS interrupts do not play a
-            ///   significant role yet.
+            /// You do not need to perform this offset subtraction yourself,
+            /// x86_clock_measure() will take care of it for you.
+            distribution_t offsets;
+
+            /// Empty loop duration statistics in TSC ticks
             ///
-            /// The associated empty loop iteration count can be found in the
-            /// \ref os_clock_t against which the TSC was calibrated.
+            /// This summarizes the execution times for the best empty loop (as
+            /// defined in \ref os_clock_t). It is used when calibrating the
+            /// duration of a benchmark run towards the region where the TSC
+            /// clock exhibits best relative precision.
             stats_t best_empty_stats;
 
-            /// Statistics of x86_timer_start()/x86_timer_end() overhead inside
-            /// of the timed region, in TSC ticks
-            ///
-            /// This is the offset that must be subtracted from TSC differences
-            /// in order to get an unbiased estimator of the duration of the
-            /// benchmarked code, excluding the cost of
-            /// x86_timer_start()/x86_timer_end() themselves.
-            stats_t offset_stats;
-
-            /// Frequency of the TSC clock in ticks/second
+            /// TSC clock frequency distribution in ticks/second
             ///
             /// This is calibrated against the OS clock, enabling us to turn
-            /// RDTSC readings into nanoseconds as with `win32_frequency`.
+            /// RDTSC readings into nanoseconds in the same way that
+            /// `win32_frequency` lets us turn Windows performance counter ticks
+            /// into durations.
             ///
             /// Because this frequency is derived from an OS clock measurement,
             /// it is not perfectly known, as highlighted by the fact that this
-            /// is statistics not an absolute number. This means that
+            /// is a distribution and not an absolute number. This means that
             /// precision-sensitive computations should ideally be performed in
             /// terms of TSC ticks, not nanoseconds.
-            stats_t frequency_stats;
+            distribution_t frequencies;
 
             /// Timestamp buffer
             ///
@@ -1015,12 +1076,6 @@
             /// Therefore we extract the instant values from the timestamps and
             /// only keep that around.
             x86_instant* instants;
-
-            /// Duration buffer
-            ///
-            /// This is used for duration storage during TSC measurements. It
-            /// contains enough storage for `num_durations` durations.
-            x86_duration_ticks* ticks;
 
             /// Duration buffer capacity
             ///
@@ -1043,8 +1098,8 @@
         ///
         /// \param os is a system clock context that was freshly initialized
         ///           with os_clock_initialize(), ideally right before calling
-        ///           this function, and hasn't been finalized with
-        ///           os_clock_finalize() yet.
+        ///           this function, and hasn't been used for any other purpose
+        ///           or finalized with os_clock_finalize() yet.
         /// \param calibration_analyzer should have been initialized with
         ///                             stats_analyzer_initialize() based on
         ///                             the width of the calibration confidence
@@ -1054,7 +1109,7 @@
         ///          x86_clock_finalize().
         UDIPE_NON_NULL_ARGS
         x86_clock_t
-        x86_clock_initialize(const os_clock_t* os,
+        x86_clock_initialize(os_clock_t* os,
                              stats_analyzer_t* calibration_analyzer);
 
         /// Measure the execution duration of `workload` using the TSC clock
@@ -1080,20 +1135,22 @@
         /// \param workload works as in os_clock_measure()
         /// \param context works as in os_clock_measure()
         /// \param num_runs works as in os_clock_measure()
+        /// \param builder works as in os_clock_measure()
         /// \param analyzer works as in os_clock_measure()
         ///
-        /// \returns `workload` execution time statistics in TSC ticks
+        /// \returns the distribution of measured execution times in TSC ticks
         ///
         /// \internal
         ///
         /// This function is `static inline` for the same reason that
         /// os_clock_measure() is `static inline`.
-        UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 5)
-        static inline stats_t x86_clock_measure(
+        UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 5, 6)
+        static inline distribution_t x86_clock_measure(
             x86_clock_t* clock,
             void (*workload)(void*),
             void* context,
             size_t num_runs,
+            distribution_builder_t* builder,
             stats_analyzer_t* analyzer
         ) {
             if (num_runs > clock->num_durations) {
@@ -1102,21 +1159,14 @@
                     clock->instants,
                     2 * clock->num_durations * sizeof(x86_instant)
                 );
-                realtime_liberate(
-                    clock->ticks,
-                    clock->num_durations * sizeof(x86_duration_ticks)
-                );
                 clock->num_durations = num_runs;
                 clock->instants =
                     realtime_allocate(2 * num_runs * sizeof(x86_instant));
-                clock->ticks =
-                    realtime_allocate(num_runs * sizeof(x86_duration_ticks));
             }
 
             trace("Setting up measurement...");
             x86_instant* starts = clock->instants;
             x86_instant* ends = clock->instants + num_runs;
-            x86_duration_ticks* ticks = clock->ticks;
             const bool strict = false;
             x86_timestamp_t timestamp = x86_timer_start(strict);
             const x86_cpu_id initial_cpu_id = timestamp.cpu_id;
@@ -1145,66 +1195,45 @@
                 UDIPE_ASSUME_READ(ends);
             }
 
-            trace("Analyzing durations...");
-            stats_t result;
-            // TODO: This way of combining confidence intervals is not
-            //       statistically correct and will lead to over-estimated
-            //       confidence intervals. Instead we should keep around the
-            //       distribution of offsets, and for each raw clock readout
-            //       draw a random point from the offset dataset and subtract
-            //       it. This will give us an offset-unbiased duration
-            //       estimator, over which statistics can then be computed.
-            trace("- Computing central run durations...");
+            trace("Building duration distribution...");
             for (size_t run = 0; run < num_runs; ++run) {
-                ticks[run] = ends[run] - starts[run] - clock->offset_stats.center;
-                tracef("  * center[%zu] = %zd", run, ticks[run]);
+                int64_t ticks = ends[run] - starts[run];
+                ticks -= distribution_sample(&clock->offsets);
+                distribution_insert(builder, ticks);
             }
-            trace("- Analyzing central run durations...");
-            result.center = stats_analyze(analyzer, ticks, num_runs).center;
-            trace("- Computing lower run durations...");
-            for (size_t run = 0; run < num_runs; ++run) {
-                ticks[run] = ends[run] - starts[run] - clock->offset_stats.high;
-                tracef("  * low[%zu] = %zd", run, ticks[run]);
-            }
-            trace("- Analyzing lower run durations...");
-            result.low = stats_analyze(analyzer, ticks, num_runs).low;
-            trace("- Computing higher run durations...");
-            for (size_t run = 0; run < num_runs; ++run) {
-                ticks[run] = ends[run] - starts[run] - clock->offset_stats.low;
-                tracef("  * high[%zu] = %zd", run, ticks[run]);
-            }
-            trace("- Analyzing higher run durations...");
-            result.high = stats_analyze(analyzer, ticks, num_runs).high;
+            distribution_t result = distribution_build(builder);
+            assert(distribution_len(&result) == num_runs);
             return result;
         }
 
-        /// Convert x86 clock ticks statistics into duration statistics
+        /// Estimate real time duration statistics from a TSC clock ticks
+        /// distribution
         ///
-        /// \param clock is a TSC clock context that was freshly initialized
+        /// \param clock must be a TSC clock context that was initialized
         ///              with x86_clock_initialize() and hasn't been finalized
         ///              with x86_clock_finalize() yet
-        /// \param ticks are TSC tick statistics, typically from
-        ///              x86_clock_measure()
+        /// \param tmp_builder is a distribution builder within which duration
+        ///                    data will be temporarily stored. It should
+        ///                    initially be empty (either freshly built via
+        ///                    distribution_initialize() or freshly recycled via
+        ///                    distribution_reset()). The resulting distribution
+        ///                    is only used temporarily for the purpose of
+        ///                    computing statistics, and therefore the builder
+        ///                    will be restituted to the caller upon return.
+        /// \param ticks is the distribution of TSC clock ticks from which
+        ///              durations will be estimated.
+        /// \param analyzer is the statistical analyzer that will be applied to
+        ///                 the output TSC clock ticks, encoding the desired
+        ///                 width of output confidence intervals.
         ///
-        /// \returns duration statistics in nanoseconds
+        /// \returns estimated statistics over the timing distribution that
+        ///          `ticks` corresponds to, in nanoseconds, with a confidence
+        ///          interval given by `analyzer`.
         UDIPE_NON_NULL_ARGS
-        static inline stats_t x86_duration(x86_clock_t* clock,
-                                           stats_t ticks) {
-            const int64_t nano = 1000*1000*1000;
-            // TODO: This way of combining confidence intervals is not
-            //       statistically correct and will lead to over-estimated
-            //       confidence intervals. Instead we should start from the
-            //       ticks dataset, keep around a frequency dataset, and divide
-            //       each point of the ticks dataset by a random point from the
-            //       frequency dataset. This will give us an offset-unbiased
-            //       duration estimator, over which statistics can then be
-            //       computed.
-            return (stats_t){
-                .center = ticks.center * nano / clock->frequency_stats.center,
-                .low = ticks.low * nano / clock->frequency_stats.high,
-                .high = ticks.high * nano / clock->frequency_stats.low
-            };
-        }
+        stats_t x86_duration(x86_clock_t* clock,
+                             distribution_builder_t* tmp_builder,
+                             const distribution_t* ticks,
+                             stats_analyzer_t* analyzer);
 
         /// Destroy the TSC clock
         ///
