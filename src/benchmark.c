@@ -116,6 +116,9 @@
     }
 
 
+    // TODO: outlier filter
+
+
     /// Logical size of a bin from a \ref distribution_t
     ///
     /// \ref distribution_t internally uses a structure-of-array layout, so it

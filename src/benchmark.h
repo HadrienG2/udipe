@@ -38,6 +38,427 @@
     #endif
 
 
+    /// \name Outlier filter
+    /// \{
+
+    /// Width of the sliding window of inputs used for outlier detection
+    ///
+    /// This is the number of previous input data points that are used to assess
+    /// whether a newly incoming input data point is an outlier.
+    ///
+    /// At least 3 previous input data points must be kept around, because at
+    /// any point in time the window may contain one data point previously
+    /// classified as an outlier, and it should additionally contain enough
+    /// other data points to feature at least two distinct input values because
+    /// that's the absolute minimum needed to estimate the input value
+    /// distribution spread.
+    ///
+    /// Up to a point, using a wider input window improves knowledge of the
+    /// spread of the input value distribution. This reduces the rate of outlier
+    /// classification false positives, which is good as these false positives
+    /// reduce data collection efficiency and bias the duration statistics
+    /// towards lower durations.
+    ///
+    /// But once the input window gets so large as to have a non-negligible odd
+    /// of containing two outliers, then outlier rejection starts becoming less
+    /// effective and lets outliers pass through, up to a point where no
+    /// outliers will be rejected and all inputs will pass through.
+    ///
+    /// Even before that, if the inputs vary slowly over time (because the
+    /// warmup period is too short, or the system just feels like switching
+    /// power management states from time to time for other reasons), the
+    /// detected distribution spread will increase, again reducing the
+    /// effectiveness of outlier detection.
+    ///
+    /// Currently the window width cannot be greater than 65535, but this
+    /// limitation can easily be lifted if necessary.
+    #define OUTLIER_WINDOW ((uint16_t)4)
+    static_assert(OUTLIER_WINDOW >= 3,
+                  "Outlier detection requires at least 3 previous inputs");
+
+    /// Tolerance of the outlier detection algorithm
+    ///
+    /// Because it uses a finite input window, the outlier filter has an
+    /// imperfect knowledge of the max-min spread of the outlier-free input
+    /// timing distribution. To compensate this, the measured spread is
+    /// artificially broadened by this relative share of the empirical spread in
+    /// order to get an estimate of the actual spread.
+    ///
+    /// Like increasing the size of the input window, increasing this tolerance
+    /// reduces the chance of incorrectly classifying non-outliers as outliers
+    /// (false positives) at the expense of increasing the chance of incorrectly
+    /// letting more outliers pass through (false negatives).
+    #define OUTLIER_TOLERANCE 0.5
+
+    /// Outlier filter
+    ///
+    /// This filter classifies duration measurements as either outlier or
+    /// non-outlier using a simple sliding window algorithm, which is guided by
+    /// the assumption that a sufficiently short sliding window of previous
+    /// inputs is unlikely to contain two or more high outlier values.
+    ///
+    /// This assumption, is turn, emerges from the following observations:
+    ///
+    /// - Most duration outliers are the result of an OS interrupt firing up
+    ///   between start and end timestamp measurements.
+    /// - Most OS interrupts come from the OS scheduler, which interrupts user
+    ///   processes at regular time intervals.
+    /// - By design, benchmark run durations are tuned such that many benchmark
+    ///   runs occur between two OS scheduler interrupts.
+    ///
+    /// Like all statistical algorithms, the outlier detection algorithm can
+    /// have false positives and false negatives, but interestingly some false
+    /// positives can be detected after observing _later_ data points from the
+    /// input sequence (typically if the system qualitatively undergoes a
+    /// step-change in behavior between two data points). When this happens, the
+    /// previously misclassified input will be returned as a second output of
+    /// outlier_filter_apply().
+    typedef struct outlier_filter_s {
+        /// Window of previous input data points
+        ///
+        /// Whenever a new input comes in, it is compared with the distribution
+        /// of previous inputs within `window` (which is assumed to contain
+        /// either zero or one outlier) to determine whether it should be
+        /// considered an outlier.
+        ///
+        /// After this, `window[next_idx]` is replaced by this input value,
+        /// other state variables are updated as needed, and the cycle repeats
+        /// for subsequent inputs.
+        int64_t window[OUTLIER_WINDOW];
+
+        /// Minimum value from `window`
+        ///
+        /// The number of occurences in `window` is tracked by `min_count`.
+        int64_t min;
+
+        /// Maximum value from `window` that is known not to be an outlier
+        ///
+        /// This may be `max` or a smaller value from the window. The number of
+        /// occurences in `window` is tracked by `max_normal_count`.
+        int64_t max_normal;
+
+        /// Maximum value from `window` which may or may not be an outlier
+        ///
+        /// This will differ from `max_normal` if and only if there is a single
+        /// value above `max_normal` and it is also above `upper_tolerance` and
+        /// therefore considered to be an outlier.
+        int64_t max;
+
+        /// Upper bound of the outlier tolerance range
+        ///
+        /// This is a cache of `max_normal + (max_normal - min) *
+        /// OUTLIER_CONFIDENCE`, which is used to classify inputs as outliers or
+        /// non-outliers.
+        int64_t upper_tolerance;
+
+        /// Position of the oldest entry of `window`
+        ///
+        /// The next input will be inserted here, overwriting the oldest entry.
+        /// Other filter state will be adjusted to account for the addition of a
+        /// new data point and the removal of an old data point.
+        uint16_t next_idx;
+
+        /// Number of occurences of `min` in `window`
+        ///
+        /// When this drops to 0, `min`, `min_count` and dependent values like
+        /// `upper_tolerance` must be recalculated.
+        uint16_t min_count;
+
+        /// Number of occurences of `max_normal` in `window`
+        ///
+        /// When this drops to 0, `max`, `max_normal_count` and dependent values
+        /// like `upper_tolerance` must be recalculated.
+        uint16_t max_normal_count;
+    } outlier_filter_t;
+
+    /// Set up an outlier filter
+    ///
+    /// To avoid initially operating with worse classification characteristics
+    /// and constantly checking for an initial vs steady state, the outlier
+    /// filter must be "seeded" with a full window of input values.
+    ///
+    /// It is however possible to pass the same sequence of input values through
+    /// the outlier filter again afterwards in order to decide whether any of
+    /// them should be considered an outlier or all of them can be memorized.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param initial_window is the set of input values that the detector will
+    ///        be seeded with.
+    ///
+    /// \returns an outlier filter that must later be finalized with
+    ///          outlier_filter_finalize().
+    // TODO implement
+    outlier_filter_t
+    outlier_filter_initialize(int64_t initial_window[OUTLIER_WINDOW]);
+
+    /// Result of outlier_filter_apply()
+    // TODO doc details
+    typedef struct outlier_filter_result_s {
+        /// Truth that the current input is an outlier
+        ///
+        /// If this is true, then the `input` duration that was passed to
+        /// outlier_filer_apply() is likely to have been enlarged by an OS
+        /// interrupt and should not be inserted into the output distribution.
+        bool current_is_outlier;
+
+        /// Truth that a previous input was misclassified as an outlier
+        ///
+        /// If this is `true`, then `previous_input` is set and can be inserted
+        /// into the output data distribution, along with the current `input` if
+        /// it is itself not classified as an outlier by `current_is_outlier`.
+        bool previous_not_outlier;
+
+        /// Previous input that was misclassified as an outlier
+        ///
+        /// This member is only set when `previous_not_outlier` is true.
+        int64_t previous_input;
+    } outlier_filter_result_t;
+
+    /// Update an outlier filter's `upper_tolerance` value
+    ///
+    /// This function is an implementation detail of other functions that
+    /// shouldn't be called directly.
+    ///
+    /// \internal
+    ///
+    /// This function be called between any change to `min` or `max_normal` and
+    /// any later use of `upper_tolerance`.
+    ///
+    /// This function must be called within the scope of with_logger().
+    //
+    // TODO finish docs
+    // TODO: This function shouldn't be inline, outline it
+    UDIPE_NON_NULL_ARGS
+    static inline
+    void outlier_filter_update_tolerance(outlier_filter_t* filter) {
+        filter->upper_tolerance =
+            filter->max
+            + (filter->max_normal - filter->min) * OUTLIER_TOLERANCE;
+        debugf("Outlier filter upper tolerance is now %zd.",
+               filter->upper_tolerance);
+    }
+
+    /// Reclassify an outlier filter's maximum value as normal
+    ///
+    /// This function is an implementation detail of outlier_filter_apply() that
+    /// shouldn't be called directly.
+    ///
+    /// \internal
+    ///
+    /// This function is used when `max` was previously classified as an
+    /// outlier, but it is later discovered that it should not be. It must be
+    /// followed by a call to outlier_filter_update_tolerance() before the next
+    /// use of `upper_tolerance`.
+    ///
+    /// This function must be called within the scope of with_logger().
+    //
+    // TODO finish docs
+    // TODO: This function shouldn't be inline, outline it
+    UDIPE_NON_NULL_ARGS
+    static inline
+    void outlier_filter_make_max_normal(outlier_filter_t* filter,
+                                        outlier_filter_result_t* result,
+                                        const char* reason) {
+        assert(filter->max > filter->max_normal);
+        debugf("Reclassified previous max %zd as non-outlier: %s.",
+               filter->max, reason);
+        result->previous_not_outlier = true;
+        result->previous_input = filter->max;
+        filter->max_normal = filter->max;
+        filter->max_normal_count = 1;
+    }
+
+    /// Record a new input data point, tell if it is an outlier
+    // TODO doc details, implement inline
+    UDIPE_NON_NULL_ARGS
+    static inline
+    outlier_filter_result_t outlier_filter_apply(outlier_filter_t* filter,
+                                                 int64_t input) {
+        assert(filter->min <= filter->max_normal);
+        assert(filter->max_normal <= filter->max);
+        assert(filter->max_normal <= filter->upper_tolerance);
+        assert(filter->next_idx < OUTLIER_WINDOW);
+        assert(filter->min_count >= 1);
+        assert(filter->max_normal_count >= 1);
+
+        outlier_filter_result_t result = (outlier_filter_result_t){
+            .previous_not_outlier = false
+        };
+
+        tracef("Integrating new input %zd into inner stats...", input);
+        bool must_update_tolerance = false;
+        if (input < filter->min) {
+            debugf("Input %zd is the new min.", input);
+            const int64_t old_min = filter->min;
+            filter->min = input;
+            filter->min_count = 1;
+            outlier_filter_update_tolerance(filter);
+            if (filter->max > filter->max_normal
+                && filter->max <= filter->upper_tolerance)
+            {
+                outlier_filter_make_max_normal(
+                    filter,
+                    &result,
+                    "entered tolerance window because min decreased"
+                );
+                must_update_tolerance = true;
+            }
+        } else if (input > filter->max) {
+            debugf("Input %zd is the new max.", input);
+            if (filter->max > filter->max_normal) {
+                outlier_filter_make_max_normal(
+                    filter,
+                    &result,
+                    "can't have two outliers and new input is larger"
+                );
+                outlier_filter_update_tolerance(filter);
+            }
+            filter->max = input;
+            if (filter->max <= filter->upper_tolerance) {
+                filter->max_normal = filter->max;
+                filter->max_normal_count = 1;
+                must_update_tolerance = true;
+            }
+        } else if (input > filter->max_normal && input < filter->max) {
+            debugf("Input %zd is the new max_normal.", input);
+            filter->max_normal = input;
+            filter->max_normal_count = 1;
+            outlier_filter_update_tolerance(filter);
+            if (filter->max <= filter->upper_tolerance) {
+                outlier_filter_make_max_normal(
+                    filter,
+                    &result,
+                    "entered tolerance window because max_normal increased"
+                );
+                must_update_tolerance = true;
+            }
+        } else {
+            if (input == filter->min) {
+                tracef("Input %zd is another occurence of min.", input);
+                ++(filter->min_count);
+            }
+            if (input == filter->max_normal) {
+                tracef("Input %zd is another occurence of max_normal.", input);
+                ++(filter->max_normal_count);
+            }
+            if (input == filter->max && filter->max > filter->max_normal) {
+                outlier_filter_make_max_normal(
+                    filter,
+                    &result,
+                    "encountered second occurence and there can only be one outlier"
+                );
+                ++(filter->max_normal_count);
+                must_update_tolerance = true;
+            }
+        }
+
+        const int64_t removed = filter->window[filter->next_idx];
+        tracef("Replacing oldest input %zd with new input...", removed);
+        assert(removed >= filter->min && removed <= filter->max);
+        filter->window[filter->next_idx] = input;
+        filter->next_idx = (filter->next_idx + 1) % OUTLIER_WINDOW;
+        if (removed == filter->min) --(filter->min_count);
+        if (removed == filter->max) filter->max = filter->max_normal;
+        if (removed == filter->max_normal) --(filter->max_normal_count);
+
+        // Regenerate min & min_count if needed
+        // TODO: Extract into a function that the constructor calls
+        if (filter->min_count == 0) {
+            debugf("Last occurence of minimum %zd escaped input window, "
+                   "finding new minimum input...",
+                   filter->min);
+            must_update_tolerance = true;
+            filter->min = INT64_MAX;
+            filter->min_count = 0;
+            for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+                const int64_t value = filter->window[i];
+                if (value < filter->min) {
+                    filter->min = value;
+                    filter->min_count = 1;
+                } else if (value == filter->min) {
+                    ++(filter->min_count);
+                }
+            }
+            debugf("Minimum input is now %zd (%zu occurences).",
+                   filter->min, (size_t)filter->min_count);
+            assert(filter->min_count >= 1);
+        }
+
+        // Regenerate max_normal, max_normal_count & max if needed
+        // TODO: Extract into a function that the constructor calls
+        if (filter->max_normal_count == 0) {
+            debugf("Last occurence of non-outlier maximum %zd escaped "
+                   "input window, finding new maximum values...",
+                   filter->max_normal);
+            must_update_tolerance = true;
+
+            // Start by treating the maximum as an outlier if it occurs once. If
+            // it occurs multiple times, we know it is not an outlier.
+            debug("Finding a pessimisting max_normal/max pair by treating any "
+                  "isolated maximum as an outlier...");
+            bool max_set = false;
+            filter->max = filter->window[0];
+            filter->max_normal = INT64_MIN;
+            filter->max_normal_count = 0;
+            for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+                const int64_t value = filter->window[i];
+                if (value > filter->max) {
+                    if (max_set) {
+                        filter->max_normal = filter->max;
+                        filter->max_normal_count = 1;
+                    }
+                    filter->max = value;
+                    max_set = true;
+                } else if (value == filter->max_normal) {
+                    ++(filter->max_normal_count);
+                } else if (value == filter->max) {
+                    assert(filter->max > filter->max_normal);
+                    filter->max_normal = filter->max;
+                    filter->max_normal_count = 2;
+                }
+            }
+            assert(filter->max >= filter->max_normal);
+            assert(filter->max_normal_count >= 1);
+
+            // If in the end the maximum occurs only once, then max_normal will
+            // be the next-to-maximum value. Use it to compute the upper
+            // tolerance and deduce if filter->max is truly an outlier.
+            if (filter->max > filter->max_normal) {
+                debugf("Determining if isolated maximum %zd truly is an outlier...",
+                       filter->max);
+                outlier_filter_update_tolerance(filter);
+                if (filter->max <= filter->upper_tolerance) {
+                    debug("It's actually in tolerance, and will thus become max_normal.");
+                    filter->max_normal = filter->max;
+                    filter->max_normal_count = 1;
+                } else {
+                    debug("It is an outlier, nothing to do.");
+                    must_update_tolerance = false;
+                }
+            }
+        }
+
+        // Perform any pending upper_tolerance update
+        if (must_update_tolerance) outlier_filter_update_tolerance(filter);
+
+        // Determine if the input value is an outlier
+        result.current_is_outlier = (input > filter->upper_tolerance);
+
+        // TODO add logging and lots of unit tests
+        return result;
+    }
+
+    /// Destroy an outlier filter
+    // TODO doc details, implement
+    UDIPE_NON_NULL_ARGS
+    void outlier_filter_finalize(outlier_filter_t* filter);
+
+    // TODO: Finish, add tests, integrate
+
+    /// \}
+
+
     /// \name Duration-based value distribution
     /// \{
 
