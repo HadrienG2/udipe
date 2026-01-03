@@ -1033,13 +1033,6 @@
                                  "Failed to pin benchmark timing thread");
 
                 tracef("Running benchmark \"%s\"...", name);
-                // TODO: Make this a realtime thread with a priority given by
-                //       environment variable UDIPE_PRIORITY_BENCHMARK if set,
-                //       by default halfway from the bottom of the realtime
-                //       priority range to UDIPE_PRIORITY_WORKER, which itself
-                //       is by default halfway through the entire realtime
-                //       priority range. Start writing an environment variable
-                //       doc that covers this + UDIPE_LOG.
                 runnable(context, benchmark);
 
                 trace("Recalibrating benchmark clock...");
