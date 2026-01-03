@@ -335,8 +335,7 @@ thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_INFO;
         //          non-fatal errors should not be signaled at all, fatal errors
         //          should be signalled on stderr before exiting.
 
-        assert(("Should not make logging calls "
-                "outside a with_logger() scope",
+        assert(("Should not make logging calls outside a with_logger() scope",
                 udipe_thread_logger));
         switch (level) {
         case UDIPE_TRACE:
