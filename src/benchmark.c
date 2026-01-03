@@ -145,7 +145,7 @@
     }
 
     distribution_builder_t distribution_initialize() {
-        const size_t capacity = EXPECTED_MIN_PAGE_SIZE / distribution_bin_size;
+        const size_t capacity = get_page_size() / distribution_bin_size;
         return (distribution_builder_t){
             .inner = distribution_allocate(capacity)
         };
