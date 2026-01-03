@@ -38,7 +38,7 @@ static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
         return "DEBUG";
     case UDIPE_INFO:
         return "INFO";
-    case UDIPE_WARNING:
+    case UDIPE_WARN:
         return "WARN";
     case UDIPE_ERROR:
         return "ERROR";
@@ -137,7 +137,7 @@ static void default_log_callback(void* /* context */,
             case UDIPE_INFO:
                 level_color = "\033[32m";
                 break;
-            case UDIPE_WARNING:
+            case UDIPE_WARN:
                 level_color = "\033[93;1m";
                 break;
             case UDIPE_ERROR:
@@ -192,7 +192,7 @@ logger_t logger_initialize(udipe_log_config_t config) {
     case UDIPE_TRACE:
     case UDIPE_DEBUG:
     case UDIPE_INFO:
-    case UDIPE_WARNING:
+    case UDIPE_WARN:
     case UDIPE_ERROR:
         break;
     case UDIPE_DEFAULT_LOG_LEVEL:
@@ -201,7 +201,7 @@ logger_t logger_initialize(udipe_log_config_t config) {
             if (strcasecmp(level_str, "ERROR") == 0) {
                 config.min_level = UDIPE_ERROR;
             } else if (strcasecmp(level_str, "WARNING") == 0) {
-                config.min_level = UDIPE_WARNING;
+                config.min_level = UDIPE_WARN;
             } else if (strcasecmp(level_str, "INFO") == 0) {
                 config.min_level = UDIPE_INFO;
             } else if (strcasecmp(level_str, "DEBUG") == 0) {
@@ -342,7 +342,7 @@ thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_INFO;
         case UDIPE_TRACE:
         case UDIPE_DEBUG:
         case UDIPE_INFO:
-        case UDIPE_WARNING:
+        case UDIPE_WARN:
         case UDIPE_ERROR:
             break;
         default:

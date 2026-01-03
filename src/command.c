@@ -9,6 +9,6 @@
         info("Running command unit tests...");
 
         // TODO: Write the tests
-        warning("All tests have been turned into static assertions, for now.");
+        warn("All tests have been turned into static assertions, for now.");
     }
 #endif

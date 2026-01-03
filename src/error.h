@@ -99,7 +99,7 @@ void warn_on_errno();
     #define win32_exit_on_failed_hresult(hr, error_message)  \
         do {  \
             if (FAILED(hr)) {  \
-                warningf("Got failed HRESULT %u!", hr);  \
+                warnf("Got failed HRESULT %u!", hr);  \
                 exit_with_error(error_message);  \
             }  \
         } while(false)

@@ -139,10 +139,10 @@ static void finish_configuration(udipe_buffer_config_t* config,
         if (config->buffer_count <= UDIPE_MAX_BUFFERS) {
             infof("Will allocate a pool of %zu buffers.", config->buffer_count);
         } else {
-            warningf("Auto-configuration suggests a pool of %zu buffers, but "
-                     "implementation only supports %zu. UDIPE_MAX_BUFFERS "
-                     "should be raised. Will stick with the maximum for now...",
-                     config->buffer_count, UDIPE_MAX_BUFFERS);
+            warnf("Auto-configuration suggests a pool of %zu buffers, but "
+                  "implementation only supports %zu. UDIPE_MAX_BUFFERS "
+                  "should be raised. Will stick with the maximum for now...",
+                  config->buffer_count, UDIPE_MAX_BUFFERS);
             config->buffer_count = UDIPE_MAX_BUFFERS;
         }
     } else if (config->buffer_count > UDIPE_MAX_BUFFERS) {

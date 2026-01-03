@@ -43,7 +43,7 @@ void warn_on_errno() {
         assert(("Integer snprintf should never fail", out_chars > 0));
         assert(("Output buffer should be large enough to hold an integer",
                 (unsigned)out_chars < sizeof(output)));
-        warning(output);
+        warn(output);
         errno = 0;
         return;
     }
@@ -71,8 +71,8 @@ void warn_on_errno() {
                           header, name, separator, description, trailer);
     } else {
         // ...but if there's not enough room, just the basics. Do warn about it.
-        warning("Internal output buffer is too small for a full errno "
-                "description and should be enlarged!");
+        warn("Internal output buffer is too small for a full errno "
+             "description and should be enlarged!");
         assert(("Buffer should be large enough to hold an errorname",
                 sizeof(output) >= min_output_size));
         result = snprintf(output,
@@ -81,7 +81,7 @@ void warn_on_errno() {
                           header, name, trailer);
     }
     assert(("String snprintf should never fail!", result > 0));
-    warning(output);
+    warn(output);
     errno = 0;
 }
 
@@ -98,7 +98,7 @@ void warn_on_errno() {
         //       page which provides a table of Windows error codes and some
         //       tools to automatically look them up:
         //       https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes
-        warningf("Got thread last-error code %u", last_error);
+        warnf("Got thread last-error code %u", last_error);
         SetLastError(0);
     }
 #endif

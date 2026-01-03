@@ -216,14 +216,14 @@ static bool try_increase_mlock_budget(size_t size) {
         case EPERM:
             errno = 0;
             assert((size_t)mlock_limit.rlim_max > initial_max);
-            warning("Failed to raise the hard memory locking limit. Please "
-                    "raise the memory locking limit for the calling user/group "
-                    "or give this process the CAP_SYS_RESOURCE capability");
+            warn("Failed to raise the hard memory locking limit. Please "
+                 "raise the memory locking limit for the calling user/group "
+                 "or give this process the CAP_SYS_RESOURCE capability");
             result = false;
             goto unlock_and_return;
         default:
             warn_on_errno();
-            warning("Failed to raise the memory locking limit for unknown reasons!");
+            warn("Failed to raise the memory locking limit for unknown reasons!");
             result = false;
             goto unlock_and_return;
         }
@@ -256,13 +256,13 @@ static bool try_increase_mlock_budget(size_t size) {
         }
 
         win32_warn_on_error();
-        warning("Failed to increase the process working set!");
+        warn("Failed to increase the process working set!");
         result = false;
         goto unlock_and_return;
     #else
         #warning "Sorry, we don't fully support your operating system yet. Please file a bug report about it!"
-        warning("Don't know how to increase the memory locking budget on this "
-                "operating system, so won't do it...");
+        warn("Don't know how to increase the memory locking budget on this "
+             "operating system, so won't do it...");
     #endif
 
 unlock_and_return:
@@ -326,7 +326,7 @@ void* realtime_allocate(size_t size) {
         // An unknown error occured, most likely from a non-Linux unix host
         default:
             warn_on_errno();
-            warning(mlock_failure_msg);
+            warn(mlock_failure_msg);
             goto prefault_and_return;;
         }
 
@@ -339,7 +339,7 @@ void* realtime_allocate(size_t size) {
             goto log_and_return;
         }
         warn_on_errno();
-        warning(mlock_failure_msg);
+        warn(mlock_failure_msg);
         goto prefault_and_return;
     #elif defined(_WIN32)
         // Allocate virtual memory pages
@@ -369,7 +369,7 @@ void* realtime_allocate(size_t size) {
             goto log_and_return;
         }
         win32_warn_on_error();
-        warning(mlock_failure_msg);
+        warn(mlock_failure_msg);
         goto prefault_and_return;
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"

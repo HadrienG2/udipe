@@ -79,7 +79,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// input a \link #udipe_log_level_t log level \endlink and the message to be
 /// logged at this log level (as a standard `NULL`-terminated `const char[]`).
 ///
-/// You should prefer using the log level specific macros error(), warning(),
+/// You should prefer using the log level specific macros error(), warn(),
 /// info(), debug() and trace() over this one, outside of special circumstances
 /// where you want to dynamically adjust the log level at runtime.
 ///
@@ -121,11 +121,11 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// info.
 #define info(message)  udipe_log(UDIPE_INFO, (message))
 
-/// Log a \link #UDIPE_WARNING `WARNING` \endlink message
+/// Log a \link #UDIPE_WARN `WARN` \endlink message
 ///
 /// Can only be used within the scope of with_logger(). See udipe_log() for more
 /// info.
-#define warning(message)  udipe_log(UDIPE_WARNING, (message))
+#define warn(message)  udipe_log(UDIPE_WARN, (message))
 
 /// Log an \link #UDIPE_ERROR `ERROR` \endlink message
 ///
@@ -150,8 +150,8 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// static string.
 ///
 /// All other comments from udipe_log() remain valid, including the need to call
-/// it inside the scope of with_logger(). See also errorf(), warningf(),
-/// infof(), debugf() and tracef() for level-specific formatted logging macros.
+/// it inside the scope of with_logger(). See also errorf(), warnf(), infof(),
+/// debugf() and tracef() for level-specific formatted logging macros.
 #define udipe_logf(level, format, ...)  \
     do {  \
         const udipe_log_level_t udipe_level = thread_log_level(level);  \
@@ -181,11 +181,11 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// more info.
 #define infof(format, ...)  udipe_logf(UDIPE_INFO, (format), __VA_ARGS__)
 
-/// Log a \link #UDIPE_WARNING `WARNING` \endlink formatted message
+/// Log a \link #UDIPE_WARN `WARN` \endlink formatted message
 ///
 /// Can only be used within the scope of with_logger(). See udipe_logf() for
 /// more info.
-#define warningf(format, ...)  udipe_logf(UDIPE_WARNING, (format), __VA_ARGS__)
+#define warnf(format, ...)  udipe_logf(UDIPE_WARN, (format), __VA_ARGS__)
 
 /// Log an \link #UDIPE_ERROR `ERROR` \endlink formatted message
 ///
@@ -293,8 +293,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 ///   treated as `TRACE`.
 ///
 /// Setting the relative log level to any other value is forbidden, and this
-/// functionality has no effect on the `ERROR`, `WARNING` and `TRACE` log
-/// levels.
+/// functionality has no effect on the `ERROR`, `WARN` and `TRACE` log levels.
 ///
 /// This functionality is needed in situations where a particular function is
 /// called at several different layers of abstraction, and what qualifies as

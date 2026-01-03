@@ -40,8 +40,8 @@
         with_logger(&logger, {
             // Warn about bad build configurations
             #ifdef NDEBUG
-                warning("You are running unit tests with debug assertions "
-                        "turned off. Bugs may go undetected!");
+                warn("You are running unit tests with debug assertions "
+                     "turned off. Bugs may go undetected!");
             #endif
 
             // Set up name-based test filtering
