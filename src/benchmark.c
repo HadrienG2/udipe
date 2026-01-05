@@ -59,6 +59,11 @@
     // TODO: Tune on more system
     #define NUM_EDGE_MEASUREMENTS ((size_t)512)
 
+    /// Warmup duration used for OS clock offset calibration
+    //
+    // TODO: Tune on more systems
+    #define WARMUP_OFFSET_OS (1*UDIPE_MILLISECOND)
+
     /// Number of benchmark runs used for OS clock offset calibration
     ///
     /// Tune this up if clock offset calibration is unstable, as evidenced by
@@ -66,6 +71,11 @@
     //
     // TODO: Tune on more systems
     #define NUM_RUNS_OFFSET_OS ((size_t)8*1024)
+
+    /// Warmup duration used for shortest loop calibration
+    //
+    // TODO: Tune on more systems
+    #define WARMUP_SHORTEST_LOOP (1*UDIPE_MILLISECOND)
 
     /// Number of benchmark runs used for shortest loop calibration
     ///
@@ -75,6 +85,11 @@
     // TODO: Tune on more systems
     #define NUM_RUNS_SHORTEST_LOOP ((size_t)1024)
 
+    /// Warmup duration used for best loop calibration
+    //
+    // TODO: Tune on more systems
+    #define WARMUP_BEST_LOOP (100*UDIPE_MILLISECOND)
+
     /// Number of benchmark run used for optimal loop calibration, when using
     /// the system clock to perform said calibration
     ///
@@ -82,7 +97,7 @@
     /// converge to sufficiently reproducible statistics.
     //
     // TODO: Tune on more systems
-    #define NUM_RUNS_BEST_LOOP_OS ((size_t)4*1024)
+    #define NUM_RUNS_BEST_LOOP_OS ((size_t)128*1024)
 
     #ifdef X86_64
 
@@ -94,6 +109,11 @@
         //
         // TODO: Tune on more systems
         #define NUM_RUNS_BEST_LOOP_X86 ((size_t)512)
+
+        /// Warmup duration used for TSC clock offset calibration
+        //
+        // TODO: Tune on more systems
+        #define WARMUP_OFFSET_X86 (1*UDIPE_MILLISECOND)
 
         /// Number of benchmark runs used for TSC clock offset calibration
         ///
@@ -599,6 +619,7 @@
             &clock,
             nothing,
             NULL,
+            WARMUP_OFFSET_OS,
             NUM_RUNS_OFFSET_OS,
             &clock.builder,
             analyzer
@@ -630,6 +651,7 @@
                 &clock,
                 empty_loop,
                 &num_iters,
+                WARMUP_SHORTEST_LOOP,
                 NUM_RUNS_SHORTEST_LOOP,
                 &clock.builder,
                 analyzer
@@ -639,12 +661,12 @@
                                   "  * Loop duration",
                                   loop_duration_stats,
                                   "ns");
-            if (loop_duration_stats.low > offset_stats.high) {
-                debug("  * Loop finally contributes more to measurements than clock offset!");
+            if (loop_duration_stats.low > 5*offset_stats.high) {
+                debug("  * Loop finally contributes much more than clock offset!");
                 clock.builder = distribution_initialize();
                 break;
             } else {
-                debug("  * That's not even the clock offset, try a longer loop...");
+                debug("  * Measured duration is close to clock offset, try a longer loop...");
                 num_iters *= 2;
                 clock.builder = distribution_reset(&loop_durations);
                 continue;
@@ -667,6 +689,7 @@
                 &clock,
                 empty_loop,
                 &num_iters,
+                WARMUP_BEST_LOOP,
                 NUM_RUNS_BEST_LOOP_OS,
                 &clock.builder,
                 analyzer
@@ -683,11 +706,7 @@
                                 "ns");
             const double uncertainty = relative_uncertainty(loop_duration_stats);
             const int64_t precision = loop_duration_stats.high - loop_duration_stats.low;
-            if (precision > 2*best_precision) {
-                debug("  * Timing precision degraded by >2x. Time to stop!");
-                clock.builder = distribution_reset(&loop_durations);
-                break;
-            } else if (uncertainty < best_uncertainty) {
+            if (uncertainty < best_uncertainty) {
                 debug("  * This is our new best loop. Can we do even better?");
                 best_uncertainty = uncertainty;
                 clock.best_empty_iters = num_iters;
@@ -696,10 +715,14 @@
                 distribution_poison(&loop_durations);
                 clock.best_empty_stats = loop_duration_stats;
                 continue;
-            } else {
+            } else if (precision <= 2*best_precision) {
                 debug("  * That's not much worse. Keep trying...");
                 clock.builder = distribution_reset(&loop_durations);
                 continue;
+            } else {
+                debug("  * Timing precision degraded by >2x. Time to stop!");
+                clock.builder = distribution_reset(&loop_durations);
+                break;
             }
         } while(true);
         infof("- Achieved optimal precision at %zu loop iterations.",
@@ -786,6 +809,7 @@
                 &clock,
                 empty_loop,
                 &best_empty_iters,
+                WARMUP_BEST_LOOP,
                 NUM_RUNS_BEST_LOOP_X86,
                 &builder,
                 analyzer
@@ -801,6 +825,7 @@
                 &clock,
                 nothing,
                 NULL,
+                WARMUP_OFFSET_X86,
                 NUM_RUNS_OFFSET_X86,
                 &builder,
                 analyzer
@@ -844,11 +869,10 @@
                                 "ticks");
 
             info("Deducing TSC tick frequency...");
-            const int64_t nano = 1000*1000*1000;
             clock.frequencies = distribution_scaled_div(
                 &builder,
                 &corrected_empty_ticks,
-                nano,
+                UDIPE_SECOND,
                 &os->best_empty_durations
             );
             // `builder` cannot be used after this point
@@ -881,11 +905,10 @@
                              distribution_builder_t* tmp_builder,
                              const distribution_t* ticks,
                              stats_analyzer_t* analyzer) {
-            const int64_t nano = 1000*1000*1000;
             distribution_t tmp_durations =
                 distribution_scaled_div(tmp_builder,
                                         ticks,
-                                        nano,
+                                        UDIPE_SECOND,
                                         &clock->frequencies);
             const stats_t result = stats_analyze(analyzer, &tmp_durations);
             *tmp_builder = distribution_reset(&tmp_durations);

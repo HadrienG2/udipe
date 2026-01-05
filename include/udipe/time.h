@@ -64,3 +64,27 @@ typedef uint64_t udipe_duration_ns_t;
 /// i.e. wait indefinitely until the event of interest happens or an error
 /// prevents it from happening.
 #define UDIPE_DURATION_MAX ((udipe_duration_ns_t)UINT64_MAX)
+
+/// One millisecond
+///
+/// This is the shortest sub-multiple of the second that can reliably be used as
+/// a timeout or other form of target duration in udipe. Durations on a
+/// microsecond time scale or shorter tend to overshoot by a large margin
+/// because many system calls take more than a microsecond to process.
+#define UDIPE_MILLISECOND  ((udipe_duration_ns_t)1000*1000)
+
+/// One second
+///
+#define UDIPE_SECOND  (1000*UDIPE_MILLISECOND)
+
+/// One minute
+///
+#define UDIPE_MINUTE  (60*UDIPE_SECOND)
+
+/// One hour
+///
+#define UDIPE_HOUR  (60*UDIPE_MINUTE)
+
+/// One day
+///
+#define UDIPE_DAY  (24*UDIPE_HOUR)

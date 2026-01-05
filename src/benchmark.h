@@ -29,6 +29,7 @@
     #include <stdalign.h>
     #include <stddef.h>
     #include <stdint.h>
+    #include <time.h>
 
     #ifdef __unix__
         #include <time.h>
@@ -1179,8 +1180,8 @@
             /// QueryPerformanceFrequency() in 64-bit form.
             ///
             /// To convert performance counter ticks to nanoseconds, multiply
-            /// the number of ticks by one billion (`1000*1000*1000`) then
-            /// divide it by this number.
+            /// the number of ticks by \ref UDIPE_SECOND then divide it by this
+            /// number.
             uint64_t win32_frequency;
         #endif
 
@@ -1305,15 +1306,14 @@
                                                    os_timestamp_t start,
                                                    os_timestamp_t end) {
         assert(os_timestamp_le(start, end));
-        const signed_duration_ns_t nano = 1000 * 1000 * 1000;
         signed_duration_ns_t uncorrected_ns;
         #if defined(_POSIX_TIMERS)
             const int64_t secs = (int64_t)end.tv_sec - (int64_t)start.tv_sec;
-            uncorrected_ns = secs * nano;
+            uncorrected_ns = secs * UDIPE_SECOND;
             uncorrected_ns += (int64_t)end.tv_nsec - (int64_t)start.tv_nsec;
         #elif defined(_WIN32)
             assert(clock->win32_frequency > 0);
-            uncorrected_ns = (end.QuadPart - start.QuadPart) * nano / clock->win32_frequency;
+            uncorrected_ns = (end.QuadPart - start.QuadPart) * UDIPE_SECOND / clock->win32_frequency;
         #else
             #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
         #endif
@@ -1359,8 +1359,12 @@
     ///                 called, so that it can be inlined into it.
     /// \param context encodes the parameters that should be passed to
     ///                `workload`, if any.
+    /// \param warmup indicates how long the code should be continuously
+    ///               executed before duration measurements are taken, giving
+    ///               the CPU some time to reach a steady performance state.
     /// \param num_runs indicates how many timed calls to `workload` should
-    ///                 be performed, see above for tuning advice.
+    ///                 be performed. It must be strictly greater than zero, see
+    ///                 above for tuning advice.
     /// \param builder is a distribution builder within which output data will
     ///                be inserted, which should initially be empty (either
     ///                freshly built via distribution_initialize() or freshly
@@ -1379,15 +1383,17 @@
     /// make one copy of it per `workload` and inline `workload` into it,
     /// assuming the caller did their homework on their side by exposing the
     /// definition of `workload` at the point where os_clock_measure() is called.
-    UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 5, 6)
+    UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6, 7)
     static inline distribution_t os_clock_measure(
         os_clock_t* clock,
         void (*workload)(void*),
         void* context,
+        udipe_duration_ns_t warmup,
         size_t num_runs,
         distribution_builder_t* builder,
         stats_analyzer_t* analyzer
     ) {
+        assert(num_runs > 0);
         if (num_runs > clock->num_durations) {
             trace("Reallocating storage from %zu to %zu durations...");
             realtime_liberate(
@@ -1399,11 +1405,15 @@
                 realtime_allocate((num_runs+1) * sizeof(os_timestamp_t));
         }
 
-        trace("Performing minimal CPU warmup...");
+        trace("Warming up...");
         os_timestamp_t* timestamps = clock->timestamps;
-        timestamps[0] = os_now();
-        UDIPE_ASSUME_READ(timestamps);
-        workload(context);
+        udipe_duration_ns_t elapsed = 0;
+        os_timestamp_t start = os_now();
+        do {
+            workload(context);
+            os_timestamp_t now = os_now();
+            elapsed = os_duration(clock, start, now);
+        } while(elapsed < warmup);
 
         tracef("Performing %zu timed runs...", num_runs);
         timestamps[0] = os_now();
@@ -1553,6 +1563,7 @@
         ///              a TSC clock context not an OS clock context
         /// \param workload works as in os_clock_measure()
         /// \param context works as in os_clock_measure()
+        /// \param warmup works as in os_clock_measure()
         /// \param num_runs works as in os_clock_measure()
         /// \param builder works as in os_clock_measure()
         /// \param analyzer works as in os_clock_measure()
@@ -1563,41 +1574,53 @@
         ///
         /// This function is `static inline` for the same reason that
         /// os_clock_measure() is `static inline`.
-        UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 5, 6)
+        UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6, 7)
         static inline distribution_t x86_clock_measure(
-            x86_clock_t* clock,
+            x86_clock_t* xclock,
             void (*workload)(void*),
             void* context,
+            udipe_duration_ns_t warmup,
             size_t num_runs,
             distribution_builder_t* builder,
             stats_analyzer_t* analyzer
         ) {
-            if (num_runs > clock->num_durations) {
+            assert(num_runs > 0);
+            if (num_runs > xclock->num_durations) {
                 trace("Reallocating storage from %zu to %zu durations...");
                 realtime_liberate(
-                    clock->instants,
-                    2 * clock->num_durations * sizeof(x86_instant)
+                    xclock->instants,
+                    2 * xclock->num_durations * sizeof(x86_instant)
                 );
-                clock->num_durations = num_runs;
-                clock->instants =
+                xclock->num_durations = num_runs;
+                xclock->instants =
                     realtime_allocate(2 * num_runs * sizeof(x86_instant));
             }
 
             trace("Setting up measurement...");
-            x86_instant* starts = clock->instants;
-            x86_instant* ends = clock->instants + num_runs;
+            x86_instant* starts = xclock->instants;
+            x86_instant* ends = xclock->instants + num_runs;
             const bool strict = false;
             x86_timestamp_t timestamp = x86_timer_start(strict);
             const x86_cpu_id initial_cpu_id = timestamp.cpu_id;
 
-            trace("Performing minimal CPU warmup...");
-            starts[0] = timestamp.ticks;
-            UDIPE_ASSUME_READ(starts);
-            workload(context);
-            timestamp = x86_timer_end(strict);
-            assert(timestamp.cpu_id == initial_cpu_id);
-            ends[0] = timestamp.ticks;
-            UDIPE_ASSUME_READ(ends);
+            trace("Warming up...");
+            udipe_duration_ns_t elapsed = 0;
+            clock_t start = clock();
+            do {
+                timestamp = x86_timer_start(strict);
+                assert(timestamp.cpu_id == initial_cpu_id);
+                UDIPE_ASSUME_READ(timestamp.ticks);
+
+                workload(context);
+
+                timestamp = x86_timer_end(strict);
+                assert(timestamp.cpu_id == initial_cpu_id);
+                UDIPE_ASSUME_READ(timestamp.ticks);
+
+                clock_t now = clock();
+                elapsed = (udipe_duration_ns_t)(now - start)
+                          * UDIPE_SECOND / CLOCKS_PER_SEC;
+            } while(elapsed < warmup);
 
             tracef("Performing %zu timed runs...", num_runs);
             for (size_t run = 0; run < num_runs; ++run) {
@@ -1617,7 +1640,7 @@
             trace("Building duration distribution...");
             for (size_t run = 0; run < num_runs; ++run) {
                 int64_t ticks = ends[run] - starts[run];
-                ticks -= distribution_sample(&clock->offsets);
+                ticks -= distribution_sample(&xclock->offsets);
                 distribution_insert(builder, ticks);
             }
             distribution_t result = distribution_build(builder);
