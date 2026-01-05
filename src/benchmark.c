@@ -136,7 +136,212 @@
     }
 
 
-    // TODO: outlier filter
+    outlier_filter_t
+    outlier_filter_initialize(int64_t initial_window[OUTLIER_WINDOW]) {
+        outlier_filter_t result = {
+            .next_idx = 0
+        };
+        for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+            result.window[i] = initial_window[i];
+        }
+        outlier_filter_update_all(&result);
+        return result;
+    }
+
+    UDIPE_NON_NULL_ARGS
+    void outlier_filter_update_all(outlier_filter_t* filter) {
+        filter->min = INT64_MAX;
+        filter->min_count = 0;
+        for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+            const int64_t value = filter->window[i];
+            if (value < filter->min) {
+                filter->min = value;
+                filter->min_count = 1;
+            } else if (value == filter->min) {
+                ++(filter->min_count);
+            }
+        }
+        assert(filter->min_count >= 1);
+        debugf("Minimal input is %zd (%zu occurences).",
+               filter->min, (size_t)filter->min_count);
+
+        // Updating min invalidates max and upper_tolerance, which must be
+        // recomputed as well
+        if (outlier_filter_update_maxima(filter)) {
+            outlier_filter_update_tolerance(filter);
+        }
+    }
+
+    UDIPE_NON_NULL_ARGS
+    bool outlier_filter_update_maxima(outlier_filter_t* filter) {
+        // We first initialize max and max_normal by ignoring upper_tolerance:
+        // an isolated maximum value in the dataset is always considered to be
+        // an outlier, no matter how large or small it is.
+        debug("Finding a pessimistic (max, max_normal) pair...");
+        filter->max = filter->window[0];
+        filter->max_normal = INT64_MIN;
+        filter->max_normal_count = 0;
+        tracef("Initialized max to first value %zd. "
+               "max_normal will be set according to the next value.",
+               filter->max);
+        assert(OUTLIER_WINDOW >= 2);
+        for (size_t i = 1; i < OUTLIER_WINDOW; ++i) {
+            const int64_t value = filter->window[i];
+            if (value > filter->max) {
+                tracef("%zd is the new max, could be an outlier. "
+                       "Use former max %zd as max_normal for now.",
+                       value,
+                       filter->max);
+                filter->max_normal = filter->max;
+                filter->max_normal_count = 1;
+                filter->max = value;
+            } else if (value == filter->max_normal) {
+                tracef("Encountered one more occurence of max_normal %zd.",
+                       value);
+                ++(filter->max_normal_count);
+            } else if (value == filter->max) {
+                assert(filter->max > filter->max_normal);
+                tracef("Encountered a second occurence of max %zd. "
+                       "It is thus not an outlier and becomes max_normal.",
+                       value);
+                filter->max_normal = filter->max;
+                filter->max_normal_count = 2;
+            } else if (filter->max_normal_count == 0) {
+                assert(value < filter->max);
+                tracef("Initialized max_normal to %zd.", value);
+                filter->max_normal = value;
+                filter->max_normal_count = 1;
+            }
+        }
+        assert(filter->max >= filter->max_normal);
+        assert(filter->max_normal_count >= 1);
+        debugf("Max input is %zd and max_normal is %zd (%zu occurences), "
+               "unless we misclassified an isolated max as an outlier.",
+               filter->max, filter->max_normal, (size_t)filter->max_normal_count);
+
+        // At this point, if the max is not isolated, the result is correct...
+        if (filter->max > filter->max_normal) {
+            // ...but if there is an isolated max, it may have been
+            // misclassified as an outlier. Compute upper_tolerance to tell.
+            debugf("Reevaluating outlier status of isolated max %zd...",
+                   filter->max);
+            outlier_filter_update_tolerance(filter);
+            if (filter->max <= filter->upper_tolerance) {
+                debug("It's actually in tolerance, make it max_normal.");
+                filter->max_normal = filter->max;
+                filter->max_normal_count = 1;
+                return true;
+            } else {
+                debug("It is indeed an outlier, nothing to do.");
+                return false;
+            }
+        } else {
+            return true;
+        }
+    }
+
+    UDIPE_NON_NULL_ARGS
+    void outlier_filter_update_tolerance(outlier_filter_t* filter) {
+        filter->upper_tolerance =
+            filter->max_normal
+            + (filter->max_normal - filter->min) * OUTLIER_TOLERANCE;
+        debugf("Updated outlier filter upper_tolerance to %zd.",
+               filter->upper_tolerance);
+    }
+
+    UDIPE_NON_NULL_ARGS
+    void outlier_filter_make_max_normal(outlier_filter_t* filter,
+                                        outlier_filter_result_t* result,
+                                        const char* reason) {
+        assert(filter->max > filter->max_normal);
+        debugf("Reclassified max %zd as non-outlier: %s.",
+               filter->max, reason);
+        result->previous_not_outlier = true;
+        result->previous_input = filter->max;
+        filter->max_normal = filter->max;
+        filter->max_normal_count = 1;
+    }
+
+    UDIPE_NON_NULL_ARGS
+    bool outlier_filter_decrease_min(outlier_filter_t* filter,
+                                     outlier_filter_result_t* result,
+                                     int64_t new_min) {
+        const int64_t old_min = filter->min;
+        assert(new_min < old_min);
+        filter->min = new_min;
+        filter->min_count = 1;
+        outlier_filter_update_tolerance(filter);
+        if (filter->max > filter->max_normal
+            && filter->max <= filter->upper_tolerance)
+        {
+            outlier_filter_make_max_normal(
+                filter,
+                result,
+                "tolerance window widened because min decreased"
+            );
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    UDIPE_NON_NULL_ARGS
+    bool outlier_filter_increase_max(outlier_filter_t* filter,
+                                     outlier_filter_result_t* result,
+                                     int64_t new_max) {
+        assert(new_max > filter->max);
+        if (filter->max > filter->max_normal) {
+            outlier_filter_make_max_normal(
+                filter,
+                result,
+                "encountered a larger input and there can only be one outlier"
+            );
+            outlier_filter_update_tolerance(filter);
+        }
+        filter->max = new_max;
+        if (filter->max <= filter->upper_tolerance) {
+            filter->max_normal = filter->max;
+            filter->max_normal_count = 1;
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    UDIPE_NON_NULL_ARGS
+    bool outlier_filter_increase_max_normal(outlier_filter_t* filter,
+                                            outlier_filter_result_t* result,
+                                            int64_t new_max_normal) {
+        assert(new_max_normal > filter->max_normal);
+        assert(new_max_normal < filter->max);
+        filter->max_normal = new_max_normal;
+        filter->max_normal_count = 1;
+        outlier_filter_update_tolerance(filter);
+        if (filter->max <= filter->upper_tolerance) {
+            outlier_filter_make_max_normal(
+                filter,
+                result,
+                "tolerance window widened because max_normal increased"
+            );
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    UDIPE_NON_NULL_ARGS
+    void outlier_filter_finalize(outlier_filter_t* filter) {
+        for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+            filter->window[i] = INT64_MIN;
+        }
+        filter->min = INT64_MAX;
+        filter->max_normal = 0;
+        filter->max = INT64_MIN;
+        filter->upper_tolerance = INT64_MIN;
+        filter->next_idx = UINT16_MAX;
+        filter->min_count = 0;
+        filter->max_normal_count = 0;
+    }
 
 
     /// Logical size of a bin from a \ref distribution_t

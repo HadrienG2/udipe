@@ -134,22 +134,28 @@
 
         /// Maximum value from `window` that is known not to be an outlier
         ///
-        /// This may be `max` or a smaller value from the window. The number of
-        /// occurences in `window` is tracked by `max_normal_count`.
+        /// If `max` is not considered to be an outlier, then this is `max`,
+        /// otherwise it is a value smaller than `max` which is the largest
+        /// value in `window` that is not considered to be an outlier.
+        ///
+        /// The number of occurences in `window` is tracked by
+        /// `max_normal_count`.
         int64_t max_normal;
 
-        /// Maximum value from `window` which may or may not be an outlier
+        /// Maximum value from `window`, which may or may not be an outlier
         ///
         /// This will differ from `max_normal` if and only if there is a single
-        /// value above `max_normal` and it is also above `upper_tolerance` and
-        /// therefore considered to be an outlier.
+        /// value above `max_normal` that is considered to be an outlier.
         int64_t max;
 
         /// Upper bound of the outlier tolerance range
         ///
-        /// This is a cache of `max_normal + (max_normal - min) *
-        /// OUTLIER_CONFIDENCE`, which is used to classify inputs as outliers or
-        /// non-outliers.
+        /// This is derived from `min` and `max_normal`, and must therefore be
+        /// updated whenever any of those values is changed, which is done via
+        /// outlier_filter_update_tolerance().
+        ///
+        /// An isolated maximum value within `window` is considered to be an
+        /// outlier when it is greater than this threshold.
         int64_t upper_tolerance;
 
         /// Position of the oldest entry of `window`
@@ -161,14 +167,14 @@
 
         /// Number of occurences of `min` in `window`
         ///
-        /// When this drops to 0, `min`, `min_count` and dependent values like
-        /// `upper_tolerance` must be recalculated.
+        /// When this drops to 0, all inner statistics must be recalculated
+        /// using outlier_filter_update_minmax().
         uint16_t min_count;
 
         /// Number of occurences of `max_normal` in `window`
         ///
-        /// When this drops to 0, `max`, `max_normal_count` and dependent values
-        /// like `upper_tolerance` must be recalculated.
+        /// When this drops to 0, all inner statistics other than `min` and
+        /// `min_count` must be recalculated using outlier_filter_update_max().
         uint16_t max_normal_count;
     } outlier_filter_t;
 
@@ -189,12 +195,77 @@
     ///
     /// \returns an outlier filter that must later be finalized with
     ///          outlier_filter_finalize().
-    // TODO implement
     outlier_filter_t
     outlier_filter_initialize(int64_t initial_window[OUTLIER_WINDOW]);
 
+    /// Set all fields of `filter` according to the current contents
+    /// of `window`
+    ///
+    /// This function is an implementation detail of other functions that
+    /// shouldn't be called directly.
+    ///
+    /// \internal
+    ///
+    /// This function only uses the contents of `window` and can therefore be
+    /// used before `max`, `max_normal`, `max_normal_count` and
+    /// `upper_tolerance` have been initialized.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param filter is an outlier filter that has been initialized with
+    ///               outlier_filter_initialize() and hasn't been destroyed with
+    ///               outlier_filter_finalize() yet.
+    UDIPE_NON_NULL_ARGS
+    void outlier_filter_update_all(outlier_filter_t* filter);
+
+    /// Update the `max`, `max_normal` and `max_normal_count` fields of `filter`
+    /// according to the current contents of its inner data window
+    ///
+    /// This function is an implementation detail of other functions that
+    /// shouldn't be called directly.
+    ///
+    /// \internal
+    ///
+    /// This function uses `min`, which must be up to date before it is called.
+    ///
+    /// It may or may not update `upper_tolerance`, use its return value to tell
+    /// if said tolerance must be updated via outlier_filter_update_tolerance().
+    ///
+    /// It must be called within the scope of with_logger().
+    ///
+    /// \param filter is an outlier filter that has been initialized with
+    ///               outlier_filter_initialize() and hasn't been destroyed with
+    ///               outlier_filter_finalize() yet.
+    ///
+    /// \returns the truth that `upper_tolerance` must be updated using
+    ///          outlier_filter_update_tolerance().
+    UDIPE_NON_NULL_ARGS
+    bool outlier_filter_update_maxima(outlier_filter_t* filter);
+
+    /// Update an outlier filter's `upper_tolerance` value
+    ///
+    /// This function is an implementation detail of other functions that
+    /// shouldn't be called directly.
+    ///
+    /// \internal
+    ///
+    /// This function must be called between any change to `min` or `max_normal`
+    /// and any later use of `upper_tolerance`. It uses `min` and `max_normal`
+    /// and must therefore be called after these values are known.
+    ///
+    /// It must be called within the scope of with_logger().
+    ///
+    /// \param filter is an outlier filter that has been initialized with
+    ///               outlier_filter_initialize() and hasn't been destroyed with
+    ///               outlier_filter_finalize() yet.
+    UDIPE_NON_NULL_ARGS
+    void outlier_filter_update_tolerance(outlier_filter_t* filter);
+
     /// Result of outlier_filter_apply()
-    // TODO doc details
+    ///
+    /// This indicates whether the current input is considered to be an outlier,
+    /// and whether a former input that was previously classified as an outlier
+    /// has been reclassified as non-outlier.
     typedef struct outlier_filter_result_s {
         /// Truth that the current input is an outlier
         ///
@@ -216,30 +287,6 @@
         int64_t previous_input;
     } outlier_filter_result_t;
 
-    /// Update an outlier filter's `upper_tolerance` value
-    ///
-    /// This function is an implementation detail of other functions that
-    /// shouldn't be called directly.
-    ///
-    /// \internal
-    ///
-    /// This function be called between any change to `min` or `max_normal` and
-    /// any later use of `upper_tolerance`.
-    ///
-    /// This function must be called within the scope of with_logger().
-    //
-    // TODO finish docs
-    // TODO: This function shouldn't be inline, outline it
-    UDIPE_NON_NULL_ARGS
-    static inline
-    void outlier_filter_update_tolerance(outlier_filter_t* filter) {
-        filter->upper_tolerance =
-            filter->max
-            + (filter->max_normal - filter->min) * OUTLIER_TOLERANCE;
-        debugf("Outlier filter upper tolerance is now %zd.",
-               filter->upper_tolerance);
-    }
-
     /// Reclassify an outlier filter's maximum value as normal
     ///
     /// This function is an implementation detail of outlier_filter_apply() that
@@ -248,30 +295,150 @@
     /// \internal
     ///
     /// This function is used when `max` was previously classified as an
-    /// outlier, but it is later discovered that it should not be. It must be
-    /// followed by a call to outlier_filter_update_tolerance() before the next
-    /// use of `upper_tolerance`.
+    /// outlier, but it is later discovered that it should not be for some
+    /// reason.
     ///
-    /// This function must be called within the scope of with_logger().
-    //
-    // TODO finish docs
-    // TODO: This function shouldn't be inline, outline it
+    /// It invalidates `upper_tolerance` and must therefore be followed by a
+    /// call to outlier_filter_update_tolerance() before the next use of
+    /// `upper_tolerance`.
+    ///
+    /// It must be called within the scope of with_logger().
+    ///
+    /// \param filter is an outlier filter that has been initialized with
+    ///               outlier_filter_initialize() and hasn't been destroyed with
+    ///               outlier_filter_finalize() yet.
+    /// \param result is a \ref outlier_filter_result_t whose fields will be set
+    ///               to indicate to the caller that `max` is not an outlier
+    ///               after all.
+    /// \param reason indicates the reason why the input was reclassified as
+    ///               non-outlier, which will be logged.
     UDIPE_NON_NULL_ARGS
-    static inline
     void outlier_filter_make_max_normal(outlier_filter_t* filter,
                                         outlier_filter_result_t* result,
-                                        const char* reason) {
-        assert(filter->max > filter->max_normal);
-        debugf("Reclassified previous max %zd as non-outlier: %s.",
-               filter->max, reason);
-        result->previous_not_outlier = true;
-        result->previous_input = filter->max;
-        filter->max_normal = filter->max;
-        filter->max_normal_count = 1;
-    }
+                                        const char* reason);
 
-    /// Record a new input data point, tell if it is an outlier
-    // TODO doc details, implement inline
+    /// Update an outlier filter's state after encountering an input smaller
+    /// than its current `min`
+    ///
+    /// This function is an implementation detail of outlier_filter_apply() that
+    /// shouldn't be called directly.
+    ///
+    /// \internal
+    ///
+    /// Decreasing `min` increases `upper_tolerance`, which may lead a `max`
+    /// that is currently classified as an outlier to be reclassified as
+    /// non-outlier. This function will call outlier_filter_make_max_normal()
+    /// for you in this case, which is the reason why it takes a `result`
+    /// out-parameter.
+    ///
+    /// This function may or may not update `upper_tolerance`. Use its return
+    /// value to tell if it must be updated via
+    /// outlier_filter_update_tolerance().
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param filter is an outlier filter that has been initialized with
+    ///               outlier_filter_initialize() and hasn't been destroyed with
+    ///               outlier_filter_finalize() yet.
+    /// \param result is a \ref outlier_filter_result_t whose fields may be set
+    ///               if this change of minimum leads to a reclassification of
+    ///               `max` as non-outlier.
+    /// \param new_min indicates the new minimum value of the input window.
+    ///
+    /// \returns the truth that `upper_tolerance` must be updated using
+    ///          outlier_filter_update_tolerance().
+    UDIPE_NON_NULL_ARGS
+    bool outlier_filter_decrease_min(outlier_filter_t* filter,
+                                     outlier_filter_result_t* result,
+                                     int64_t new_min);
+
+    /// Update an outlier filter's state after encountering an input larger
+    /// than its current `max`
+    ///
+    /// This function is an implementation detail of outlier_filter_apply() that
+    /// shouldn't be called directly.
+    ///
+    /// \internal
+    ///
+    /// If the current `max` is classified as an outlier, then it must be
+    /// reclassified as non-outlier because there can be at most one outlier
+    /// input in the data window. This function will call
+    /// outlier_filter_make_max_normal() for you in this case, which is the
+    /// reason why it takes a `result` out-parameter.
+    ///
+    /// This function uses the current value of `upper_tolerance`, and may or
+    /// may not update it if it changes `max_normal`. Use its return value to
+    /// tell if `upper_tolerance` must be updated via
+    /// outlier_filter_update_tolerance().
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param filter is an outlier filter that has been initialized with
+    ///               outlier_filter_initialize() and hasn't been destroyed with
+    ///               outlier_filter_finalize() yet.
+    /// \param result is a \ref outlier_filter_result_t whose fields may be set
+    ///               if this change of minimum leads to a reclassification of
+    ///               `max` as non-outlier.
+    /// \param new_max indicates the new maximum value of the input window.
+    ///
+    /// \returns the truth that `upper_tolerance` must be updated using
+    ///          outlier_filter_update_tolerance().
+    UDIPE_NON_NULL_ARGS
+    bool outlier_filter_increase_max(outlier_filter_t* filter,
+                                     outlier_filter_result_t* result,
+                                     int64_t new_max);
+
+    /// Update an outlier filter's state after encountering an input larger
+    /// than its current `max_normal`
+    ///
+    /// This function is an implementation detail of outlier_filter_apply() that
+    /// shouldn't be called directly.
+    ///
+    /// \internal
+    ///
+    /// This function can only be called if `max` is currently considered to be
+    /// an outlier, otherwise outlier_filter_increase_max() will be called
+    /// instead.
+    ///
+    /// Increasing `max_normal` increases `upper_tolerance`, which may lead
+    /// `max` to be reclassified as non-outlier. This function will call
+    /// outlier_filter_make_max_normal() for you in this case, which is the
+    /// reason why it takes a `result` out-parameter.
+    ///
+    /// This function may or may not update `upper_tolerance`. Use its return
+    /// value to tell if it must be updated via
+    /// outlier_filter_update_tolerance().
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param filter is an outlier filter that has been initialized with
+    ///               outlier_filter_initialize() and hasn't been destroyed with
+    ///               outlier_filter_finalize() yet.
+    /// \param result is a \ref outlier_filter_result_t whose fields may be set
+    ///               if this change of minimum leads to a reclassification of
+    ///               `max` as non-outlier.
+    /// \param new_max_normal indicates the new maximum non-outlier value of the
+    ///                       input window.
+    ///
+    /// \returns the truth that `upper_tolerance` must be updated using
+    ///          outlier_filter_update_tolerance().
+    UDIPE_NON_NULL_ARGS
+    bool outlier_filter_increase_max_normal(outlier_filter_t* filter,
+                                            outlier_filter_result_t* result,
+                                            int64_t new_max_normal);
+
+    /// Record a new input data point, tell if it looks an outlier and possibly
+    /// reclassify a previous outlier as non-outlier in the process
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param filter is an outlier filter that has been initialized with
+    ///               outlier_filter_initialize() and hasn't been destroyed with
+    ///               outlier_filter_finalize() yet.
+    ///
+    /// \returns the truth that the current input should be treated as an
+    ///          outlier and that a former input was wrongly classified as an
+    ///          outlier and should be included in the normal dataset after all.
     UDIPE_NON_NULL_ARGS
     static inline
     outlier_filter_result_t outlier_filter_apply(outlier_filter_t* filter,
@@ -291,50 +458,22 @@
         bool must_update_tolerance = false;
         if (input < filter->min) {
             debugf("Input %zd is the new min.", input);
-            const int64_t old_min = filter->min;
-            filter->min = input;
-            filter->min_count = 1;
-            outlier_filter_update_tolerance(filter);
-            if (filter->max > filter->max_normal
-                && filter->max <= filter->upper_tolerance)
-            {
-                outlier_filter_make_max_normal(
-                    filter,
-                    &result,
-                    "entered tolerance window because min decreased"
-                );
-                must_update_tolerance = true;
-            }
+            must_update_tolerance = outlier_filter_decrease_min(filter,
+                                                                &result,
+                                                                input);
         } else if (input > filter->max) {
             debugf("Input %zd is the new max.", input);
-            if (filter->max > filter->max_normal) {
-                outlier_filter_make_max_normal(
-                    filter,
-                    &result,
-                    "can't have two outliers and new input is larger"
-                );
-                outlier_filter_update_tolerance(filter);
-            }
-            filter->max = input;
-            if (filter->max <= filter->upper_tolerance) {
-                filter->max_normal = filter->max;
-                filter->max_normal_count = 1;
-                must_update_tolerance = true;
-            }
+            must_update_tolerance = outlier_filter_increase_max(filter,
+                                                                &result,
+                                                                input);
         } else if (input > filter->max_normal && input < filter->max) {
             debugf("Input %zd is the new max_normal.", input);
-            filter->max_normal = input;
-            filter->max_normal_count = 1;
-            outlier_filter_update_tolerance(filter);
-            if (filter->max <= filter->upper_tolerance) {
-                outlier_filter_make_max_normal(
-                    filter,
-                    &result,
-                    "entered tolerance window because max_normal increased"
-                );
-                must_update_tolerance = true;
-            }
+            must_update_tolerance = outlier_filter_increase_max_normal(filter,
+                                                                       &result,
+                                                                       input);
         } else {
+            assert(input >= filter->min &&
+                   (input <= filter->max_normal || input == filter->max));
             if (input == filter->min) {
                 tracef("Input %zd is another occurence of min.", input);
                 ++(filter->min_count);
@@ -342,12 +481,12 @@
             if (input == filter->max_normal) {
                 tracef("Input %zd is another occurence of max_normal.", input);
                 ++(filter->max_normal_count);
-            }
-            if (input == filter->max && filter->max > filter->max_normal) {
+            } else if (input == filter->max) {
+                assert(filter->max > filter->max_normal);
                 outlier_filter_make_max_normal(
                     filter,
                     &result,
-                    "encountered second occurence and there can only be one outlier"
+                    "encountered another occurence that can't be an outlier too"
                 );
                 ++(filter->max_normal_count);
                 must_update_tolerance = true;
@@ -355,7 +494,7 @@
         }
 
         const int64_t removed = filter->window[filter->next_idx];
-        tracef("Replacing oldest input %zd with new input...", removed);
+        tracef("Replacing oldest input %zd...", removed);
         assert(removed >= filter->min && removed <= filter->max);
         filter->window[filter->next_idx] = input;
         filter->next_idx = (filter->next_idx + 1) % OUTLIER_WINDOW;
@@ -363,99 +502,33 @@
         if (removed == filter->max) filter->max = filter->max_normal;
         if (removed == filter->max_normal) --(filter->max_normal_count);
 
-        // Regenerate min & min_count if needed
-        // TODO: Extract into a function that the constructor calls
         if (filter->min_count == 0) {
-            debugf("Last occurence of minimum %zd escaped input window, "
-                   "finding new minimum input...",
-                   filter->min);
-            must_update_tolerance = true;
-            filter->min = INT64_MAX;
-            filter->min_count = 0;
-            for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
-                const int64_t value = filter->window[i];
-                if (value < filter->min) {
-                    filter->min = value;
-                    filter->min_count = 1;
-                } else if (value == filter->min) {
-                    ++(filter->min_count);
-                }
-            }
-            debugf("Minimum input is now %zd (%zu occurences).",
-                   filter->min, (size_t)filter->min_count);
-            assert(filter->min_count >= 1);
+            debug("Last occurence of min escaped input window, update stats...");
+            outlier_filter_update_all(filter);
+            must_update_tolerance = false;
+        } else if (filter->max_normal_count == 0) {
+            debug("Last occurence of max_normal = %zd escaped input window, "
+                  "update maxima...");
+            must_update_tolerance = outlier_filter_update_maxima(filter);
         }
 
-        // Regenerate max_normal, max_normal_count & max if needed
-        // TODO: Extract into a function that the constructor calls
-        if (filter->max_normal_count == 0) {
-            debugf("Last occurence of non-outlier maximum %zd escaped "
-                   "input window, finding new maximum values...",
-                   filter->max_normal);
-            must_update_tolerance = true;
-
-            // Start by treating the maximum as an outlier if it occurs once. If
-            // it occurs multiple times, we know it is not an outlier.
-            debug("Finding a pessimisting max_normal/max pair by treating any "
-                  "isolated maximum as an outlier...");
-            bool max_set = false;
-            filter->max = filter->window[0];
-            filter->max_normal = INT64_MIN;
-            filter->max_normal_count = 0;
-            for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
-                const int64_t value = filter->window[i];
-                if (value > filter->max) {
-                    if (max_set) {
-                        filter->max_normal = filter->max;
-                        filter->max_normal_count = 1;
-                    }
-                    filter->max = value;
-                    max_set = true;
-                } else if (value == filter->max_normal) {
-                    ++(filter->max_normal_count);
-                } else if (value == filter->max) {
-                    assert(filter->max > filter->max_normal);
-                    filter->max_normal = filter->max;
-                    filter->max_normal_count = 2;
-                }
-            }
-            assert(filter->max >= filter->max_normal);
-            assert(filter->max_normal_count >= 1);
-
-            // If in the end the maximum occurs only once, then max_normal will
-            // be the next-to-maximum value. Use it to compute the upper
-            // tolerance and deduce if filter->max is truly an outlier.
-            if (filter->max > filter->max_normal) {
-                debugf("Determining if isolated maximum %zd truly is an outlier...",
-                       filter->max);
-                outlier_filter_update_tolerance(filter);
-                if (filter->max <= filter->upper_tolerance) {
-                    debug("It's actually in tolerance, and will thus become max_normal.");
-                    filter->max_normal = filter->max;
-                    filter->max_normal_count = 1;
-                } else {
-                    debug("It is an outlier, nothing to do.");
-                    must_update_tolerance = false;
-                }
-            }
-        }
-
-        // Perform any pending upper_tolerance update
+        trace("Classifying input as outlier or not...");
         if (must_update_tolerance) outlier_filter_update_tolerance(filter);
-
-        // Determine if the input value is an outlier
         result.current_is_outlier = (input > filter->upper_tolerance);
-
-        // TODO add logging and lots of unit tests
         return result;
     }
 
     /// Destroy an outlier filter
-    // TODO doc details, implement
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param filter is an outlier filter that has been initialized with
+    ///               outlier_filter_initialize() and hasn't been destroyed with
+    ///               outlier_filter_finalize() yet.
     UDIPE_NON_NULL_ARGS
     void outlier_filter_finalize(outlier_filter_t* filter);
 
-    // TODO: Finish, add tests, integrate
+    // TODO: Add tests then integrate
 
     /// \}
 
