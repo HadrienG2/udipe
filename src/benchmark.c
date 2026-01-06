@@ -1576,7 +1576,7 @@
                 ensure_eq(filter->min_count, before.min_count);
             }
 
-            // Max and max_normal can only change through evictions...
+            // Max and max_normal can only change through evictions
             const bool max_normal_discarded =
                 (discarded == before.max_normal && before.max_normal_count == 1);
             if (filter->max_normal != before.max_normal) {
@@ -1614,7 +1614,7 @@
                 outlier_filter_apply(filter, input);
             check_apply_common(&before, input, filter, &result);
 
-            warn("Not implemented yet!");
+            warn("TODO: Not implemented yet!");
         }
 
         /// Test applying `filter` to `x` with `x == max_normal`
@@ -1628,7 +1628,7 @@
                 outlier_filter_apply(filter, filter->max_normal);
             check_apply_common(&before, filter->max_normal, filter, &result);
 
-            warn("Not implemented yet!");
+            warn("TODO: Not implemented yet!");
         }
 
         /// Test applying `filter` to `x` with `max_normal < x < max`
@@ -1647,7 +1647,7 @@
                 outlier_filter_apply(filter, input);
             check_apply_common(&before, input, filter, &result);
 
-            warn("Not implemented yet!");
+            warn("TODO: Not implemented yet!");
         }
 
         /// Test applying `filter` to `x` with `x == max`
@@ -1661,7 +1661,7 @@
                 outlier_filter_apply(filter, filter->max);
             check_apply_common(&before, filter->max, filter, &result);
 
-            warn("Not implemented yet!");
+            warn("TODO: Not implemented yet!");
         }
 
         /// Test applying `filter` to `x` with `x > max`
@@ -1678,7 +1678,7 @@
                 outlier_filter_apply(filter, input);
             check_apply_common(&before, input, filter, &result);
 
-            warn("Not implemented yet!");
+            warn("TODO: Not implemented yet!");
         }
 
         /// Test outlier_filter_t
