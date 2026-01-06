@@ -137,7 +137,8 @@
 
 
     outlier_filter_t
-    outlier_filter_initialize(int64_t initial_window[OUTLIER_WINDOW]) {
+    outlier_filter_initialize(const int64_t initial_window[OUTLIER_WINDOW]) {
+        debug("Setting up an outlier filter...");
         outlier_filter_t result = {
             .next_idx = 0
         };
@@ -150,19 +151,23 @@
 
     UDIPE_NON_NULL_ARGS
     void outlier_filter_update_all(outlier_filter_t* filter) {
+        trace("Figuring out minimal input...");
         filter->min = INT64_MAX;
         filter->min_count = 0;
         for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
             const int64_t value = filter->window[i];
+            tracef("- Integrating value[%zu] = %zd...", i, value);
             if (value < filter->min) {
+                trace("  => New minimum reached.");
                 filter->min = value;
                 filter->min_count = 1;
             } else if (value == filter->min) {
+                trace("  => New occurence of the current minimum.");
                 ++(filter->min_count);
             }
         }
         assert(filter->min_count >= 1);
-        debugf("Minimal input is %zd (%zu occurences).",
+        tracef("Minimal input is %zd (%zu occurences).",
                filter->min, (size_t)filter->min_count);
 
         // Updating min invalidates max and upper_tolerance, which must be
@@ -174,78 +179,100 @@
 
     UDIPE_NON_NULL_ARGS
     bool outlier_filter_update_maxima(outlier_filter_t* filter) {
-        // We first initialize max and max_normal by ignoring upper_tolerance:
-        // an isolated maximum value in the dataset is always considered to be
-        // an outlier, no matter how large or small it is.
-        debug("Finding a pessimistic (max, max_normal) pair...");
-        filter->max = filter->window[0];
-        filter->max_normal = INT64_MIN;
-        filter->max_normal_count = 0;
-        tracef("Initialized max to first value %zd. "
-               "max_normal will be set according to the next value.",
-               filter->max);
+        // min can't be an outlier because all values are >= min, the window has
+        // at least 2 values, and we operate under a single-outlier hypothesis
+        tracef("Initializing max_normal to min = %zd...", filter->min);
+        filter->max_normal = filter->min;
         assert(OUTLIER_WINDOW >= 2);
+
+        // First value is by definition the largest value seen so far
+        filter->max = filter->window[0];
+        filter->max_normal_count = (filter->window[0] == filter->max_normal);
+        tracef("After integrating window[0] = %zd, "
+               "max is %zd and max_normal_count is %zu...",
+               filter->window[0], filter->max, (size_t)filter->max_normal_count);
+
+        // Integrate other values. At this point, we don't yet know the
+        // window-wide max_normal and upper_tolerance, so we can't tell if an
+        // isolated max is an outlier. We pessimistically assume that it is,
+        // which keeps max_normal conservatively set to the next-to-max value,
+        // that we will later use to check if max truly is an outlier or not.
+        trace("Integrating other window values...");
         for (size_t i = 1; i < OUTLIER_WINDOW; ++i) {
             const int64_t value = filter->window[i];
+            tracef("- Integrating value[%zu] = %zd...", i, value);
             if (value > filter->max) {
-                tracef("%zd is the new max, could be an outlier. "
-                       "Use former max %zd as max_normal for now.",
-                       value,
-                       filter->max);
-                filter->max_normal = filter->max;
-                filter->max_normal_count = 1;
+                tracef("  => %zd is the new max, could be an outlier...",
+                       value);
+                if (filter->max > filter->max_normal) {
+                    trace("  => ...but former max > max_normal cannot "
+                          "be an outlier too, make it the new max_normal.");
+                    filter->max_normal = filter->max;
+                    filter->max_normal_count = 1;
+                } else {
+                    trace("  => ...so we stick with the former max_normal/max.");
+                }
                 filter->max = value;
             } else if (value == filter->max_normal) {
-                tracef("Encountered one more occurence of max_normal %zd.",
+                tracef("  => Encountered one more occurence of max_normal %zd.",
                        value);
                 ++(filter->max_normal_count);
             } else if (value == filter->max) {
                 assert(filter->max > filter->max_normal);
-                tracef("Encountered a second occurence of max %zd. "
+                tracef("  => Encountered a second occurence of max %zd. "
                        "It is thus not an outlier and becomes max_normal.",
                        value);
                 filter->max_normal = filter->max;
                 filter->max_normal_count = 2;
-            } else if (filter->max_normal_count == 0) {
+            } else if (value > filter->max_normal) {
                 assert(value < filter->max);
-                tracef("Initialized max_normal to %zd.", value);
+                tracef("  => %zd is the new max_normal. "
+                       "It cannot be an outlier because max is higher.",
+                       value);
                 filter->max_normal = value;
                 filter->max_normal_count = 1;
             }
         }
         assert(filter->max >= filter->max_normal);
         assert(filter->max_normal_count >= 1);
-        debugf("Max input is %zd and max_normal is %zd (%zu occurences), "
-               "unless we misclassified an isolated max as an outlier.",
-               filter->max, filter->max_normal, (size_t)filter->max_normal_count);
 
-        // At this point, if the max is not isolated, the result is correct...
+        // At this point, the result is correct unless max is isolated in which
+        // case we may have misclassified it as an outlier.
         if (filter->max > filter->max_normal) {
-            // ...but if there is an isolated max, it may have been
-            // misclassified as an outlier. Compute upper_tolerance to tell.
-            debugf("Reevaluating outlier status of isolated max %zd...",
-                   filter->max);
+            // In this case, max_normal is next-to-max, use it to compute
+            // upper_tolerance and figure out if max is indeed an outlier.
+            tracef("Found isolated maximum %zd. Use next-to-max %zd to compute "
+                   "upper_tolerance and figure if it's an outlier...",
+                   filter->max, filter->max_normal);
             outlier_filter_update_tolerance(filter);
             if (filter->max <= filter->upper_tolerance) {
-                debug("It's actually in tolerance, make it max_normal.");
+                trace("max is actually in tolerance, "
+                      "will become single-occurence max_normal.");
                 filter->max_normal = filter->max;
                 filter->max_normal_count = 1;
                 return true;
             } else {
-                debug("It is indeed an outlier, nothing to do.");
+                tracef("max is indeed an outlier, "
+                       "max_normal is thus %zd (%zu occurences).",
+                       filter->max_normal, (size_t)filter->max_normal_count);
                 return false;
             }
         } else {
+            assert(filter->max == filter->max_normal);
+            tracef("Found non-isolated max %zd (%zu occurences), "
+                   "which can't be an outlier and is thus max_normal.",
+                   filter->max_normal, (size_t)filter->max_normal_count);
             return true;
         }
     }
 
     UDIPE_NON_NULL_ARGS
     void outlier_filter_update_tolerance(outlier_filter_t* filter) {
-        filter->upper_tolerance =
+        filter->upper_tolerance = ceil(
             filter->max_normal
-            + (filter->max_normal - filter->min) * OUTLIER_TOLERANCE;
-        debugf("Updated outlier filter upper_tolerance to %zd.",
+            + (filter->max_normal - filter->min) * OUTLIER_TOLERANCE
+        );
+        tracef("Updated outlier filter upper_tolerance to %zd.",
                filter->upper_tolerance);
     }
 
@@ -254,7 +281,7 @@
                                         outlier_filter_result_t* result,
                                         const char* reason) {
         assert(filter->max > filter->max_normal);
-        debugf("Reclassified max %zd as non-outlier: %s.",
+        tracef("Reclassified max %zd as non-outlier: %s.",
                filter->max, reason);
         result->previous_not_outlier = true;
         result->previous_input = filter->max;
@@ -1313,6 +1340,408 @@
 
     #ifdef UDIPE_BUILD_TESTS
 
+        /// Number of initial outlier_filter_t states
+        ///
+        /// This affects the thoroughness of constructor tests and the number of
+        /// states from which insertion tests will take place.
+        static const size_t NUM_INITIAL_STATES = 100;
+
+        /// Kind of outlier_filter_apply() call
+        ///
+        /// This is used to ensure even branch coverage in
+        /// outlier_filter_apply() tests.
+        typedef enum apply_kind_e {
+            APPLY_BELOW_MIN = 0,
+            APPLY_EQUAL_MIN,
+            APPLY_BETWEEN_MIN_AND_MAX_NORMAL,
+            APPLY_EQUAL_MAX_NORMAL,
+            APPLY_BETWEEN_MAX_NORMAL_AND_MAX,
+            APPLY_EQUAL_MAX,
+            APPLY_ABOVE_MAX,
+            APPLY_KIND_LEN,
+        } apply_kind_t;
+
+        /// Number of outlier_filter_apply() runs per initial state
+        ///
+        /// This affects the thoroughness of outlier_filter_apply() tests.
+        static const size_t NUM_APPLY_CALLS = 100 * APPLY_KIND_LEN;
+
+        /// Check two outlier filters for logical state equality
+        ///
+        /// `next_idx` is allowed to be different as long as unwrapping the
+        /// `window` ring buffer into an array from this index yields the same
+        /// result for both filters.
+        UDIPE_NON_NULL_ARGS
+        void ensure_eq_outlier_filter(const outlier_filter_t* f1,
+                                      const outlier_filter_t* f2) {
+            ensure_eq(f1->min, f2->min);
+            ensure_eq(f1->max_normal, f2->max_normal);
+            ensure_eq(f1->upper_tolerance, f2->upper_tolerance);
+            ensure_eq(f1->max, f2->max);
+            ensure_eq(f1->min_count, f2->min_count);
+            ensure_eq(f1->max_normal_count, f2->max_normal_count);
+            for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+                const size_t i1 = (f1->next_idx + i) % OUTLIER_WINDOW;
+                const size_t i2 = (f2->next_idx + i) % OUTLIER_WINDOW;
+                ensure_eq(f1->window[i1], f2->window[i2]);
+            }
+        }
+
+        /// Perfom checks that should be true after any operation on an outlier
+        /// filter.
+        UDIPE_NON_NULL_ARGS
+        void check_any_outlier_filter(const outlier_filter_t* filter) {
+            trace("Ensuring stats are internally consistent...");
+            ensure_le(filter->min, filter->max_normal);
+            ensure_le(filter->max_normal, filter->max);
+            ensure_le(filter->max_normal, filter->upper_tolerance);
+            ensure_eq(
+                filter->upper_tolerance,
+                ceil(
+                    filter->max_normal
+                        + (filter->max_normal - filter->min) * OUTLIER_TOLERANCE
+                )
+            );
+            ensure_lt(filter->next_idx, OUTLIER_WINDOW);
+            ensure_le(filter->min_count, OUTLIER_WINDOW);
+            ensure_le(filter->max_normal_count, OUTLIER_WINDOW);
+
+            trace("Ensuring stats are consistent with the input window...");
+            size_t min_count = 0;
+            size_t max_normal_count = 0;
+            size_t max_count = 0;
+            for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+                const int64_t value = filter->window[i];
+                ensure_ge(value, filter->min);
+                if (value == filter->min) ++min_count;
+                ensure_le(value, filter->max);
+                if (value == filter->max) ++max_count;
+                ensure(value <= filter->max_normal || value == filter->max);
+                if (value == filter->max_normal) ++max_normal_count;
+            }
+            ensure_eq(min_count, filter->min_count);
+            ensure_eq(max_normal_count, filter->max_normal_count);
+
+            trace("Ensuring outliers are handled correctly...");
+            if (filter->max > filter->max_normal) {
+                ensure_eq(max_count, (size_t)1);
+                ensure_gt(filter->max, filter->upper_tolerance);
+            } else {
+                ensure_eq(filter->max, filter->max_normal);
+                ensure_eq(max_count, max_normal_count);
+                ensure_le(filter->max, filter->upper_tolerance);
+            }
+
+            trace("Ensuring normal value iteration yields expected outputs...");
+            const outlier_filter_t before = *filter;
+            uint16_t expected_idx = filter->next_idx;
+            OUTLIER_FILTER_FOREACH_NORMAL(filter, normal, {
+                if (filter->window[expected_idx] > filter->upper_tolerance) {
+                    expected_idx = (expected_idx + 1) % OUTLIER_WINDOW;
+                }
+                ensure_eq(normal, filter->window[expected_idx]);
+                expected_idx = (expected_idx + 1) % OUTLIER_WINDOW;
+            });
+            ensure(
+                expected_idx == filter->next_idx
+                || ((expected_idx + 1) % OUTLIER_WINDOW == filter->next_idx
+                    && filter->window[expected_idx] > filter->upper_tolerance)
+            );
+
+            trace("Ensuring normal iteration doesn't alter state...");
+            ensure_eq_outlier_filter(filter, &before);
+        }
+
+        /// Test outlier_filter_initialize then return the initialized
+        /// outlier_filter_t for use in further testing.
+        static outlier_filter_t checked_outlier_filter(
+            int64_t window[OUTLIER_WINDOW]
+        ) {
+            outlier_filter_t filter = outlier_filter_initialize(window);
+
+            trace("Checking initial state...");
+            check_any_outlier_filter(&filter);
+            ensure_eq(filter.next_idx, (uint16_t)0);
+            for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+                ensure_eq(filter.window[i], window[i]);
+            }
+            return filter;
+        }
+
+        /// Checks that are common to all check_apply_xyz() tests
+        ///
+        UDIPE_NON_NULL_ARGS
+        static void check_apply_common(const outlier_filter_t* before,
+                                       int64_t input,
+                                       const outlier_filter_t* after,
+                                       const outlier_filter_result_t* result) {
+            trace("Checking input-independent apply properties...");
+
+            trace("- Filter should end up in an internally consistent state.");
+            check_any_outlier_filter(after);
+
+            trace("- Input window should be modified in the expected way.");
+            ensure_eq(after->next_idx, (before->next_idx + 1) % OUTLIER_WINDOW);
+            for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+                ensure_eq(after->window[i],
+                          i == before->next_idx ? input
+                                                : before->window[i]);
+            }
+
+            trace("- New input classification should be consistent with end state.");
+            ensure_eq(result->current_is_outlier,
+                      input > after->upper_tolerance);
+
+            trace("- Old input reclassification should be consistent with initial state.");
+            if (result->previous_not_outlier) {
+                ensure_eq(result->previous_input, before->max);
+                ensure_gt(before->max, before->upper_tolerance);
+                // Importantly, we cannot conclude anything from the state of
+                // `after` because old input reclassification may happen right
+                // before the old input is discarded from the input window.
+            }
+        }
+
+        /// Test applying `filter` to `x` with `x < min`
+        ///
+        /// For at least one such `x` to exist, we need `min > INT64_MIN`.
+        UDIPE_NON_NULL_ARGS
+        static void check_apply_below_min(outlier_filter_t* filter) {
+            assert(filter->min > INT64_MIN);
+            const outlier_filter_t before = *filter;
+            const int64_t input =
+                filter->min - 1 - rand() % (filter->min - 1 - INT64_MIN);
+            tracef("Applying outlier filter to sub-minimum input %zd", input);
+            const outlier_filter_result_t result =
+                outlier_filter_apply(filter, input);
+            check_apply_common(&before, input, filter, &result);
+
+            // Applying to a smaller value will obviously change the minimum
+            ensure_eq(filter->min, input);
+            ensure_eq(filter->min_count, (uint16_t)1);
+
+            // It will only change the maximum if it replaces it in the input
+            // window and there is only one occurence in the input window.
+            const int64_t discarded = before.window[before.next_idx];
+            if (filter->max != before.max) {
+                ensure(before.max > before.max_normal
+                       || before.max_normal_count == 1);
+                ensure_eq(discarded, before.max);
+            }
+
+            // The relationship with max_normal is more subtle because reducing
+            // min momentarily increases upper_tolerance, which can turn former
+            // high outliers into non-outliers. We cannot read the new
+            // upper_tolerance from filter for this check because it may have
+            // changed again after the second stage of removing an old input.
+            const int64_t tmp_upper_tolerance = ceil(
+                before.max_normal
+                    + (before.max_normal - input) * OUTLIER_TOLERANCE
+            );
+            if (before.max > before.upper_tolerance
+                && before.max <= tmp_upper_tolerance) {
+                ensure(result.previous_not_outlier);
+                ensure_eq(result.previous_input, before.max);
+                if (filter->max_normal != before.max) {
+                    ensure_eq(discarded, before.max);
+                }
+            } else {
+                ensure(!result.previous_not_outlier);
+                if (filter->max_normal != before.max_normal) {
+                    ensure_eq(discarded, before.max_normal);
+                    ensure_eq(before.max_normal_count, (uint16_t)1);
+                }
+            }
+
+            // Sub-minimum values have all other values above or equal to them,
+            // so they cannot be our assumed single high outlier
+            ensure(!result.current_is_outlier);
+        }
+
+        /// Test applying `filter` to `x` with `x == min`
+        ///
+        static void check_apply_equal_min(outlier_filter_t* filter) {
+            const outlier_filter_t before = *filter;
+            tracef("Applying outlier filter to minimum input %zd", filter->min);
+            const outlier_filter_result_t result =
+                outlier_filter_apply(filter, filter->min);
+            check_apply_common(&before, filter->min, filter, &result);
+
+            // This will preserve the min and make its refcount go up unless
+            // another occurence of the min goes away
+            ensure_eq(filter->min, before.min);
+            const int64_t discarded = before.window[before.next_idx];
+            if (filter->min_count != before.min_count + 1) {
+                ensure_eq(discarded, before.min);
+                ensure_eq(filter->min_count, before.min_count);
+            }
+
+            // Max and max_normal can only change through evictions...
+            const bool max_normal_discarded =
+                (discarded == before.max_normal && before.max_normal_count == 1);
+            if (filter->max_normal != before.max_normal) {
+                ensure(max_normal_discarded);
+            }
+            if (filter->max != before.max) {
+                if (before.max > before.max_normal) {
+                    ensure_eq(discarded, before.max);
+                } else {
+                    ensure(max_normal_discarded);
+                }
+            }
+
+            // Min is never an outlier as it has all values above it
+            ensure(!result.current_is_outlier);
+
+            // Staying at constant min doesn't broaden upper_tolerance and thus
+            // cannot reclassify old outliers into non-outliers.
+            ensure(!result.previous_not_outlier);
+        }
+
+        /// Test applying `filter` to `x` with `min < x < max_normal`
+        ///
+        /// For at least one such `x` to exist, we need `max_normal - min > 1`.
+        UDIPE_NON_NULL_ARGS
+        static
+        void check_apply_between_min_and_max_normal(outlier_filter_t* filter) {
+            assert(filter->max_normal - filter->min > 1);
+            const outlier_filter_t before = *filter;
+            const int64_t input =
+                filter->min + 1
+                    + rand() % (filter->max_normal - filter->min - 1);
+            tracef("Applying outlier filter to normal input %zd", input);
+            const outlier_filter_result_t result =
+                outlier_filter_apply(filter, input);
+            check_apply_common(&before, input, filter, &result);
+
+            warn("Not implemented yet!");
+        }
+
+        /// Test applying `filter` to `x` with `x == max_normal`
+        ///
+        UDIPE_NON_NULL_ARGS
+        static void check_apply_equal_max_normal(outlier_filter_t* filter) {
+            const outlier_filter_t before = *filter;
+            tracef("Applying outlier filter to max normal input %zd",
+                   filter->max_normal);
+            const outlier_filter_result_t result =
+                outlier_filter_apply(filter, filter->max_normal);
+            check_apply_common(&before, filter->max_normal, filter, &result);
+
+            warn("Not implemented yet!");
+        }
+
+        /// Test applying `filter` to `x` with `max_normal < x < max`
+        ///
+        /// For at least one such `x` to exist, we need `max - max_normal > 1`.
+        UDIPE_NON_NULL_ARGS
+        static
+        void check_apply_between_max_normal_and_max(outlier_filter_t* filter) {
+            assert(filter->max - filter->max_normal > 1);
+            const outlier_filter_t before = *filter;
+            const int64_t input =
+                filter->max_normal + 1
+                    + rand() % (filter->max - filter->max_normal - 1);
+            tracef("Applying outlier filter to above-normal input %zd", input);
+            const outlier_filter_result_t result =
+                outlier_filter_apply(filter, input);
+            check_apply_common(&before, input, filter, &result);
+
+            warn("Not implemented yet!");
+        }
+
+        /// Test applying `filter` to `x` with `x == max`
+        ///
+        UDIPE_NON_NULL_ARGS
+        static void check_apply_equal_max(outlier_filter_t* filter) {
+            const outlier_filter_t before = *filter;
+            tracef("Applying outlier filter to max input %zd",
+                   filter->max);
+            const outlier_filter_result_t result =
+                outlier_filter_apply(filter, filter->max);
+            check_apply_common(&before, filter->max, filter, &result);
+
+            warn("Not implemented yet!");
+        }
+
+        /// Test applying `filter` to `x` with `x > max`
+        ///
+        /// For at least one such `x` to exist, we need `max < INT64_MAX`.
+        UDIPE_NON_NULL_ARGS
+        static void check_apply_above_max(outlier_filter_t* filter) {
+            assert(filter->max < INT64_MAX);
+            const outlier_filter_t before = *filter;
+            const int64_t input =
+                filter->max + 1 + rand() % (INT64_MAX - filter->max - 1);
+            tracef("Applying outlier filter to above-max input %zd", input);
+            const outlier_filter_result_t result =
+                outlier_filter_apply(filter, input);
+            check_apply_common(&before, input, filter, &result);
+
+            warn("Not implemented yet!");
+        }
+
+        /// Test outlier_filter_t
+        ///
+        static void test_outlier_filter() {
+            tracef("Testing the outlier filter from %zu initial states...",
+                   NUM_INITIAL_STATES);
+            for (size_t state = 0; state < NUM_INITIAL_STATES; ++state) {
+                trace("- Generating initial inputs...");
+                int64_t window[OUTLIER_WINDOW];
+                for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+                    // This random distribution ensures at least one repetition,
+                    // some negative values, and enough spread to see rounding
+                    // error in upper_tolerance computations.
+                    window[i] = (rand() % (OUTLIER_WINDOW-1) - OUTLIER_WINDOW/3) * 10;
+                    tracef("  * window[%zu] = %zd", i, window[i]);
+                }
+
+                trace("- Initializing filter...");
+                outlier_filter_t filter = checked_outlier_filter(window);
+
+                trace("- Applying filter to more inputs...");
+                for (size_t i = 0; i < NUM_APPLY_CALLS; ++i) {
+                    retry:
+                    apply_kind_t kind = rand() % APPLY_KIND_LEN;
+                    switch (kind) {
+                    case APPLY_BELOW_MIN:
+                        if (filter.min == INT64_MIN) goto retry;
+                        check_apply_below_min(&filter);
+                        break;
+                    case APPLY_EQUAL_MIN:
+                        check_apply_equal_min(&filter);
+                        break;
+                    case APPLY_BETWEEN_MIN_AND_MAX_NORMAL:
+                        if (filter.max_normal - filter.min <= 1) goto retry;
+                        check_apply_between_min_and_max_normal(&filter);
+                        break;
+                    case APPLY_EQUAL_MAX_NORMAL:
+                        check_apply_equal_max_normal(&filter);
+                        break;
+                    case APPLY_BETWEEN_MAX_NORMAL_AND_MAX:
+                        if (filter.max - filter.max_normal <= 1) goto retry;
+                        check_apply_between_max_normal_and_max(&filter);
+                        break;
+                    case APPLY_EQUAL_MAX:
+                        check_apply_equal_max(&filter);
+                        break;
+                    case APPLY_ABOVE_MAX:
+                        if (filter.max == INT64_MAX) goto retry;
+                        check_apply_above_max(&filter);
+                        break;
+                    case APPLY_KIND_LEN:
+                        exit_with_error("Cannot happen by construction!");
+                    }
+                }
+            }
+
+            error("Exiting after end of unfinished test");
+            exit(EXIT_FAILURE);
+        }
+
+        /// Test distribution_builder_t and distribution_t
+        ///
         static void test_distibution() {
             trace("Setting up a distribution...");
             distribution_builder_t builder = distribution_initialize();
@@ -1790,6 +2219,11 @@
         void benchmark_unit_tests() {
             info("Running benchmark harness unit tests...");
             configure_rand();
+
+            debug("Running outlier filter unit tests...");
+            with_log_level(UDIPE_TRACE, {
+                test_outlier_filter();
+            });
 
             debug("Running distribution unit tests...");
             with_log_level(UDIPE_TRACE, {
