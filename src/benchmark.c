@@ -88,7 +88,7 @@
     /// Warmup duration used for best loop calibration
     //
     // TODO: Tune on more systems
-    #define WARMUP_BEST_LOOP (1000*UDIPE_MILLISECOND)
+    #define WARMUP_BEST_LOOP (500*UDIPE_MILLISECOND)
 
     /// Number of benchmark run used for optimal loop calibration, when using
     /// the system clock to perform said calibration
