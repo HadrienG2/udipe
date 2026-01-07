@@ -223,17 +223,22 @@
             do __VA_ARGS__ while(false);  \
         }
 
-    /// Set all fields of `filter` according to the current contents
-    /// of `window`
+    /// Set at least `min` and `min_count` according to the contents of `window`
     ///
     /// This function is an implementation detail of other functions that
     /// shouldn't be called directly.
     ///
     /// \internal
     ///
-    /// This function only uses the contents of `window` and can therefore be
-    /// used before `max`, `max_normal`, `max_normal_count` and
-    /// `upper_tolerance` have been initialized.
+    /// This function sets `min` and `min_count` according to the current
+    /// contents of `window`. It does not read or write any other fields, which
+    /// means that...
+    ///
+    /// - It can be called at a point where only `filter->window` is
+    ///   initialized.
+    /// - It will not set `max_normal`, `upper_tolerance`, `max` or
+    ///   `upper_tolerance`, you need to call one of the other functions below
+    ///   to perform this state update if necessary.
     ///
     /// This function must be called within the scope of with_logger().
     ///
@@ -241,31 +246,30 @@
     ///               outlier_filter_initialize() and hasn't been destroyed with
     ///               outlier_filter_finalize() yet.
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_update_all(outlier_filter_t* filter);
+    void outlier_filter_reset_min(outlier_filter_t* filter);
 
-    /// Update the `max`, `max_normal` and `max_normal_count` fields of `filter`
-    /// according to the current contents of its inner data window
+    /// Set `max`, `upper_tolerance`, `max_normal` and `max_normal_count`
+    /// according to the current contents of `window`
     ///
     /// This function is an implementation detail of other functions that
     /// shouldn't be called directly.
     ///
     /// \internal
     ///
-    /// This function uses `min`, which must be up to date before it is called.
+    /// This function uses `min`, which must be up to date. It can be deduced
+    /// from `window` using outlier_filter_reset_min() if necessary.
     ///
-    /// It may or may not update `upper_tolerance`, use its return value to tell
-    /// if said tolerance must be updated via outlier_filter_update_tolerance().
+    /// From this initial state, this function will set `max`,
+    /// `upper_tolerance`, `max_normal` and `max_normal_count` to a value that
+    /// is correct when knowing only the current contents of `window`.
     ///
     /// It must be called within the scope of with_logger().
     ///
     /// \param filter is an outlier filter that has been initialized with
     ///               outlier_filter_initialize() and hasn't been destroyed with
     ///               outlier_filter_finalize() yet.
-    ///
-    /// \returns the truth that `upper_tolerance` must be updated using
-    ///          outlier_filter_update_tolerance().
     UDIPE_NON_NULL_ARGS
-    bool outlier_filter_update_maxima(outlier_filter_t* filter);
+    void outlier_filter_reset_maxima(outlier_filter_t* filter);
 
     /// Update an outlier filter's `upper_tolerance` value
     ///
@@ -276,7 +280,11 @@
     ///
     /// This function must be called between any change to `min` or `max_normal`
     /// and any later use of `upper_tolerance`. It uses `min` and `max_normal`
-    /// and must therefore be called after these values are known.
+    /// and must therefore be called at a point where these values are known.
+    ///
+    /// On its own, this function does not affect the current outlier
+    /// classification status of `max` and `max_normal`, it is more of a
+    /// preparatory step towards such reclassification.
     ///
     /// It must be called within the scope of with_logger().
     ///
@@ -481,6 +489,7 @@
 
         tracef("Integrating new input %zd...", input);
         bool must_update_tolerance = false;
+        bool input_was_single_max_normal = false;
         if (input < filter->min) {
             trace("Input is the new min.");
             must_update_tolerance = outlier_filter_decrease_min(filter,
@@ -496,6 +505,7 @@
             must_update_tolerance = outlier_filter_increase_max_normal(filter,
                                                                        &result,
                                                                        input);
+            input_was_single_max_normal = true;
         } else {
             assert(input >= filter->min &&
                    (input <= filter->max_normal || input == filter->max));
@@ -503,6 +513,9 @@
                 trace("Input is another occurence of min.");
                 ++(filter->min_count);
             }
+            // This if statement is disjoint from the previous one on purpose:
+            // min == max_normal is a valid state even though it is suspicious
+            // and suggests OUTLIER_WINDOW is too small.
             if (input == filter->max_normal) {
                 trace("Input is another occurence of max_normal.");
                 ++(filter->max_normal_count);
@@ -520,28 +533,77 @@
             }
         }
 
+        trace("Classifying input as outlier or not...");
+        if (must_update_tolerance) outlier_filter_update_tolerance(filter);
+        result.current_is_outlier = (input > filter->upper_tolerance);
+
         const int64_t removed = filter->window[filter->next_idx];
         tracef("Replacing oldest input %zd...", removed);
         assert(removed >= filter->min && removed <= filter->max);
         filter->window[filter->next_idx] = input;
         filter->next_idx = (filter->next_idx + 1) % OUTLIER_WINDOW;
         if (removed == filter->min) --(filter->min_count);
+        const int64_t former_max = filter->max;
         if (removed == filter->max) filter->max = filter->max_normal;
         if (removed == filter->max_normal) --(filter->max_normal_count);
-
+        //
+        const bool removed_max_normal = filter->max_normal_count == 0;
         if (filter->min_count == 0) {
-            trace("Last occurence of min escaped input window, update all stats...");
-            outlier_filter_update_all(filter);
-            must_update_tolerance = false;
-        } else if (filter->max_normal_count == 0) {
-            trace("Last occurence of max_normal = %zd escaped input window, "
-                  "update maxima...");
-            must_update_tolerance = outlier_filter_update_maxima(filter);
+            trace("Last occurence of min escaped window, reset min...");
+            const int64_t prev_min = filter->min;
+            outlier_filter_reset_min(filter);
+            // This operation can only increase the minimum, which will reduce
+            // upper_tolerance in a fashion that could theoretically reclassify
+            // a former isolated max_normal value as an outlier if filter stats
+            // were strictly derived from the current contents of window.
+            //
+            // But we want to avoid such non-outlier to outlier
+            // reclassification: a data point should only be classified as an
+            // outlier if no input window ever classified it as non-outlier.
+            assert(filter->min > prev_min);
+            // Furthermore, because a window contains at least 3 data points, we
+            // removed only one data point and we know that min_count was
+            // formerly 1, there are at least two values strictly greater than
+            // min which were not removed. At least one of them must be
+            // max_normal per the single-outlier hypothesis, and one of them
+            // (possibly the same one) must be max. Combining this and the
+            // above, maxima are unaffected and don't need to be recomputed.
+            static_assert(
+                OUTLIER_WINDOW >= 3,
+                "Need at least two points other than an outlier to tell min/max"
+            );
+            assert(!removed_max_normal);
+            // As a result, only upper_tolerance needs to be recomputed.
+            outlier_filter_update_tolerance(filter);
+        } else if (removed_max_normal) {
+            if (input_was_single_max_normal) {
+                // To avoid reclassifying non-outlier inputs as outlier, we must
+                // also specially handle the case where...
+                // - There is initially a single max which is considered to be
+                //   an outlier (max > max_normal).
+                // - Input is in range ]max_normal; max[, which makes it the new
+                //   max_normal after input insertion.
+                // - This increase in max_normal increases upper_tolerance up to
+                //   the point where max is reclassified as non-outlier, and
+                //   thus becomes max_normal.
+                // - This happens at the point where max is removed, which would
+                //   normally cause max and max_normal to be recomputed in a
+                //   manner that could classify input as an outlier (because it
+                //   operates on a smaller data window without the former max).
+                assert(filter->max_normal == former_max);
+                assert(former_max > input);
+                trace("Handling normal input misclassification edge case...");
+                filter->max = input;
+                filter->max_normal = input;
+                filter->max_normal_count = 1;
+                outlier_filter_update_tolerance(filter);
+            } else {
+                tracef("Last occurence of max_normal = %zd escaped window, "
+                       "reset maxima...", filter->max_normal);
+                outlier_filter_reset_maxima(filter);
+            }
         }
 
-        trace("Classifying input as outlier or not...");
-        if (must_update_tolerance) outlier_filter_update_tolerance(filter);
-        result.current_is_outlier = (input > filter->upper_tolerance);
         return result;
     }
 

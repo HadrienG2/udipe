@@ -145,12 +145,13 @@
         for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
             result.window[i] = initial_window[i];
         }
-        outlier_filter_update_all(&result);
+        outlier_filter_reset_min(&result);
+        outlier_filter_reset_maxima(&result);
         return result;
     }
 
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_update_all(outlier_filter_t* filter) {
+    void outlier_filter_reset_min(outlier_filter_t* filter) {
         trace("Figuring out minimal input...");
         filter->min = INT64_MAX;
         filter->min_count = 0;
@@ -169,16 +170,10 @@
         assert(filter->min_count >= 1);
         tracef("Minimal input is %zd (%zu occurences).",
                filter->min, (size_t)filter->min_count);
-
-        // Updating min invalidates max and upper_tolerance, which must be
-        // recomputed as well
-        if (outlier_filter_update_maxima(filter)) {
-            outlier_filter_update_tolerance(filter);
-        }
     }
 
     UDIPE_NON_NULL_ARGS
-    bool outlier_filter_update_maxima(outlier_filter_t* filter) {
+    void outlier_filter_reset_maxima(outlier_filter_t* filter) {
         // min can't be an outlier because all values are >= min, the window has
         // at least 2 values, and we operate under a single-outlier hypothesis
         tracef("Initializing max_normal to min = %zd...", filter->min);
@@ -236,10 +231,10 @@
         assert(filter->max >= filter->max_normal);
         assert(filter->max_normal_count >= 1);
 
-        // At this point, the result is correct unless max is isolated in which
-        // case we may have misclassified it as an outlier.
+        // The result may be incorrect if max is isolated: in this case we may
+        // have misclassified it as an outlier.
         if (filter->max > filter->max_normal) {
-            // In this case, max_normal is next-to-max, use it to compute
+            // When this happens, max_normal is next-to-max, use it to compute
             // upper_tolerance and figure out if max is indeed an outlier.
             tracef("Found isolated maximum %zd. Use next-to-max %zd to compute "
                    "upper_tolerance and figure if it's an outlier...",
@@ -250,19 +245,18 @@
                       "will become single-occurence max_normal.");
                 filter->max_normal = filter->max;
                 filter->max_normal_count = 1;
-                return true;
+                outlier_filter_update_tolerance(filter);
             } else {
                 tracef("max is indeed an outlier, "
                        "max_normal is thus %zd (%zu occurences).",
                        filter->max_normal, (size_t)filter->max_normal_count);
-                return false;
             }
         } else {
             assert(filter->max == filter->max_normal);
             tracef("Found non-isolated max %zd (%zu occurences), "
                    "which can't be an outlier and is thus max_normal.",
                    filter->max_normal, (size_t)filter->max_normal_count);
-            return true;
+            outlier_filter_update_tolerance(filter);
         }
     }
 
@@ -293,8 +287,7 @@
     bool outlier_filter_decrease_min(outlier_filter_t* filter,
                                      outlier_filter_result_t* result,
                                      int64_t new_min) {
-        const int64_t old_min = filter->min;
-        assert(new_min < old_min);
+        assert(new_min < filter->min);
         filter->min = new_min;
         filter->min_count = 1;
         outlier_filter_update_tolerance(filter);
@@ -1488,10 +1481,6 @@
                                                 : before->window[i]);
             }
 
-            trace("- New input classification should be consistent with end state.");
-            ensure_eq(result->current_is_outlier,
-                      input > after->upper_tolerance);
-
             trace("- Old input reclassification should be consistent with initial state.");
             if (result->previous_not_outlier) {
                 ensure_eq(result->previous_input, before->max);
@@ -1509,6 +1498,7 @@
         static void check_apply_below_min(outlier_filter_t* filter) {
             assert(filter->min > INT64_MIN);
             const outlier_filter_t before = *filter;
+            const int64_t discarded = before.window[before.next_idx];
             const int64_t input =
                 filter->min - 1 - rand() % (filter->min - 1 - INT64_MIN);
             tracef("Applying outlier filter to sub-minimum input %zd", input);
@@ -1522,7 +1512,6 @@
 
             // It will only change the maximum if it replaces it in the input
             // window and there is only one occurence in the input window.
-            const int64_t discarded = before.window[before.next_idx];
             if (filter->max != before.max) {
                 ensure(before.max > before.max_normal
                        || before.max_normal_count == 1);
@@ -1538,7 +1527,7 @@
                 before.max_normal
                     + (before.max_normal - input) * OUTLIER_TOLERANCE
             );
-            if (before.max > before.upper_tolerance
+            if (before.max > before.max_normal
                 && before.max <= tmp_upper_tolerance) {
                 ensure(result.previous_not_outlier);
                 ensure_eq(result.previous_input, before.max);
@@ -1558,49 +1547,79 @@
             ensure(!result.current_is_outlier);
         }
 
-        /// Test applying `filter` to `x` with `x == min`
+        /// Check a scenario where the input is in `[min; max_normal[`, which
+        /// means max and max_normal can only change through evictions
+        static void check_max_evictions(const outlier_filter_t* before,
+                                        const outlier_filter_t* after) {
+            const int64_t discarded = before->window[before->next_idx];
+            const bool max_normal_discarded =
+                (discarded == before->max_normal
+                    && before->max_normal_count == 1);
+            if (after->max_normal != before->max_normal) {
+                ensure(max_normal_discarded);
+            }
+            if (after->max != before->max) {
+                if (before->max > before->max_normal) {
+                    ensure_eq(discarded, before->max);
+                } else {
+                    ensure(max_normal_discarded);
+                }
+            }
+        }
+
+        /// Check that a run of outlier_filter_apply() neither classified the
+        /// current input as an outlier not reclassified a former outlier input
+        /// as non-outlier
+        ///
+        /// This is the outcome for all inputs in range `[min; max_normal]`.
+        static void check_result_passthrough(const outlier_filter_result_t* result) {
+            ensure(!result->current_is_outlier);
+            ensure(!result->previous_not_outlier);
+        }
+
+        /// Test applying `filter` to `min`
         ///
         static void check_apply_equal_min(outlier_filter_t* filter) {
             const outlier_filter_t before = *filter;
+            const int64_t discarded = before.window[before.next_idx];
             tracef("Applying outlier filter to minimum input %zd", filter->min);
             const outlier_filter_result_t result =
                 outlier_filter_apply(filter, filter->min);
             check_apply_common(&before, filter->min, filter, &result);
 
-            // This will preserve the min and make its refcount go up unless
-            // another occurence of the min goes away
+            // This will preserve min and make its refcount go up unless another
+            // occurence of min went away
             ensure_eq(filter->min, before.min);
-            const int64_t discarded = before.window[before.next_idx];
             if (filter->min_count != before.min_count + 1) {
                 ensure_eq(discarded, before.min);
                 ensure_eq(filter->min_count, before.min_count);
             }
 
             // Max and max_normal can only change through evictions
-            const bool max_normal_discarded =
-                (discarded == before.max_normal && before.max_normal_count == 1);
-            if (filter->max_normal != before.max_normal) {
-                ensure(max_normal_discarded);
-            }
-            if (filter->max != before.max) {
-                if (before.max > before.max_normal) {
-                    ensure_eq(discarded, before.max);
-                } else {
-                    ensure(max_normal_discarded);
-                }
-            }
+            check_max_evictions(&before, filter);
 
-            // Min is never an outlier as it has all values above it
-            ensure(!result.current_is_outlier);
-
-            // Staying at constant min doesn't broaden upper_tolerance and thus
-            // cannot reclassify old outliers into non-outliers.
-            ensure(!result.previous_not_outlier);
+            // An input in range [min; max_normal] will neither be rejected as
+            // an outlier nor lead to the reclassification of a former outlier.
+            check_result_passthrough(&result);
         }
 
-        /// Test applying `filter` to `x` with `min < x < max_normal`
+        /// Check a scenario where the input is > min, which means min can only
+        /// change through evictions
+        static void check_min_evictions(const outlier_filter_t* before,
+                                        const outlier_filter_t* after) {
+            const int64_t discarded = before->window[before->next_idx];
+            if (after->min != before->min) {
+                ensure_eq(discarded, before->min);
+                ensure_eq(before->min_count, (uint16_t)1);
+            } else if (after->min_count != before->min_count) {
+                ensure_eq(discarded, before->min);
+                ensure_eq(after->min_count, before->min_count - 1);
+            }
+        }
+
+        /// Test applying `filter` to an input in `]min; max_normal[`
         ///
-        /// For at least one such `x` to exist, we need `max_normal - min > 1`.
+        /// For such an input to exist, we need `max_normal - min > 1`.
         UDIPE_NON_NULL_ARGS
         static
         void check_apply_between_min_and_max_normal(outlier_filter_t* filter) {
@@ -1614,31 +1633,64 @@
                 outlier_filter_apply(filter, input);
             check_apply_common(&before, input, filter, &result);
 
-            warn("TODO: Not implemented yet!");
+            // This will only change the min through evictions
+            check_min_evictions(&before, filter);
+
+            // This will only change max_normal and max through evictions
+            check_max_evictions(&before, filter);
+
+            // An input in range [min; max_normal] will neither be rejected as
+            // an outlier nor lead to the reclassification of a former outlier.
+            check_result_passthrough(&result);
         }
 
-        /// Test applying `filter` to `x` with `x == max_normal`
-        ///
+        /// Test applying `filter` to `max_normal`, which is assumed to be
+        /// distinct from `min`.
         UDIPE_NON_NULL_ARGS
         static void check_apply_equal_max_normal(outlier_filter_t* filter) {
+            assert(filter->max_normal > filter->min);
             const outlier_filter_t before = *filter;
+            const int64_t discarded = before.window[before.next_idx];
             tracef("Applying outlier filter to max normal input %zd",
                    filter->max_normal);
             const outlier_filter_result_t result =
                 outlier_filter_apply(filter, filter->max_normal);
             check_apply_common(&before, filter->max_normal, filter, &result);
 
-            warn("TODO: Not implemented yet!");
+            // This will only change the min through evictions
+            check_min_evictions(&before, filter);
+
+            // This will preserve max_normal and make its refcount go up unless
+            // another occurence of max_normal went away
+            ensure_eq(filter->max_normal, before.max_normal);
+            if (filter->max_normal_count != before.max_normal_count + 1) {
+                ensure_eq(discarded, before.max_normal);
+                ensure_eq(filter->max_normal_count, before.max_normal_count);
+            }
+
+            // This will only change max through evictions, and only if it was
+            // an outlier other than max_normal. In this case max_normal will
+            // become the new maximum.
+            if (filter->max != before.max) {
+                ensure_eq(discarded, before.max);
+                ensure_eq(filter->max, before.max_normal);
+            }
+
+            // An input in range [min; max_normal] will neither be rejected as
+            // an outlier nor lead to the reclassification of a former outlier.
+            check_result_passthrough(&result);
         }
 
-        /// Test applying `filter` to `x` with `max_normal < x < max`
+        /// Test applying `filter` to an input in `]max_normal; max[`
         ///
-        /// For at least one such `x` to exist, we need `max - max_normal > 1`.
+        /// For such an input to exist, we need `max - max_normal > 1`, which
+        /// implies that `max` is currently classified as an outlier.
         UDIPE_NON_NULL_ARGS
         static
         void check_apply_between_max_normal_and_max(outlier_filter_t* filter) {
             assert(filter->max - filter->max_normal > 1);
             const outlier_filter_t before = *filter;
+            const int64_t discarded = before.window[before.next_idx];
             const int64_t input =
                 filter->max_normal + 1
                     + rand() % (filter->max - filter->max_normal - 1);
@@ -1647,21 +1699,78 @@
                 outlier_filter_apply(filter, input);
             check_apply_common(&before, input, filter, &result);
 
-            warn("TODO: Not implemented yet!");
+            // This will only change the min through evictions
+            check_min_evictions(&before, filter);
+
+            // This will interact with max and max_normal in complex ways:
+            //
+            // - Upon insertion, the new input will become the new max_normal,
+            //   which will increase upper_tolerance.
+            // - This increase of upper_tolerance may have the effect of
+            //   reclassifying the former outlier max into a non-outlier. In
+            //   this case, before.max will become max_normal, and the result
+            //   will be set up to notify of input reclassification.
+            // - Later, at the stage where the oldest input is discarded, that
+            //   oldest input may turn out to be before.max. In this case, the
+            //   filter will go back to a state where the new input is
+            //   max_normal. We know it is normal because it momentarily
+            //   coexisted with a higher maximum, so classifying it as an
+            //   outlier would violate our hypothesis that there is at most one
+            //   outlier per (momentarily extended) input window.
+            const int64_t upper_tolerance_after_input = ceil(
+                input + (input - before.min) * OUTLIER_TOLERANCE
+            );
+            if (before.max <= upper_tolerance_after_input) {
+                ensure(result.previous_not_outlier);
+                ensure_eq(result.previous_input, before.max);
+                const int64_t final_single_max_normal =
+                    (discarded == before.max) ? input : before.max;
+                ensure_eq(filter->max, final_single_max_normal);
+                ensure_eq(filter->max_normal, final_single_max_normal);
+                ensure_eq(filter->max_normal_count, (uint16_t)1);
+            } else {
+                ensure(!result.previous_not_outlier);
+                ensure_eq(filter->max_normal, input);
+                ensure_eq(filter->max_normal_count, (uint16_t)1);
+                if (filter->max != before.max) {
+                    ensure_eq(discarded, before.max);
+                    ensure_eq(filter->max, input);
+                }
+            }
+
+            // before.max was above input so input can never be an outlier
+            ensure(!result.current_is_outlier);
         }
 
-        /// Test applying `filter` to `x` with `x == max`
-        ///
+        /// Test applying `filter` to `max`, which is assumed to be distinct
+        /// from `max_normal`. This implies that `max` is currently classified
+        /// as an outlier.
         UDIPE_NON_NULL_ARGS
         static void check_apply_equal_max(outlier_filter_t* filter) {
+            assert(filter->max > filter->max_normal);
             const outlier_filter_t before = *filter;
+            const int64_t discarded = before.window[before.next_idx];
             tracef("Applying outlier filter to max input %zd",
                    filter->max);
             const outlier_filter_result_t result =
                 outlier_filter_apply(filter, filter->max);
             check_apply_common(&before, filter->max, filter, &result);
 
-            warn("TODO: Not implemented yet!");
+            // This will only change the min through evictions
+            check_min_evictions(&before, filter);
+
+            // By virtue of having seen two occurences of max, we know that max
+            // was not an outlier after all, and since it was freshly inserted
+            // it will still be max_normal in the final filter state.
+            ensure_eq(filter->max, before.max);
+            ensure_eq(filter->max_normal, before.max);
+            if (filter->max_normal_count != 2) {
+                ensure_eq(discarded, before.max);
+                ensure_eq(filter->max_normal_count, 1);
+            }
+            ensure(!result.current_is_outlier);
+            ensure(result.previous_not_outlier);
+            ensure_eq(result.previous_input, before.max);
         }
 
         /// Test applying `filter` to `x` with `x > max`
@@ -1671,6 +1780,7 @@
         static void check_apply_above_max(outlier_filter_t* filter) {
             assert(filter->max < INT64_MAX);
             const outlier_filter_t before = *filter;
+            const int64_t discarded = before.window[before.next_idx];
             const int64_t input =
                 filter->max + 1 + rand() % (INT64_MAX - filter->max - 1);
             tracef("Applying outlier filter to above-max input %zd", input);
@@ -1678,7 +1788,58 @@
                 outlier_filter_apply(filter, input);
             check_apply_common(&before, input, filter, &result);
 
-            warn("TODO: Not implemented yet!");
+            // This will only change the min through evictions
+            check_min_evictions(&before, filter);
+
+            // By definition of the maximum, this value must become max
+            ensure_eq(filter->max, input);
+
+            // The effect on max_normal and result, however, is more
+            // complicated.
+            //
+            // First, if the former max was considered an outlier, that judgment
+            // is revised (since we can't have two outliers), which makes the
+            // former outlier max temporarily become the new max_normal.
+            int64_t max_normal_after_input;
+            uint16_t max_normal_count_after_input;
+            if (before.max > before.max_normal) {
+                ensure(result.previous_not_outlier);
+                ensure_eq(result.previous_input, before.max);
+                max_normal_after_input = before.max;
+                max_normal_count_after_input = 1;
+            } else {
+                ensure(!result.previous_not_outlier);
+                max_normal_after_input = before.max_normal;
+                max_normal_count_after_input = before.max_normal_count;
+            }
+            // As a result, upper_tolerance gets a possibly different value...
+            const int64_t upper_tolerance_after_input = ceil(
+                before.max + (before.max - before.min) * OUTLIER_TOLERANCE
+            );
+            // ...which may, in turn, affect the decision to classify the new
+            // isolated maximal input as an outlier or not.
+            ensure_eq(result.current_is_outlier,
+                      input > upper_tolerance_after_input);
+            if (result.current_is_outlier) {
+                // If the input is classified as an outlier, then max_normal
+                // will retain its former value unless the last occurence
+                // disappears through evictions.
+                const bool discarded_max_normal =
+                    (discarded == max_normal_after_input);
+                const uint16_t max_normal_count_after_discard =
+                    max_normal_count_after_input - (uint16_t)discarded_max_normal;
+                if (filter->max_normal == max_normal_after_input) {
+                    ensure_ge(max_normal_count_after_discard, (uint16_t)1);
+                } else {
+                    ensure_eq(max_normal_count_after_discard, (uint16_t)0);
+                }
+            } else {
+                // If the input is not considered an outlier, then it will
+                // become max_normal and stay max_normal through evictions as a
+                // newly introduced input won't be evicted.
+                ensure_eq(filter->max_normal, input);
+                ensure_eq(filter->max_normal_count, 1);
+            }
         }
 
         /// Test outlier_filter_t
@@ -1717,6 +1878,7 @@
                         check_apply_between_min_and_max_normal(&filter);
                         break;
                     case APPLY_EQUAL_MAX_NORMAL:
+                        if (filter.max_normal == filter.min) goto retry;
                         check_apply_equal_max_normal(&filter);
                         break;
                     case APPLY_BETWEEN_MAX_NORMAL_AND_MAX:
@@ -1724,6 +1886,7 @@
                         check_apply_between_max_normal_and_max(&filter);
                         break;
                     case APPLY_EQUAL_MAX:
+                        if (filter.max == filter.max_normal) goto retry;
                         check_apply_equal_max(&filter);
                         break;
                     case APPLY_ABOVE_MAX:
@@ -1735,9 +1898,6 @@
                     }
                 }
             }
-
-            error("Exiting after end of unfinished test");
-            exit(EXIT_FAILURE);
         }
 
         /// Test distribution_builder_t and distribution_t
