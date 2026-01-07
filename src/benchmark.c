@@ -38,7 +38,7 @@
     ///   duration data points for the statistics to converge. When combined
     ///   with the use of longer benchmark runs, this means that benchmarks will
     ///   take longer to execute before stable results are achieved.
-    #define NUM_MEDIAN_SAMPLES ((size_t)7)
+    #define NUM_MEDIAN_SAMPLES ((size_t)5)
     static_assert(NUM_MEDIAN_SAMPLES % 2 == 1,
                   "Medians are computed over an odd number of samples");
 
@@ -70,7 +70,7 @@
     /// the fact that short loops get a nonzero median duration.
     //
     // TODO: Tune on more systems
-    #define NUM_RUNS_OFFSET_OS ((size_t)8*1024)
+    #define NUM_RUNS_OFFSET_OS ((size_t)64*1024)
 
     /// Warmup duration used for shortest loop calibration
     //
@@ -83,12 +83,12 @@
     /// converge to a constant loop size.
     //
     // TODO: Tune on more systems
-    #define NUM_RUNS_SHORTEST_LOOP ((size_t)1024)
+    #define NUM_RUNS_SHORTEST_LOOP ((size_t)2*1024)
 
     /// Warmup duration used for best loop calibration
     //
     // TODO: Tune on more systems
-    #define WARMUP_BEST_LOOP (100*UDIPE_MILLISECOND)
+    #define WARMUP_BEST_LOOP (1000*UDIPE_MILLISECOND)
 
     /// Number of benchmark run used for optimal loop calibration, when using
     /// the system clock to perform said calibration
@@ -97,7 +97,7 @@
     /// converge to sufficiently reproducible statistics.
     //
     // TODO: Tune on more systems
-    #define NUM_RUNS_BEST_LOOP_OS ((size_t)128*1024)
+    #define NUM_RUNS_BEST_LOOP_OS ((size_t)16*1024)
 
     #ifdef X86_64
 
@@ -108,7 +108,7 @@
         /// reproducible results.
         //
         // TODO: Tune on more systems
-        #define NUM_RUNS_BEST_LOOP_X86 ((size_t)512)
+        #define NUM_RUNS_BEST_LOOP_X86 ((size_t)8*1024)
 
         /// Warmup duration used for TSC clock offset calibration
         //
@@ -121,7 +121,7 @@
         /// reproducible results.
         //
         // TODO: Tune on more systems
-        #define NUM_RUNS_OFFSET_X86 ((size_t)2*1024)
+        #define NUM_RUNS_OFFSET_X86 ((size_t)16*1024)
 
     #endif  // X86_64
 
@@ -145,13 +145,13 @@
         for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
             result.window[i] = initial_window[i];
         }
-        outlier_filter_reset_min(&result);
-        outlier_filter_reset_maxima(&result);
+        outlier_filter_set_min(&result);
+        outlier_filter_init_maxima(&result);
         return result;
     }
 
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_reset_min(outlier_filter_t* filter) {
+    void outlier_filter_set_min(outlier_filter_t* filter) {
         trace("Figuring out minimal input...");
         filter->min = INT64_MAX;
         filter->min_count = 0;
@@ -173,16 +173,17 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_reset_maxima(outlier_filter_t* filter) {
+    void outlier_filter_init_maxima(outlier_filter_t* filter) {
         // min can't be an outlier because all values are >= min, the window has
         // at least 2 values, and we operate under a single-outlier hypothesis
         tracef("Initializing max_normal to min = %zd...", filter->min);
         filter->max_normal = filter->min;
+        filter->max_normal_count = (filter->window[0] == filter->min);
         assert(OUTLIER_WINDOW >= 2);
 
         // First value is by definition the largest value seen so far
         filter->max = filter->window[0];
-        filter->max_normal_count = (filter->window[0] == filter->max_normal);
+        uint16_t first_max_idx = 0;
         tracef("After integrating window[0] = %zd, "
                "max is %zd and max_normal_count is %zu...",
                filter->window[0], filter->max, (size_t)filter->max_normal_count);
@@ -208,6 +209,7 @@
                     trace("  => ...so we stick with the former max_normal/max.");
                 }
                 filter->max = value;
+                first_max_idx = i;
             } else if (value == filter->max_normal) {
                 tracef("  => Encountered one more occurence of max_normal %zd.",
                        value);
@@ -236,9 +238,10 @@
         if (filter->max > filter->max_normal) {
             // When this happens, max_normal is next-to-max, use it to compute
             // upper_tolerance and figure out if max is indeed an outlier.
-            tracef("Found isolated maximum %zd. Use next-to-max %zd to compute "
-                   "upper_tolerance and figure if it's an outlier...",
-                   filter->max, filter->max_normal);
+            tracef("Found isolated maximum %zd at index %zu. "
+                   "Use next-to-max %zd to compute upper_tolerance "
+                   "and deduce if max is an outlier...",
+                   filter->max, (size_t)first_max_idx, filter->max_normal);
             outlier_filter_update_tolerance(filter);
             if (filter->max <= filter->upper_tolerance) {
                 trace("max is actually in tolerance, "
@@ -246,10 +249,12 @@
                 filter->max_normal = filter->max;
                 filter->max_normal_count = 1;
                 outlier_filter_update_tolerance(filter);
+                filter->outlier_idx = OUTLIER_WINDOW;
             } else {
                 tracef("max is indeed an outlier, "
                        "max_normal is thus %zd (%zu occurences).",
                        filter->max_normal, (size_t)filter->max_normal_count);
+                filter->outlier_idx = first_max_idx;
             }
         } else {
             assert(filter->max == filter->max_normal);
@@ -257,6 +262,7 @@
                    "which can't be an outlier and is thus max_normal.",
                    filter->max_normal, (size_t)filter->max_normal_count);
             outlier_filter_update_tolerance(filter);
+            filter->outlier_idx = OUTLIER_WINDOW;
         }
     }
 
@@ -281,6 +287,7 @@
         result->previous_input = filter->max;
         filter->max_normal = filter->max;
         filter->max_normal_count = 1;
+        filter->outlier_idx = OUTLIER_WINDOW;
     }
 
     UDIPE_NON_NULL_ARGS
@@ -347,6 +354,31 @@
         } else {
             return false;
         }
+    }
+
+    UDIPE_NON_NULL_ARGS
+    void outlier_filter_reset_maxima(outlier_filter_t* filter) {
+        trace("Leveraging knowledge of outlier_idx to ease max_normal search...");
+        const size_t first_normal_idx = (size_t)(filter->outlier_idx == 0);
+        filter->max_normal = filter->window[first_normal_idx];
+        filter->max_normal_count = 1;
+        for (size_t i = first_normal_idx + 1; i < OUTLIER_WINDOW; ++i) {
+            if (i == filter->outlier_idx) continue;
+            const int64_t normal_value = filter->window[i];
+            if (normal_value > filter->max_normal) {
+                filter->max_normal = normal_value;
+                filter->max_normal_count = 1;
+            } else if (normal_value == filter->max_normal) {
+                ++(filter->max_normal_count);
+            }
+        }
+        if (filter->outlier_idx < OUTLIER_WINDOW) {
+            assert(filter->max == filter->window[filter->outlier_idx]);
+            assert(filter->max > filter->max_normal);
+        } else {
+            filter->max = filter->max_normal;
+        }
+        outlier_filter_update_tolerance(filter);
     }
 
     UDIPE_NON_NULL_ARGS
@@ -795,7 +827,7 @@
             const double udipe_spread = udipe_high - udipe_low;  \
             const int udipe_stats_decimals = ceil(-log10(udipe_spread));  \
             const double udipe_uncertainty = relative_uncertainty(udipe_stats);  \
-            int udipe_uncertainty_decimals = ceil(-log10(udipe_uncertainty));  \
+            int udipe_uncertainty_decimals = ceil(-log10(udipe_uncertainty)) + 1;  \
             if (udipe_uncertainty_decimals < 0) udipe_uncertainty_decimals = 0;  \
             udipe_logf((level),  \
                        "%s That's %.*f %s/iter with %g%% CI [%.*f; %.*f] (%.*f%% uncertainty).",  \
@@ -892,7 +924,7 @@
                 break;
             } else {
                 debug("  * Measured duration is close to clock offset, try a longer loop...");
-                num_iters *= 2;
+                num_iters *= 4;
                 clock.builder = distribution_reset(&loop_durations);
                 continue;
             }
@@ -931,7 +963,11 @@
                                 "ns");
             const double uncertainty = relative_uncertainty(loop_duration_stats);
             const int64_t precision = loop_duration_stats.high - loop_duration_stats.low;
-            if (uncertainty < best_uncertainty) {
+            // In a regime of stable run timing precision, doubling the
+            // iteration count should improve iteration timing uncertainty by
+            // 2x. Ignore small improvements that don't justify a 2x longer run
+            // duration, and thus fewer runs per unit of execution time...
+            if (uncertainty < best_uncertainty/1.5) {
                 debug("  * This is our new best loop. Can we do even better?");
                 best_uncertainty = uncertainty;
                 clock.best_empty_iters = num_iters;
@@ -940,12 +976,15 @@
                 distribution_poison(&loop_durations);
                 clock.best_empty_stats = loop_duration_stats;
                 continue;
-            } else if (precision <= 2*best_precision) {
-                debug("  * That's not much worse. Keep trying...");
+            } else if (precision <= 3*best_precision) {
+                // ...but keep trying until the uncertainty degradation becomes
+                // much worse than expected in a regime of stable iteration
+                // timing uncertainty.
+                debug("  * That's not much better/worse, keep trying...");
                 clock.builder = distribution_reset(&loop_durations);
                 continue;
             } else {
-                debug("  * Timing precision degraded by >2x. Time to stop!");
+                debug("  * Absolute precision degraded by >3x: time to stop!");
                 clock.builder = distribution_reset(&loop_durations);
                 break;
             }
@@ -1860,6 +1899,10 @@
 
                 trace("- Initializing filter...");
                 outlier_filter_t filter = checked_outlier_filter(window);
+
+                // TODO: Track last rejected value + its age to check if each
+                //       rejection is valid. This includes the possible
+                //       rejection within the initial input window.
 
                 trace("- Applying filter to more inputs...");
                 for (size_t i = 0; i < NUM_APPLY_CALLS; ++i) {
