@@ -92,7 +92,7 @@
     /// As this correction is meant to compensate a small input window, it
     /// should usually be tuned down when \ref TEMPORAL_WINDOW goes up and be
     /// tuned up when \ref TEMPORAL_WINDOW goes down.
-    #define TEMPORAL_TOLERANCE 0.2
+    #define TEMPORAL_TOLERANCE 0.5
     static_assert(TEMPORAL_TOLERANCE >= 0.0,
                   "TEMPORAL_TOLERANCE can only broaden the distribution");
 
