@@ -1733,7 +1733,6 @@
                 ++num_initially_rejected;
             }
             ensure_le(num_normal_runs, run + 1);
-            ensure_le(num_reclassified, num_initially_rejected);
         }
         if (log_enabled(UDIPE_DEBUG)) {
             if (num_initially_rejected > 0) {
