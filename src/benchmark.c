@@ -62,7 +62,7 @@
     /// Warmup duration used for OS clock offset calibration
     //
     // TODO: Tune on more systems
-    #define WARMUP_OFFSET_OS (1*UDIPE_MILLISECOND)
+    #define WARMUP_OFFSET_OS (100*UDIPE_MILLISECOND)
 
     /// Number of benchmark runs used for OS clock offset calibration
     ///
@@ -75,7 +75,7 @@
     /// Warmup duration used for shortest loop calibration
     //
     // TODO: Tune on more systems
-    #define WARMUP_SHORTEST_LOOP (1*UDIPE_MILLISECOND)
+    #define WARMUP_SHORTEST_LOOP (5000*UDIPE_MILLISECOND)
 
     /// Number of benchmark runs used for shortest loop calibration
     ///
@@ -83,21 +83,26 @@
     /// converge to a constant loop size.
     //
     // TODO: Tune on more systems
-    #define NUM_RUNS_SHORTEST_LOOP ((size_t)2*1024)
+    #define NUM_RUNS_SHORTEST_LOOP ((size_t)64*1024)
 
     /// Warmup duration used for best loop calibration
     //
     // TODO: Tune on more systems
-    #define WARMUP_BEST_LOOP (500*UDIPE_MILLISECOND)
+    #define WARMUP_BEST_LOOP (5000*UDIPE_MILLISECOND)
 
     /// Number of benchmark run used for optimal loop calibration, when using
     /// the system clock to perform said calibration
     ///
     /// Tune this up if the optimal loop calibration is unstable and does not
     /// converge to sufficiently reproducible statistics.
+    ///
+    /// Tune this down if you observe multimodal timing laws, which indicates
+    /// that the CPU switches performance states during the measurement, and
+    /// this state instability is not fixed by using a longer warmup or
+    /// adjusting the system's power management configuration.
     //
     // TODO: Tune on more systems
-    #define NUM_RUNS_BEST_LOOP_OS ((size_t)16*1024)
+    #define NUM_RUNS_BEST_LOOP_OS ((size_t)64*1024)
 
     #ifdef X86_64
 
@@ -136,26 +141,26 @@
     }
 
 
-    outlier_filter_t
-    outlier_filter_initialize(const int64_t initial_window[OUTLIER_WINDOW]) {
-        debug("Setting up an outlier filter...");
-        outlier_filter_t result = {
+    temporal_filter_t
+    temporal_filter_initialize(const int64_t initial_window[TEMPORAL_WINDOW]) {
+        trace("Setting up a temporal outlier filter...");
+        temporal_filter_t result = {
             .next_idx = 0
         };
-        for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+        for (size_t i = 0; i < TEMPORAL_WINDOW; ++i) {
             result.window[i] = initial_window[i];
         }
-        outlier_filter_set_min(&result);
-        outlier_filter_init_maxima(&result);
+        temporal_filter_set_min(&result);
+        temporal_filter_init_maxima(&result);
         return result;
     }
 
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_set_min(outlier_filter_t* filter) {
+    void temporal_filter_set_min(temporal_filter_t* filter) {
         trace("Figuring out minimal input...");
         filter->min = INT64_MAX;
         filter->min_count = 0;
-        for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+        for (size_t i = 0; i < TEMPORAL_WINDOW; ++i) {
             const int64_t value = filter->window[i];
             tracef("- Integrating value[%zu] = %zd...", i, value);
             if (value < filter->min) {
@@ -173,13 +178,13 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_init_maxima(outlier_filter_t* filter) {
+    void temporal_filter_init_maxima(temporal_filter_t* filter) {
         // min can't be an outlier because all values are >= min, the window has
         // at least 2 values, and we operate under a single-outlier hypothesis
         tracef("Initializing max_normal to min = %zd...", filter->min);
         filter->max_normal = filter->min;
         filter->max_normal_count = (filter->window[0] == filter->min);
-        assert(OUTLIER_WINDOW >= 2);
+        assert(TEMPORAL_WINDOW >= 2);
 
         // First value is by definition the largest value seen so far
         filter->max = filter->window[0];
@@ -194,7 +199,7 @@
         // which keeps max_normal conservatively set to the next-to-max value,
         // that we will later use to check if max truly is an outlier or not.
         trace("Integrating other window values...");
-        for (size_t i = 1; i < OUTLIER_WINDOW; ++i) {
+        for (size_t i = 1; i < TEMPORAL_WINDOW; ++i) {
             const int64_t value = filter->window[i];
             tracef("- Integrating value[%zu] = %zd...", i, value);
             if (value > filter->max) {
@@ -242,14 +247,14 @@
                    "Use next-to-max %zd to compute upper_tolerance "
                    "and deduce if max is an outlier...",
                    filter->max, (size_t)first_max_idx, filter->max_normal);
-            outlier_filter_update_tolerance(filter);
+            temporal_filter_update_tolerance(filter);
             if (filter->max <= filter->upper_tolerance) {
                 trace("max is actually in tolerance, "
                       "will become single-occurence max_normal.");
                 filter->max_normal = filter->max;
                 filter->max_normal_count = 1;
-                outlier_filter_update_tolerance(filter);
-                filter->outlier_idx = OUTLIER_WINDOW;
+                temporal_filter_update_tolerance(filter);
+                filter->outlier_idx = TEMPORAL_WINDOW;
             } else {
                 tracef("max is indeed an outlier, "
                        "max_normal is thus %zd (%zu occurences).",
@@ -261,24 +266,24 @@
             tracef("Found non-isolated max %zd (%zu occurences), "
                    "which can't be an outlier and is thus max_normal.",
                    filter->max_normal, (size_t)filter->max_normal_count);
-            outlier_filter_update_tolerance(filter);
-            filter->outlier_idx = OUTLIER_WINDOW;
+            temporal_filter_update_tolerance(filter);
+            filter->outlier_idx = TEMPORAL_WINDOW;
         }
     }
 
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_update_tolerance(outlier_filter_t* filter) {
+    void temporal_filter_update_tolerance(temporal_filter_t* filter) {
         filter->upper_tolerance = ceil(
             filter->max_normal
-            + (filter->max_normal - filter->min) * OUTLIER_TOLERANCE
+            + (filter->max_normal - filter->min) * TEMPORAL_TOLERANCE
         );
         tracef("Updated outlier filter upper_tolerance to %zd.",
                filter->upper_tolerance);
     }
 
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_make_max_normal(outlier_filter_t* filter,
-                                        outlier_filter_result_t* result,
+    void temporal_filter_make_max_normal(temporal_filter_t* filter,
+                                        temporal_filter_result_t* result,
                                         const char* reason) {
         assert(filter->max > filter->max_normal);
         tracef("Reclassified max %zd as non-outlier: %s.",
@@ -287,21 +292,21 @@
         result->previous_input = filter->max;
         filter->max_normal = filter->max;
         filter->max_normal_count = 1;
-        filter->outlier_idx = OUTLIER_WINDOW;
+        filter->outlier_idx = TEMPORAL_WINDOW;
     }
 
     UDIPE_NON_NULL_ARGS
-    bool outlier_filter_decrease_min(outlier_filter_t* filter,
-                                     outlier_filter_result_t* result,
+    bool temporal_filter_decrease_min(temporal_filter_t* filter,
+                                     temporal_filter_result_t* result,
                                      int64_t new_min) {
         assert(new_min < filter->min);
         filter->min = new_min;
         filter->min_count = 1;
-        outlier_filter_update_tolerance(filter);
+        temporal_filter_update_tolerance(filter);
         if (filter->max > filter->max_normal
             && filter->max <= filter->upper_tolerance)
         {
-            outlier_filter_make_max_normal(
+            temporal_filter_make_max_normal(
                 filter,
                 result,
                 "tolerance window widened because min decreased"
@@ -313,17 +318,17 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    bool outlier_filter_increase_max(outlier_filter_t* filter,
-                                     outlier_filter_result_t* result,
+    bool temporal_filter_increase_max(temporal_filter_t* filter,
+                                     temporal_filter_result_t* result,
                                      int64_t new_max) {
         assert(new_max > filter->max);
         if (filter->max > filter->max_normal) {
-            outlier_filter_make_max_normal(
+            temporal_filter_make_max_normal(
                 filter,
                 result,
                 "encountered a larger input and there can only be one outlier"
             );
-            outlier_filter_update_tolerance(filter);
+            temporal_filter_update_tolerance(filter);
         }
         filter->max = new_max;
         if (filter->max <= filter->upper_tolerance) {
@@ -336,16 +341,16 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    bool outlier_filter_increase_max_normal(outlier_filter_t* filter,
-                                            outlier_filter_result_t* result,
+    bool temporal_filter_increase_max_normal(temporal_filter_t* filter,
+                                            temporal_filter_result_t* result,
                                             int64_t new_max_normal) {
         assert(new_max_normal > filter->max_normal);
         assert(new_max_normal < filter->max);
         filter->max_normal = new_max_normal;
         filter->max_normal_count = 1;
-        outlier_filter_update_tolerance(filter);
+        temporal_filter_update_tolerance(filter);
         if (filter->max <= filter->upper_tolerance) {
-            outlier_filter_make_max_normal(
+            temporal_filter_make_max_normal(
                 filter,
                 result,
                 "tolerance window widened because max_normal increased"
@@ -357,12 +362,12 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_reset_maxima(outlier_filter_t* filter) {
+    void temporal_filter_reset_maxima(temporal_filter_t* filter) {
         trace("Leveraging knowledge of outlier_idx to ease max_normal search...");
         const size_t first_normal_idx = (size_t)(filter->outlier_idx == 0);
         filter->max_normal = filter->window[first_normal_idx];
         filter->max_normal_count = 1;
-        for (size_t i = first_normal_idx + 1; i < OUTLIER_WINDOW; ++i) {
+        for (size_t i = first_normal_idx + 1; i < TEMPORAL_WINDOW; ++i) {
             if (i == filter->outlier_idx) continue;
             const int64_t normal_value = filter->window[i];
             if (normal_value > filter->max_normal) {
@@ -372,18 +377,18 @@
                 ++(filter->max_normal_count);
             }
         }
-        if (filter->outlier_idx < OUTLIER_WINDOW) {
+        if (filter->outlier_idx < TEMPORAL_WINDOW) {
             assert(filter->max == filter->window[filter->outlier_idx]);
             assert(filter->max > filter->max_normal);
         } else {
             filter->max = filter->max_normal;
         }
-        outlier_filter_update_tolerance(filter);
+        temporal_filter_update_tolerance(filter);
     }
 
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_finalize(outlier_filter_t* filter) {
-        for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+    void temporal_filter_finalize(temporal_filter_t* filter) {
+        for (size_t i = 0; i < TEMPORAL_WINDOW; ++i) {
             filter->window[i] = INT64_MIN;
         }
         filter->min = INT64_MAX;
@@ -918,7 +923,7 @@
                                   "  * Loop duration",
                                   loop_duration_stats,
                                   "ns");
-            if (loop_duration_stats.low > 5*offset_stats.high) {
+            if (loop_duration_stats.low > 10*offset_stats.high) {
                 debug("  * Loop finally contributes much more than clock offset!");
                 clock.builder = distribution_initialize();
                 break;
@@ -937,7 +942,7 @@
         clock.best_empty_durations = loop_durations;
         distribution_poison(&loop_durations);
         clock.best_empty_stats = loop_duration_stats;
-        const int64_t best_precision = zero_stats.high - zero_stats.low;
+        const int64_t best_precision = loop_duration_stats.high - loop_duration_stats.low;
         double best_uncertainty = relative_uncertainty(loop_duration_stats);
         do {
             num_iters *= 2;
@@ -1372,16 +1377,16 @@
 
     #ifdef UDIPE_BUILD_TESTS
 
-        /// Number of initial outlier_filter_t states
+        /// Number of initial temporal_filter_t states
         ///
         /// This affects the thoroughness of constructor tests and the number of
         /// states from which insertion tests will take place.
         static const size_t NUM_INITIAL_STATES = 100;
 
-        /// Kind of outlier_filter_apply() call
+        /// Kind of temporal_filter_apply() call
         ///
         /// This is used to ensure even branch coverage in
-        /// outlier_filter_apply() tests.
+        /// temporal_filter_apply() tests.
         typedef enum apply_kind_e {
             APPLY_BELOW_MIN = 0,
             APPLY_EQUAL_MIN,
@@ -1393,36 +1398,36 @@
             APPLY_KIND_LEN,
         } apply_kind_t;
 
-        /// Number of outlier_filter_apply() runs per initial state
+        /// Number of temporal_filter_apply() runs per initial state
         ///
-        /// This affects the thoroughness of outlier_filter_apply() tests.
+        /// This affects the thoroughness of temporal_filter_apply() tests.
         static const size_t NUM_APPLY_CALLS = 100 * APPLY_KIND_LEN;
 
-        /// Check two outlier filters for logical state equality
+        /// Check two temporal outlier filters for logical state equality
         ///
         /// `next_idx` is allowed to be different as long as unwrapping the
         /// `window` ring buffer into an array from this index yields the same
         /// result for both filters.
         UDIPE_NON_NULL_ARGS
-        void ensure_eq_outlier_filter(const outlier_filter_t* f1,
-                                      const outlier_filter_t* f2) {
+        void ensure_eq_temporal_filter(const temporal_filter_t* f1,
+                                       const temporal_filter_t* f2) {
             ensure_eq(f1->min, f2->min);
             ensure_eq(f1->max_normal, f2->max_normal);
             ensure_eq(f1->upper_tolerance, f2->upper_tolerance);
             ensure_eq(f1->max, f2->max);
             ensure_eq(f1->min_count, f2->min_count);
             ensure_eq(f1->max_normal_count, f2->max_normal_count);
-            for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
-                const size_t i1 = (f1->next_idx + i) % OUTLIER_WINDOW;
-                const size_t i2 = (f2->next_idx + i) % OUTLIER_WINDOW;
+            for (size_t i = 0; i < TEMPORAL_WINDOW; ++i) {
+                const size_t i1 = (f1->next_idx + i) % TEMPORAL_WINDOW;
+                const size_t i2 = (f2->next_idx + i) % TEMPORAL_WINDOW;
                 ensure_eq(f1->window[i1], f2->window[i2]);
             }
         }
 
-        /// Perfom checks that should be true after any operation on an outlier
-        /// filter.
+        /// Perfom checks that should be true after any operation on a temporal
+        /// outlier filter.
         UDIPE_NON_NULL_ARGS
-        void check_any_outlier_filter(const outlier_filter_t* filter) {
+        void check_any_temporal_filter(const temporal_filter_t* filter) {
             trace("Ensuring stats are internally consistent...");
             ensure_le(filter->min, filter->max_normal);
             ensure_le(filter->max_normal, filter->max);
@@ -1431,18 +1436,18 @@
                 filter->upper_tolerance,
                 ceil(
                     filter->max_normal
-                        + (filter->max_normal - filter->min) * OUTLIER_TOLERANCE
+                        + (filter->max_normal - filter->min) * TEMPORAL_TOLERANCE
                 )
             );
-            ensure_lt(filter->next_idx, OUTLIER_WINDOW);
-            ensure_le(filter->min_count, OUTLIER_WINDOW);
-            ensure_le(filter->max_normal_count, OUTLIER_WINDOW);
+            ensure_lt(filter->next_idx, TEMPORAL_WINDOW);
+            ensure_le(filter->min_count, TEMPORAL_WINDOW);
+            ensure_le(filter->max_normal_count, TEMPORAL_WINDOW);
 
             trace("Ensuring stats are consistent with the input window...");
             size_t min_count = 0;
             size_t max_normal_count = 0;
             size_t max_count = 0;
-            for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+            for (size_t i = 0; i < TEMPORAL_WINDOW; ++i) {
                 const int64_t value = filter->window[i];
                 ensure_ge(value, filter->min);
                 if (value == filter->min) ++min_count;
@@ -1465,36 +1470,36 @@
             }
 
             trace("Ensuring normal value iteration yields expected outputs...");
-            const outlier_filter_t before = *filter;
+            const temporal_filter_t before = *filter;
             uint16_t expected_idx = filter->next_idx;
-            OUTLIER_FILTER_FOREACH_NORMAL(filter, normal, {
+            TEMPORAL_FILTER_FOREACH_NORMAL(filter, normal, {
                 if (filter->window[expected_idx] > filter->upper_tolerance) {
-                    expected_idx = (expected_idx + 1) % OUTLIER_WINDOW;
+                    expected_idx = (expected_idx + 1) % TEMPORAL_WINDOW;
                 }
                 ensure_eq(normal, filter->window[expected_idx]);
-                expected_idx = (expected_idx + 1) % OUTLIER_WINDOW;
+                expected_idx = (expected_idx + 1) % TEMPORAL_WINDOW;
             });
             ensure(
                 expected_idx == filter->next_idx
-                || ((expected_idx + 1) % OUTLIER_WINDOW == filter->next_idx
+                || ((expected_idx + 1) % TEMPORAL_WINDOW == filter->next_idx
                     && filter->window[expected_idx] > filter->upper_tolerance)
             );
 
             trace("Ensuring normal iteration doesn't alter state...");
-            ensure_eq_outlier_filter(filter, &before);
+            ensure_eq_temporal_filter(filter, &before);
         }
 
-        /// Test outlier_filter_initialize then return the initialized
-        /// outlier_filter_t for use in further testing.
-        static outlier_filter_t checked_outlier_filter(
-            int64_t window[OUTLIER_WINDOW]
+        /// Test temporal_filter_initialize then return the initialized
+        /// temporal_filter_t for use in further testing.
+        static temporal_filter_t checked_temporal_filter(
+            int64_t window[TEMPORAL_WINDOW]
         ) {
-            outlier_filter_t filter = outlier_filter_initialize(window);
+            temporal_filter_t filter = temporal_filter_initialize(window);
 
             trace("Checking initial state...");
-            check_any_outlier_filter(&filter);
+            check_any_temporal_filter(&filter);
             ensure_eq(filter.next_idx, (uint16_t)0);
-            for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+            for (size_t i = 0; i < TEMPORAL_WINDOW; ++i) {
                 ensure_eq(filter.window[i], window[i]);
             }
             return filter;
@@ -1503,18 +1508,18 @@
         /// Checks that are common to all check_apply_xyz() tests
         ///
         UDIPE_NON_NULL_ARGS
-        static void check_apply_common(const outlier_filter_t* before,
+        static void check_apply_common(const temporal_filter_t* before,
                                        int64_t input,
-                                       const outlier_filter_t* after,
-                                       const outlier_filter_result_t* result) {
+                                       const temporal_filter_t* after,
+                                       const temporal_filter_result_t* result) {
             trace("Checking input-independent apply properties...");
 
             trace("- Filter should end up in an internally consistent state.");
-            check_any_outlier_filter(after);
+            check_any_temporal_filter(after);
 
             trace("- Input window should be modified in the expected way.");
-            ensure_eq(after->next_idx, (before->next_idx + 1) % OUTLIER_WINDOW);
-            for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+            ensure_eq(after->next_idx, (before->next_idx + 1) % TEMPORAL_WINDOW);
+            for (size_t i = 0; i < TEMPORAL_WINDOW; ++i) {
                 ensure_eq(after->window[i],
                           i == before->next_idx ? input
                                                 : before->window[i]);
@@ -1534,15 +1539,15 @@
         ///
         /// For at least one such `x` to exist, we need `min > INT64_MIN`.
         UDIPE_NON_NULL_ARGS
-        static void check_apply_below_min(outlier_filter_t* filter) {
+        static void check_apply_below_min(temporal_filter_t* filter) {
             assert(filter->min > INT64_MIN);
-            const outlier_filter_t before = *filter;
+            const temporal_filter_t before = *filter;
             const int64_t discarded = before.window[before.next_idx];
             const int64_t input =
                 filter->min - 1 - rand() % (filter->min - 1 - INT64_MIN);
             tracef("Applying outlier filter to sub-minimum input %zd", input);
-            const outlier_filter_result_t result =
-                outlier_filter_apply(filter, input);
+            const temporal_filter_result_t result =
+                temporal_filter_apply(filter, input);
             check_apply_common(&before, input, filter, &result);
 
             // Applying to a smaller value will obviously change the minimum
@@ -1564,7 +1569,7 @@
             // changed again after the second stage of removing an old input.
             const int64_t tmp_upper_tolerance = ceil(
                 before.max_normal
-                    + (before.max_normal - input) * OUTLIER_TOLERANCE
+                    + (before.max_normal - input) * TEMPORAL_TOLERANCE
             );
             if (before.max > before.max_normal
                 && before.max <= tmp_upper_tolerance) {
@@ -1588,8 +1593,8 @@
 
         /// Check a scenario where the input is in `[min; max_normal[`, which
         /// means max and max_normal can only change through evictions
-        static void check_max_evictions(const outlier_filter_t* before,
-                                        const outlier_filter_t* after) {
+        static void check_max_evictions(const temporal_filter_t* before,
+                                        const temporal_filter_t* after) {
             const int64_t discarded = before->window[before->next_idx];
             const bool max_normal_discarded =
                 (discarded == before->max_normal
@@ -1606,24 +1611,24 @@
             }
         }
 
-        /// Check that a run of outlier_filter_apply() neither classified the
+        /// Check that a run of temporal_filter_apply() neither classified the
         /// current input as an outlier not reclassified a former outlier input
         /// as non-outlier
         ///
         /// This is the outcome for all inputs in range `[min; max_normal]`.
-        static void check_result_passthrough(const outlier_filter_result_t* result) {
+        static void check_result_passthrough(const temporal_filter_result_t* result) {
             ensure(!result->current_is_outlier);
             ensure(!result->previous_not_outlier);
         }
 
         /// Test applying `filter` to `min`
         ///
-        static void check_apply_equal_min(outlier_filter_t* filter) {
-            const outlier_filter_t before = *filter;
+        static void check_apply_equal_min(temporal_filter_t* filter) {
+            const temporal_filter_t before = *filter;
             const int64_t discarded = before.window[before.next_idx];
             tracef("Applying outlier filter to minimum input %zd", filter->min);
-            const outlier_filter_result_t result =
-                outlier_filter_apply(filter, filter->min);
+            const temporal_filter_result_t result =
+                temporal_filter_apply(filter, filter->min);
             check_apply_common(&before, filter->min, filter, &result);
 
             // This will preserve min and make its refcount go up unless another
@@ -1644,8 +1649,8 @@
 
         /// Check a scenario where the input is > min, which means min can only
         /// change through evictions
-        static void check_min_evictions(const outlier_filter_t* before,
-                                        const outlier_filter_t* after) {
+        static void check_min_evictions(const temporal_filter_t* before,
+                                        const temporal_filter_t* after) {
             const int64_t discarded = before->window[before->next_idx];
             if (after->min != before->min) {
                 ensure_eq(discarded, before->min);
@@ -1661,15 +1666,15 @@
         /// For such an input to exist, we need `max_normal - min > 1`.
         UDIPE_NON_NULL_ARGS
         static
-        void check_apply_between_min_and_max_normal(outlier_filter_t* filter) {
+        void check_apply_between_min_and_max_normal(temporal_filter_t* filter) {
             assert(filter->max_normal - filter->min > 1);
-            const outlier_filter_t before = *filter;
+            const temporal_filter_t before = *filter;
             const int64_t input =
                 filter->min + 1
                     + rand() % (filter->max_normal - filter->min - 1);
             tracef("Applying outlier filter to normal input %zd", input);
-            const outlier_filter_result_t result =
-                outlier_filter_apply(filter, input);
+            const temporal_filter_result_t result =
+                temporal_filter_apply(filter, input);
             check_apply_common(&before, input, filter, &result);
 
             // This will only change the min through evictions
@@ -1686,14 +1691,14 @@
         /// Test applying `filter` to `max_normal`, which is assumed to be
         /// distinct from `min`.
         UDIPE_NON_NULL_ARGS
-        static void check_apply_equal_max_normal(outlier_filter_t* filter) {
+        static void check_apply_equal_max_normal(temporal_filter_t* filter) {
             assert(filter->max_normal > filter->min);
-            const outlier_filter_t before = *filter;
+            const temporal_filter_t before = *filter;
             const int64_t discarded = before.window[before.next_idx];
             tracef("Applying outlier filter to max normal input %zd",
                    filter->max_normal);
-            const outlier_filter_result_t result =
-                outlier_filter_apply(filter, filter->max_normal);
+            const temporal_filter_result_t result =
+                temporal_filter_apply(filter, filter->max_normal);
             check_apply_common(&before, filter->max_normal, filter, &result);
 
             // This will only change the min through evictions
@@ -1726,16 +1731,16 @@
         /// implies that `max` is currently classified as an outlier.
         UDIPE_NON_NULL_ARGS
         static
-        void check_apply_between_max_normal_and_max(outlier_filter_t* filter) {
+        void check_apply_between_max_normal_and_max(temporal_filter_t* filter) {
             assert(filter->max - filter->max_normal > 1);
-            const outlier_filter_t before = *filter;
+            const temporal_filter_t before = *filter;
             const int64_t discarded = before.window[before.next_idx];
             const int64_t input =
                 filter->max_normal + 1
                     + rand() % (filter->max - filter->max_normal - 1);
             tracef("Applying outlier filter to above-normal input %zd", input);
-            const outlier_filter_result_t result =
-                outlier_filter_apply(filter, input);
+            const temporal_filter_result_t result =
+                temporal_filter_apply(filter, input);
             check_apply_common(&before, input, filter, &result);
 
             // This will only change the min through evictions
@@ -1757,7 +1762,7 @@
             //   outlier would violate our hypothesis that there is at most one
             //   outlier per (momentarily extended) input window.
             const int64_t upper_tolerance_after_input = ceil(
-                input + (input - before.min) * OUTLIER_TOLERANCE
+                input + (input - before.min) * TEMPORAL_TOLERANCE
             );
             if (before.max <= upper_tolerance_after_input) {
                 ensure(result.previous_not_outlier);
@@ -1785,14 +1790,14 @@
         /// from `max_normal`. This implies that `max` is currently classified
         /// as an outlier.
         UDIPE_NON_NULL_ARGS
-        static void check_apply_equal_max(outlier_filter_t* filter) {
+        static void check_apply_equal_max(temporal_filter_t* filter) {
             assert(filter->max > filter->max_normal);
-            const outlier_filter_t before = *filter;
+            const temporal_filter_t before = *filter;
             const int64_t discarded = before.window[before.next_idx];
             tracef("Applying outlier filter to max input %zd",
                    filter->max);
-            const outlier_filter_result_t result =
-                outlier_filter_apply(filter, filter->max);
+            const temporal_filter_result_t result =
+                temporal_filter_apply(filter, filter->max);
             check_apply_common(&before, filter->max, filter, &result);
 
             // This will only change the min through evictions
@@ -1816,15 +1821,15 @@
         ///
         /// For at least one such `x` to exist, we need `max < INT64_MAX`.
         UDIPE_NON_NULL_ARGS
-        static void check_apply_above_max(outlier_filter_t* filter) {
+        static void check_apply_above_max(temporal_filter_t* filter) {
             assert(filter->max < INT64_MAX);
-            const outlier_filter_t before = *filter;
+            const temporal_filter_t before = *filter;
             const int64_t discarded = before.window[before.next_idx];
             const int64_t input =
                 filter->max + 1 + rand() % (INT64_MAX - filter->max - 1);
             tracef("Applying outlier filter to above-max input %zd", input);
-            const outlier_filter_result_t result =
-                outlier_filter_apply(filter, input);
+            const temporal_filter_result_t result =
+                temporal_filter_apply(filter, input);
             check_apply_common(&before, input, filter, &result);
 
             // This will only change the min through evictions
@@ -1853,7 +1858,7 @@
             }
             // As a result, upper_tolerance gets a possibly different value...
             const int64_t upper_tolerance_after_input = ceil(
-                before.max + (before.max - before.min) * OUTLIER_TOLERANCE
+                before.max + (before.max - before.min) * TEMPORAL_TOLERANCE
             );
             // ...which may, in turn, affect the decision to classify the new
             // isolated maximal input as an outlier or not.
@@ -1881,24 +1886,24 @@
             }
         }
 
-        /// Test outlier_filter_t
+        /// Test temporal_filter_t
         ///
-        static void test_outlier_filter() {
+        static void test_temporal_filter() {
             tracef("Testing the outlier filter from %zu initial states...",
                    NUM_INITIAL_STATES);
             for (size_t state = 0; state < NUM_INITIAL_STATES; ++state) {
                 trace("- Generating initial inputs...");
-                int64_t window[OUTLIER_WINDOW];
-                for (size_t i = 0; i < OUTLIER_WINDOW; ++i) {
+                int64_t window[TEMPORAL_WINDOW];
+                for (size_t i = 0; i < TEMPORAL_WINDOW; ++i) {
                     // This random distribution ensures at least one repetition,
                     // some negative values, and enough spread to see rounding
                     // error in upper_tolerance computations.
-                    window[i] = (rand() % (OUTLIER_WINDOW-1) - OUTLIER_WINDOW/3) * 10;
+                    window[i] = (rand() % (TEMPORAL_WINDOW-1) - TEMPORAL_WINDOW/3) * 10;
                     tracef("  * window[%zu] = %zd", i, window[i]);
                 }
 
                 trace("- Initializing filter...");
-                outlier_filter_t filter = checked_outlier_filter(window);
+                temporal_filter_t filter = checked_temporal_filter(window);
 
                 // TODO: Track last rejected value + its age to check if each
                 //       rejection is valid. This includes the possible
@@ -2423,9 +2428,9 @@
             info("Running benchmark harness unit tests...");
             configure_rand();
 
-            debug("Running outlier filter unit tests...");
+            debug("Running temporal outlier filter unit tests...");
             with_log_level(UDIPE_TRACE, {
-                test_outlier_filter();
+                test_temporal_filter();
             });
 
             debug("Running distribution unit tests...");

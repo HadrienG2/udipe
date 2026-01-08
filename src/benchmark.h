@@ -39,73 +39,93 @@
     #endif
 
 
-    /// \name Outlier filter
+    /// \name Temporal outlier filter
     /// \{
 
-    /// Width of the sliding window of inputs used for outlier detection
+    /// Width of the sliding window of inputs used for temporal outlier
+    /// filtering
     ///
-    /// This is the number of previous input data points that are used to assess
-    /// whether a newly incoming input data point is an outlier.
+    /// See \ref temporal_filter_t for general overview of the temporal outlier
+    /// filtering algorithm.
     ///
-    /// At least 3 previous input data points must be kept around, because at
-    /// any point in time the window may contain one data point previously
-    /// classified as an outlier, and it should additionally contain enough
-    /// other data points to feature at least two distinct input values because
-    /// that's the absolute minimum needed to estimate the input value
-    /// distribution spread.
+    /// This is the number of previous input data points kept around to assess
+    /// whether a newly incoming input data point is an outlier or not. It
+    /// affects temporal outlier filtering as follows:
     ///
-    /// Up to a point, using a wider input window improves knowledge of the
-    /// spread of the input value distribution. This reduces the rate of outlier
-    /// classification false positives, which is good as these false positives
-    /// reduce data collection efficiency and bias the duration statistics
-    /// towards lower durations.
-    ///
-    /// But once the input window gets so large as to have a non-negligible odd
-    /// of containing two outliers, then outlier rejection starts becoming less
-    /// effective and lets outliers pass through, up to a point where no
-    /// outliers will be rejected and all inputs will pass through.
-    ///
-    /// Even before that, if the inputs vary slowly over time (because the
-    /// warmup period is too short, or the system just feels like switching
-    /// power management states from time to time for other reasons), the
-    /// detected distribution spread will increase, again reducing the
-    /// effectiveness of outlier detection.
+    /// - The window width must be at least 3, and usually more. That's because
+    ///   any given window may contain an outlier value, and should contain at
+    ///   least two other distinct input values to be able to estimate the input
+    ///   distribution spread, otherwise it will misclassify all isolated
+    ///   maximal inputs as outliers. Because input values can and will often
+    ///   repeat, consistently getting two distinct inputs in the input window
+    ///   tends to require window widths much greater than 3.
+    /// - Longer input windows improve knowledge of the input data distribution
+    ///   spread (if combined with a matching reduction of \ref
+    ///   TEMPORAL_TOLERANCE). Therefore they reduce the odds that an isolated
+    ///   non-outlier local maxima is misclassified as an outlier.
+    /// - Longer input windows lower the maximum run duration above which a
+    ///   given input window will contain two OS scheduler interrupts and
+    ///   outlier detection efficiency drops to 0%.
+    /// - Longer input windows reduce the algorithm's ability to accomodate
+    ///   qualitative changes in benchmark behavior (e.g. CPU clock rate
+    ///   switches). For a longer period of time, the input window will contain
+    ///   a mixture of the two behaviors, resulting in an over-estimated local
+    ///   input distribution spread and thus a greater tendency to
+    ///   misclassify outlier inputs as non-outliers.
     ///
     /// Currently the window width cannot be greater than 65535, but this
     /// limitation can easily be lifted if necessary.
-    #define OUTLIER_WINDOW ((uint16_t)12)
-    static_assert(OUTLIER_WINDOW >= 3,
-                  "Outlier detection requires at very least 3 previous inputs");
+    #define TEMPORAL_WINDOW ((uint16_t)10)
+    static_assert(TEMPORAL_WINDOW >= 3,
+                  "Temporal outlier detection requires at very least 3 inputs");
 
-    /// Tolerance of the outlier detection algorithm
+    /// Tolerance of the temporal outlier detection algorithm
     ///
-    /// Because it uses a finite input window, the outlier filter has an
-    /// imperfect knowledge of the max-min spread of the outlier-free input
-    /// timing distribution. To compensate this, the measured spread is
-    /// artificially broadened by this relative share of the empirical spread in
-    /// order to get an estimate of the actual spread.
+    /// See \ref temporal_filter_t for general overview of the temporal outlier
+    /// filtering algorithm.
     ///
-    /// Like increasing the size of the input window, increasing this tolerance
-    /// reduces the chance of incorrectly classifying non-outliers as outliers
-    /// (false positives) at the expense of increasing the chance of incorrectly
-    /// letting more outliers pass through (false negatives).
-    #define OUTLIER_TOLERANCE 2.0
+    /// This is the correction that is applied to the empirical input maximum in
+    /// order to estimate the true input distribution maxima that we would get
+    /// if we could sample the input distribution for an infinite amount of time
+    /// with no outlier or benchmark behavior change.
+    ///
+    /// As this correction is meant to compensate a small input window, it
+    /// should usually be tuned down when \ref TEMPORAL_WINDOW goes up and be
+    /// tuned up when \ref TEMPORAL_WINDOW goes down.
+    #define TEMPORAL_TOLERANCE 1.0
+    static_assert(TEMPORAL_TOLERANCE >= 0.0,
+                  "TEMPORAL_TOLERANCE can only broaden the distribution");
 
-    /// Outlier filter
+    /// Temporal outlier filter
     ///
-    /// This filter classifies duration measurements as either outlier or
-    /// non-outlier using a simple sliding window algorithm, which is guided by
-    /// the assumption that a sufficiently short sliding window of previous
-    /// inputs is unlikely to contain two or more high outlier values.
+    /// This filter is mainly designed to detect benchmark run duration outliers
+    /// caused by OS scheduler interrupts, which are the most common kind of
+    /// duration outlier in microbenchmarks. It is based on the following
+    /// observations...
     ///
-    /// This assumption, is turn, emerges from the following observations:
+    /// - OS scheduler interrupts are usually periodical (e.g. each millisecond
+    ///   for a classic OS scheduler operating at 1 kHz), but can alternatively
+    ///   be spaced by a guaranteed minimal amount of time instead (e.g. in
+    ///   "tickless" Linux kernel configurations).
+    /// - Given sufficient timing precision and a task of sufficiently stable
+    ///   duration, a benchmark run that is interrupted by the OS scheduler
+    ///   takes a lot longer than a benchmark run that is not interrupted by the
+    ///   OS scheduler, deviating from the normal duration by much more than the
+    ///   normal input duration distribution spread.
     ///
-    /// - Most duration outliers are the result of an OS interrupt firing up
-    ///   between start and end timestamp measurements.
-    /// - Most OS interrupts come from the OS scheduler, which interrupts user
-    ///   processes at regular time intervals.
-    /// - By design, benchmark run durations are tuned such that many benchmark
-    ///   runs occur between two OS scheduler interrupts.
+    /// ...which allows it to operate under the following hypotheses:
+    ///
+    /// - For sufficiently small benchmark run durations, a sliding window of
+    ///   \ref TEMPORAL_WINDOW measured durations contains at most one OS
+    ///   scheduler induced duration outlier. If a certain benchmark run
+    ///   duration occurs more than once in such a window, it is not an OS
+    ///   scheduler outlier and should be kept.
+    /// - For sufficiently large values of \ref TEMPORAL_WINDOW, the empirical
+    ///   input distribution spread is a good proxy for the true input
+    ///   distribution spread that we would get given an infinite amount of
+    ///   unperturbed data points, and said input distribution spread can
+    ///   therefore be guessed by mere dilation of the empirical distribution
+    ///   spread via \ref TEMPORAL_TOLERANCE.
     ///
     /// Like all statistical algorithms, the outlier detection algorithm can
     /// have false positives and false negatives, but interestingly some false
@@ -113,8 +133,8 @@
     /// input sequence (typically if the system qualitatively undergoes a
     /// step-change in behavior between two data points). When this happens, the
     /// previously misclassified input will be returned as a second output of
-    /// outlier_filter_apply().
-    typedef struct outlier_filter_s {
+    /// temporal_filter_apply().
+    typedef struct temporal_filter_s {
         /// Window of previous input data points
         ///
         /// Whenever a new input comes in, it is compared with the distribution
@@ -125,7 +145,7 @@
         /// After this, `window[next_idx]` is replaced by this input value,
         /// other state variables are updated as needed, and the cycle repeats
         /// for subsequent inputs.
-        int64_t window[OUTLIER_WINDOW];
+        int64_t window[TEMPORAL_WINDOW];
 
         /// Minimum value from `window`
         ///
@@ -146,7 +166,7 @@
         ///
         /// This is derived from `min` and `max_normal`, and must therefore be
         /// updated whenever any of those values is changed, which is done via
-        /// outlier_filter_update_tolerance().
+        /// temporal_filter_update_tolerance().
         ///
         /// An isolated maximum value within `window` is considered to be an
         /// outlier when it is greater than this threshold.
@@ -167,29 +187,33 @@
 
         /// Number of occurences of `min` in `window`
         ///
-        /// When this drops to 0, all inner statistics must be recalculated
-        /// using outlier_filter_update_minmax().
+        /// When this drops to 0, `min`, `min_count` and `upper_tolerance` must
+        /// be updated according to the new minimum value of `window`, which is
+        /// done via temporal_filter_set_min() and
+        /// temporal_filter_update_tolerance().
         uint16_t min_count;
 
         /// Number of occurences of `max_normal` in `window`
         ///
-        /// When this drops to 0, all inner statistics other than `min` and
-        /// `min_count` must be recalculated using outlier_filter_update_max().
+        /// When this drops to 0, `max_normal`, `max_normal_count` and
+        /// `upper_tolerance` must be updated according to the new maximum
+        /// non-outlier value of `window`, which is done via
+        /// temporal_filter_reset_maxima().
         uint16_t max_normal_count;
 
         /// Index of the last input that was classified as an outlier back when
-        /// it was an isolated `max`, or \ref OUTLIER_WINDOW to denote the
+        /// it was an isolated `max`, or \ref TEMPORAL_WINDOW to denote the
         /// absence of outliers in the input window
         uint16_t outlier_idx;
-    } outlier_filter_t;
+    } temporal_filter_t;
 
-    /// Set up an outlier filter
+    /// Set up a temporal outlier filter
     ///
     /// To avoid initially operating with worse classification characteristics
     /// and constantly checking for an initial vs steady state, the outlier
     /// filter must be "seeded" with a full window of input values.
     ///
-    /// After this is done, you can use the OUTLIER_FILTER_FOREACH_NORMAL()
+    /// After this is done, you can use the TEMPORAL_FILTER_FOREACH_NORMAL()
     /// macro to iterate over the initial input values from this window that are
     /// not considered to be outliers.
     ///
@@ -198,19 +222,19 @@
     /// \param initial_window is the set of input values that the detector will
     ///        be seeded with.
     ///
-    /// \returns an outlier filter that must later be finalized with
-    ///          outlier_filter_finalize().
-    outlier_filter_t
-    outlier_filter_initialize(const int64_t initial_window[OUTLIER_WINDOW]);
+    /// \returns a temporal outlier filter that must later be finalized with
+    ///          temporal_filter_finalize().
+    temporal_filter_t
+    temporal_filter_initialize(const int64_t initial_window[TEMPORAL_WINDOW]);
 
-    /// Iterate over all previous inputs from an outlier_filter_t's input window
+    /// Iterate over all previous inputs from a temporal_filter_t's input window
     /// that are not considered to be outliers
     ///
-    /// This is normally used after outlier_filter_initialize() to collect the
+    /// This is normally used after temporal_filter_initialize() to collect the
     /// initial list of non-outlier inputs, excluding any detected outlier, so
     /// that data from the initial input window is not lost.
     ///
-    /// \param filter_ptr must be a pointer to an \ref outlier_filter_t.
+    /// \param filter_ptr must be a pointer to a \ref temporal_filter_t.
     /// \param value_ident must be an unused variable name. A constant with this
     ///                    name will be created and receive the value of the
     ///                    current non-outlier value on each iteration.
@@ -218,11 +242,11 @@
     /// The remainder of this macro's input is a code block that indicates what
     /// must be done with each non-outlier value from the input dataset, which
     /// using `value_indent` to refer to said value.
-    #define OUTLIER_FILTER_FOREACH_NORMAL(filter_ptr, value_ident, ...)  \
-        const outlier_filter_t* udipe_filter = (filter_ptr);  \
-        for (size_t udipe_iter = 0; udipe_iter < OUTLIER_WINDOW; ++udipe_iter) {  \
+    #define TEMPORAL_FILTER_FOREACH_NORMAL(filter_ptr, value_ident, ...)  \
+        const temporal_filter_t* udipe_filter = (filter_ptr);  \
+        for (size_t udipe_iter = 0; udipe_iter < TEMPORAL_WINDOW; ++udipe_iter) {  \
             const size_t udipe_idx =  \
-                (udipe_filter->next_idx + udipe_iter) % OUTLIER_WINDOW;  \
+                (udipe_filter->next_idx + udipe_iter) % TEMPORAL_WINDOW;  \
             const int64_t value_ident = udipe_filter->window[udipe_idx];  \
             if (value_ident > udipe_filter->upper_tolerance) continue;  \
             do __VA_ARGS__ while(false);  \
@@ -247,11 +271,11 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param filter is an outlier filter that has been initialized with
-    ///               outlier_filter_initialize() and hasn't been destroyed with
-    ///               outlier_filter_finalize() yet.
+    /// \param filter is a temporal filter that has been initialized with
+    ///               temporal_filter_initialize() and hasn't been destroyed
+    ///               with temporal_filter_finalize() yet.
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_set_min(outlier_filter_t* filter);
+    void temporal_filter_set_min(temporal_filter_t* filter);
 
     /// Set `max`, `upper_tolerance`, `max_normal` and `max_normal_count`
     /// according to the current contents of `window`
@@ -262,27 +286,28 @@
     /// \internal
     ///
     /// This function uses `min`, which must be up to date. It can be deduced
-    /// from `window` using outlier_filter_set_min() if necessary.
+    /// from `window` using temporal_filter_set_min() if necessary.
     ///
     /// From this initial state, this function will set `max`,
     /// `upper_tolerance`, `max_normal` and `max_normal_count` to a value that
     /// is correct when `window` is the full input dataset.
     ///
     /// This will produce correct results when called on a freshly constructed
-    /// \ref outlier_filter_t. However, if called on a \ref outlier_filter_t
+    /// \ref temporal_filter_t. However, if called on a \ref temporal_filter_t
     /// that has more input history behind its current input window, it may
     /// reclassify inputs which were previously classified as normal as
-    /// outliers, which is undesirable as it may lead to inputs being emitted
-    /// multiple times. After initialization, outlier_filter_reset_maxima() must
-    /// be used instead to avoid this problem (and should be faster as a bonus).
+    /// outliers. This is undesirable as it may lead to inputs being emitted
+    /// multiple times. Therefore, after initialization,
+    /// temporal_filter_reset_maxima() must be used instead to avoid this
+    /// problem (and should be faster as a bonus).
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param filter is an outlier filter that has been initialized with
-    ///               outlier_filter_initialize() and hasn't been destroyed with
-    ///               outlier_filter_finalize() yet.
+    /// \param filter is a temporal outlier filter that has been initialized
+    ///               with temporal_filter_initialize() and hasn't been
+    ///               destroyed with temporal_filter_finalize() yet.
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_init_maxima(outlier_filter_t* filter);
+    void temporal_filter_init_maxima(temporal_filter_t* filter);
 
     /// Update an outlier filter's `upper_tolerance` value
     ///
@@ -301,22 +326,22 @@
     ///
     /// It must be called within the scope of with_logger().
     ///
-    /// \param filter is an outlier filter that has been initialized with
-    ///               outlier_filter_initialize() and hasn't been destroyed with
-    ///               outlier_filter_finalize() yet.
+    /// \param filter is a temporal filter that has been initialized with
+    ///               temporal_filter_initialize() and hasn't been destroyed
+    ///               with temporal_filter_finalize() yet.
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_update_tolerance(outlier_filter_t* filter);
+    void temporal_filter_update_tolerance(temporal_filter_t* filter);
 
-    /// Result of outlier_filter_apply()
+    /// Result of temporal_filter_apply()
     ///
     /// This indicates whether the current input is considered to be an outlier,
     /// and whether a former input that was previously classified as an outlier
     /// has been reclassified as non-outlier.
-    typedef struct outlier_filter_result_s {
+    typedef struct temporal_filter_result_s {
         /// Truth that the current input is an outlier
         ///
         /// If this is true, then the `input` duration that was passed to
-        /// outlier_filer_apply() is likely to have been enlarged by an OS
+        /// temporal_filer_apply() is likely to have been enlarged by an OS
         /// interrupt and should not be inserted into the output distribution.
         bool current_is_outlier;
 
@@ -331,12 +356,12 @@
         ///
         /// This member is only set when `previous_not_outlier` is true.
         int64_t previous_input;
-    } outlier_filter_result_t;
+    } temporal_filter_result_t;
 
-    /// Reclassify an outlier filter's maximum value as normal
+    /// Reclassify a temporal outlier filter's maximum value as normal
     ///
-    /// This function is an implementation detail of outlier_filter_apply() that
-    /// shouldn't be called directly.
+    /// This function is an implementation detail of temporal_filter_apply()
+    /// that shouldn't be called directly.
     ///
     /// \internal
     ///
@@ -345,132 +370,132 @@
     /// reason.
     ///
     /// It invalidates `upper_tolerance` and must therefore be followed by a
-    /// call to outlier_filter_update_tolerance() before the next use of
+    /// call to temporal_filter_update_tolerance() before the next use of
     /// `upper_tolerance`.
     ///
     /// It must be called within the scope of with_logger().
     ///
-    /// \param filter is an outlier filter that has been initialized with
-    ///               outlier_filter_initialize() and hasn't been destroyed with
-    ///               outlier_filter_finalize() yet.
-    /// \param result is a \ref outlier_filter_result_t whose fields will be set
-    ///               to indicate to the caller that `max` is not an outlier
+    /// \param filter is a temporal outlier filter that has been initialized
+    ///               with temporal_filter_initialize() and hasn't been
+    ///               destroyed with temporal_filter_finalize() yet.
+    /// \param result is a \ref temporal_filter_result_t whose fields will be
+    ///               set to indicate to the caller that `max` is not an outlier
     ///               after all.
     /// \param reason indicates the reason why the input was reclassified as
     ///               non-outlier, which will be logged.
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_make_max_normal(outlier_filter_t* filter,
-                                        outlier_filter_result_t* result,
+    void temporal_filter_make_max_normal(temporal_filter_t* filter,
+                                        temporal_filter_result_t* result,
                                         const char* reason);
 
-    /// Update an outlier filter's state after encountering an input smaller
-    /// than its current `min`
+    /// Update a temporal outlier filter's state after encountering an input
+    /// smaller than its current `min`
     ///
-    /// This function is an implementation detail of outlier_filter_apply() that
+    /// This function is an implementation detail of temporal_filter_apply() that
     /// shouldn't be called directly.
     ///
     /// \internal
     ///
     /// Decreasing `min` increases `upper_tolerance`, which may lead a `max`
     /// that is currently classified as an outlier to be reclassified as
-    /// non-outlier. This function will call outlier_filter_make_max_normal()
+    /// non-outlier. This function will call temporal_filter_make_max_normal()
     /// for you in this case, which is the reason why it takes a `result`
     /// out-parameter.
     ///
     /// This function may or may not update `upper_tolerance`. Use its return
     /// value to tell if it must be updated via
-    /// outlier_filter_update_tolerance().
+    /// temporal_filter_update_tolerance().
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param filter is an outlier filter that has been initialized with
-    ///               outlier_filter_initialize() and hasn't been destroyed with
-    ///               outlier_filter_finalize() yet.
-    /// \param result is a \ref outlier_filter_result_t whose fields may be set
+    /// \param filter is a temporal outlier filter that has been initialized
+    ///               with temporal_filter_initialize() and hasn't been
+    ///               destroyed with temporal_filter_finalize() yet.
+    /// \param result is a \ref temporal_filter_result_t whose fields may be set
     ///               if this change of minimum leads to a reclassification of
     ///               `max` as non-outlier.
     /// \param new_min indicates the new minimum value of the input window.
     ///
     /// \returns the truth that `upper_tolerance` must be updated using
-    ///          outlier_filter_update_tolerance().
+    ///          temporal_filter_update_tolerance().
     UDIPE_NON_NULL_ARGS
-    bool outlier_filter_decrease_min(outlier_filter_t* filter,
-                                     outlier_filter_result_t* result,
+    bool temporal_filter_decrease_min(temporal_filter_t* filter,
+                                     temporal_filter_result_t* result,
                                      int64_t new_min);
 
-    /// Update an outlier filter's state after encountering an input larger
-    /// than its current `max`
+    /// Update a temporal outlier filter's state after encountering an input
+    /// larger than its current `max`
     ///
-    /// This function is an implementation detail of outlier_filter_apply() that
-    /// shouldn't be called directly.
+    /// This function is an implementation detail of temporal_filter_apply()
+    /// that shouldn't be called directly.
     ///
     /// \internal
     ///
     /// If the current `max` is classified as an outlier, then it must be
     /// reclassified as non-outlier because there can be at most one outlier
     /// input in the data window. This function will call
-    /// outlier_filter_make_max_normal() for you in this case, which is the
+    /// temporal_filter_make_max_normal() for you in this case, which is the
     /// reason why it takes a `result` out-parameter.
     ///
     /// This function uses the current value of `upper_tolerance`, and may or
     /// may not update it if it changes `max_normal`. Use its return value to
     /// tell if `upper_tolerance` must be updated via
-    /// outlier_filter_update_tolerance().
+    /// temporal_filter_update_tolerance().
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param filter is an outlier filter that has been initialized with
-    ///               outlier_filter_initialize() and hasn't been destroyed with
-    ///               outlier_filter_finalize() yet.
-    /// \param result is a \ref outlier_filter_result_t whose fields may be set
+    /// \param filter is a temporal outlier filter that has been initialized
+    ///               with temporal_filter_initialize() and hasn't been
+    ///               destroyed with temporal_filter_finalize() yet.
+    /// \param result is a \ref temporal_filter_result_t whose fields may be set
     ///               if this change of minimum leads to a reclassification of
     ///               `max` as non-outlier.
     /// \param new_max indicates the new maximum value of the input window.
     ///
     /// \returns the truth that `upper_tolerance` must be updated using
-    ///          outlier_filter_update_tolerance().
+    ///          temporal_filter_update_tolerance().
     UDIPE_NON_NULL_ARGS
-    bool outlier_filter_increase_max(outlier_filter_t* filter,
-                                     outlier_filter_result_t* result,
+    bool temporal_filter_increase_max(temporal_filter_t* filter,
+                                     temporal_filter_result_t* result,
                                      int64_t new_max);
 
-    /// Update an outlier filter's state after encountering an input larger
-    /// than its current `max_normal`
+    /// Update a temporal outlier filter's state after encountering an input
+    /// larger than its current `max_normal`
     ///
-    /// This function is an implementation detail of outlier_filter_apply() that
+    /// This function is an implementation detail of temporal_filter_apply() that
     /// shouldn't be called directly.
     ///
     /// \internal
     ///
     /// This function can only be called if `max` is currently considered to be
-    /// an outlier, otherwise outlier_filter_increase_max() will be called
+    /// an outlier, otherwise temporal_filter_increase_max() will be called
     /// instead.
     ///
     /// Increasing `max_normal` increases `upper_tolerance`, which may lead
     /// `max` to be reclassified as non-outlier. This function will call
-    /// outlier_filter_make_max_normal() for you in this case, which is the
+    /// temporal_filter_make_max_normal() for you in this case, which is the
     /// reason why it takes a `result` out-parameter.
     ///
     /// This function may or may not update `upper_tolerance`. Use its return
     /// value to tell if it must be updated via
-    /// outlier_filter_update_tolerance().
+    /// temporal_filter_update_tolerance().
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param filter is an outlier filter that has been initialized with
-    ///               outlier_filter_initialize() and hasn't been destroyed with
-    ///               outlier_filter_finalize() yet.
-    /// \param result is a \ref outlier_filter_result_t whose fields may be set
+    /// \param filter is a temporal outlier filter that has been initialized
+    ///               with temporal_filter_initialize() and hasn't been
+    ///               destroyed with temporal_filter_finalize() yet.
+    /// \param result is a \ref temporal_filter_result_t whose fields may be set
     ///               if this change of minimum leads to a reclassification of
     ///               `max` as non-outlier.
     /// \param new_max_normal indicates the new maximum non-outlier value of the
     ///                       input window.
     ///
     /// \returns the truth that `upper_tolerance` must be updated using
-    ///          outlier_filter_update_tolerance().
+    ///          temporal_filter_update_tolerance().
     UDIPE_NON_NULL_ARGS
-    bool outlier_filter_increase_max_normal(outlier_filter_t* filter,
-                                            outlier_filter_result_t* result,
+    bool temporal_filter_increase_max_normal(temporal_filter_t* filter,
+                                            temporal_filter_result_t* result,
                                             int64_t new_max_normal);
 
     /// Reset `max`, `upper_tolerance`, `max_normal` and `max_normal_count`
@@ -483,10 +508,10 @@
     /// \internal
     ///
     /// This function uses `min`, which must be up to date. It can be deduced
-    /// from `window` using outlier_filter_set_min() if necessary.
+    /// from `window` using temporal_filter_set_min() if necessary.
     ///
     /// It also uses `outlier_idx` which is initialized by
-    /// outlier_filter_init_maxima() and updated by outlier_filter_apply()
+    /// temporal_filter_init_maxima() and updated by temporal_filter_apply()
     /// during the part of the cycle where new inputs are classified as
     /// (non-)outliers and old inputs are discarded.
     ///
@@ -497,36 +522,36 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param filter is an outlier filter that has been initialized with
-    ///               outlier_filter_initialize() and hasn't been destroyed with
-    ///               outlier_filter_finalize() yet.
+    /// \param filter is a temporal outlier filter that has been initialized
+    ///               with temporal_filter_initialize() and hasn't been
+    ///               destroyed with temporal_filter_finalize() yet.
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_reset_maxima(outlier_filter_t* filter);
+    void temporal_filter_reset_maxima(temporal_filter_t* filter);
 
     /// Record a new input data point, tell if it looks an outlier and possibly
     /// reclassify a previous outlier as non-outlier in the process
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param filter is an outlier filter that has been initialized with
-    ///               outlier_filter_initialize() and hasn't been destroyed with
-    ///               outlier_filter_finalize() yet.
+    /// \param filter is a temporal outlier filter that has been initialized
+    ///               with temporal_filter_initialize() and hasn't been
+    ///               destroyed with temporal_filter_finalize() yet.
     ///
     /// \returns the truth that the current input should be treated as an
     ///          outlier and that a former input was wrongly classified as an
     ///          outlier and should be included in the normal dataset after all.
     UDIPE_NON_NULL_ARGS
     static inline
-    outlier_filter_result_t outlier_filter_apply(outlier_filter_t* filter,
+    temporal_filter_result_t temporal_filter_apply(temporal_filter_t* filter,
                                                  int64_t input) {
         assert(filter->min <= filter->max_normal);
         assert(filter->max_normal <= filter->max);
         assert(filter->max_normal <= filter->upper_tolerance);
-        assert(filter->next_idx < OUTLIER_WINDOW);
+        assert(filter->next_idx < TEMPORAL_WINDOW);
         assert(filter->min_count >= 1);
         assert(filter->max_normal_count >= 1);
 
-        outlier_filter_result_t result = (outlier_filter_result_t){
+        temporal_filter_result_t result = (temporal_filter_result_t){
             .previous_not_outlier = false
         };
 
@@ -534,17 +559,17 @@
         bool must_update_tolerance = false;
         if (input < filter->min) {
             trace("Input is the new min.");
-            must_update_tolerance = outlier_filter_decrease_min(filter,
+            must_update_tolerance = temporal_filter_decrease_min(filter,
                                                                 &result,
                                                                 input);
         } else if (input > filter->max) {
             trace("Input is the new max.");
-            must_update_tolerance = outlier_filter_increase_max(filter,
+            must_update_tolerance = temporal_filter_increase_max(filter,
                                                                 &result,
                                                                 input);
         } else if (input > filter->max_normal && input < filter->max) {
             trace("Input is the new max_normal.");
-            must_update_tolerance = outlier_filter_increase_max_normal(filter,
+            must_update_tolerance = temporal_filter_increase_max_normal(filter,
                                                                        &result,
                                                                        input);
         } else {
@@ -556,7 +581,7 @@
             }
             // This if statement is disjoint from the previous one on purpose:
             // min == max_normal is a valid state even though it is suspicious
-            // and suggests OUTLIER_WINDOW is too small.
+            // and suggests TEMPORAL_WINDOW is too small.
             if (input == filter->max_normal) {
                 trace("Input is another occurence of max_normal.");
                 ++(filter->max_normal_count);
@@ -564,7 +589,7 @@
                 assert(filter->max > filter->max_normal);
                 trace("Input is another occurence of max, "
                       "which is thus not an outlier.");
-                outlier_filter_make_max_normal(
+                temporal_filter_make_max_normal(
                     filter,
                     &result,
                     "encountered another occurence"
@@ -575,7 +600,7 @@
         }
 
         trace("Classifying input...");
-        if (must_update_tolerance) outlier_filter_update_tolerance(filter);
+        if (must_update_tolerance) temporal_filter_update_tolerance(filter);
         result.current_is_outlier = (input > filter->upper_tolerance);
         if (result.current_is_outlier) {
             trace("Input is considered an outlier, but "
@@ -584,7 +609,7 @@
         } else {
             trace("Input is not an outlier and will never be considered one.");
             if (filter->outlier_idx == filter->next_idx) {
-                filter->outlier_idx = OUTLIER_WINDOW;
+                filter->outlier_idx = TEMPORAL_WINDOW;
             }
         }
 
@@ -592,7 +617,7 @@
         tracef("Replacing oldest input %zd...", removed);
         assert(removed >= filter->min && removed <= filter->max);
         filter->window[filter->next_idx] = input;
-        filter->next_idx = (filter->next_idx + 1) % OUTLIER_WINDOW;
+        filter->next_idx = (filter->next_idx + 1) % TEMPORAL_WINDOW;
         if (removed == filter->min) --(filter->min_count);
         const int64_t former_max = filter->max;
         if (removed == filter->max) filter->max = filter->max_normal;
@@ -602,7 +627,7 @@
         if (filter->min_count == 0) {
             trace("Last occurence of min escaped window, reset min...");
             const int64_t prev_min = filter->min;
-            outlier_filter_set_min(filter);
+            temporal_filter_set_min(filter);
             // This operation can only increase the minimum, which will reduce
             // upper_tolerance in a fashion that could theoretically reclassify
             // a former isolated max_normal value as an outlier if filter stats
@@ -620,30 +645,30 @@
             // (possibly the same one) must be max. Combining this and the
             // above, maxima are unaffected and don't need to be recomputed.
             static_assert(
-                OUTLIER_WINDOW >= 3,
+                TEMPORAL_WINDOW >= 3,
                 "Need at least two points other than an outlier to tell min/max"
             );
             assert(!removed_max_normal);
             // As a result, only upper_tolerance needs to be recomputed.
-            outlier_filter_update_tolerance(filter);
+            temporal_filter_update_tolerance(filter);
         } else if (removed_max_normal) {
             tracef("Last occurence of max_normal = %zd escaped window, "
                    "reset maxima...", filter->max_normal);
-            outlier_filter_reset_maxima(filter);
+            temporal_filter_reset_maxima(filter);
         }
 
         return result;
     }
 
-    /// Destroy an outlier filter
+    /// Destroy a temporal outlier filter
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param filter is an outlier filter that has been initialized with
-    ///               outlier_filter_initialize() and hasn't been destroyed with
-    ///               outlier_filter_finalize() yet.
+    /// \param filter is an temporal outlier filter that has been initialized
+    ///               with temporal_filter_initialize() and hasn't been
+    ///               destroyed with temporal_filter_finalize() yet.
     UDIPE_NON_NULL_ARGS
-    void outlier_filter_finalize(outlier_filter_t* filter);
+    void temporal_filter_finalize(temporal_filter_t* filter);
 
     // TODO: Add tests then integrate including FOREACH_NORMAL
 
@@ -1614,47 +1639,62 @@
         }
         UDIPE_ASSUME_READ(timestamps);
 
+        // TODO: Deduplicate wrt x86_run_measure
         trace("Seeding duration outlier filter...");
-        int64_t initial_window[OUTLIER_WINDOW];
-        for (size_t run = 0; run < OUTLIER_WINDOW; ++run) {
+        int64_t initial_window[TEMPORAL_WINDOW];
+        for (size_t run = 0; run < TEMPORAL_WINDOW; ++run) {
             initial_window[run] = os_duration(clock,
                                               timestamps[run],
                                               timestamps[run+1]);
         }
-        outlier_filter_t filter = outlier_filter_initialize(initial_window);
+        temporal_filter_t filter = temporal_filter_initialize(initial_window);
 
         trace("Building duration distribution...");
         size_t num_normal_runs = 0;
-        OUTLIER_FILTER_FOREACH_NORMAL(&filter, duration, {
+        size_t num_reclassified = 0;
+        distribution_builder_t reject_builder;
+        distribution_builder_t reclassify_builder;
+        if (log_enabled(UDIPE_TRACE)) {
+            reject_builder = distribution_initialize();
+            reclassify_builder = distribution_initialize();
+        }
+        TEMPORAL_FILTER_FOREACH_NORMAL(&filter, duration, {
             distribution_insert(builder, duration);
             ++num_normal_runs;
         });
         // There can be at most one outlier per input window
-        ensure_le(OUTLIER_WINDOW - num_normal_runs, (uint16_t)1);
-        for (size_t run = OUTLIER_WINDOW; run < num_runs; ++run) {
+        ensure_le(TEMPORAL_WINDOW - num_normal_runs, (uint16_t)1);
+        for (size_t run = TEMPORAL_WINDOW; run < num_runs; ++run) {
             const int64_t duration = os_duration(clock,
                                                  timestamps[run],
                                                  timestamps[run+1]);
-            const outlier_filter_result_t result =
-                outlier_filter_apply(&filter, duration);
+            const temporal_filter_result_t result =
+                temporal_filter_apply(&filter, duration);
             if (result.previous_not_outlier) {
-                // TODO: Remove or decrease log level after debugging
-                debugf("- Reclassified previous outlier duration %zd as non-outlier",
+                tracef("- Reclassified previous outlier duration %zd as non-outlier",
                        result.previous_input);
-                for (size_t pos = 0; pos < OUTLIER_WINDOW; ++pos) {
-                    const size_t idx = (filter.next_idx + pos) % OUTLIER_WINDOW;
-                    const size_t age = OUTLIER_WINDOW - 1 - pos;
-                    debugf("  * duration[%zu aka -%zu] is %zd",
+                for (size_t pos = 0; pos < TEMPORAL_WINDOW; ++pos) {
+                    const size_t idx = (filter.next_idx + pos) % TEMPORAL_WINDOW;
+                    const size_t age = TEMPORAL_WINDOW - 1 - pos;
+                    tracef("  * duration[%zu aka -%zu] is %zd",
                            run - age,
                            age,
                            filter.window[idx]);
                 }
                 distribution_insert(builder, result.previous_input);
                 ++num_normal_runs;
+                ++num_reclassified;
+                if (log_enabled(UDIPE_TRACE)) {
+                    distribution_insert(&reclassify_builder, result.previous_input);
+                }
             }
             if (!result.current_is_outlier) {
                 distribution_insert(builder, duration);
                 ++num_normal_runs;
+            } else {
+                if (log_enabled(UDIPE_TRACE)) {
+                    distribution_insert(&reject_builder, duration);
+                }
             }
             ensure_le(num_normal_runs, run + 1);
         }
@@ -1662,6 +1702,22 @@
             const size_t num_outliers = num_runs - num_normal_runs;
             debugf("Rejected %zu/%zu durations as high outliers",
                    num_outliers, num_runs);
+        }
+        if (num_reclassified > 0) {
+            debugf("Reclassified %zu/%zu durations from outlier to normal",
+                   num_reclassified, num_runs);
+        }
+        if (log_enabled(UDIPE_TRACE)) {
+            // TODO: Provide a cleaner way to display a distribution than
+            //       relying on the logging side-effect of building it
+            distribution_t dist;
+            debug("Distribution of ALL initially rejected inputs inc. reclassified:");
+            dist = distribution_build(&reject_builder);
+            distribution_finalize(&dist);
+            debug("Distribution of reclassified inputs:");
+            dist = distribution_build(&reclassify_builder);
+            distribution_finalize(&dist);
+            debug("Distribution of accepted inputs:");
         }
         distribution_t result = distribution_build(builder);
         assert(distribution_len(&result) == num_runs);
@@ -1871,34 +1927,33 @@
 
             // TODO deduplicate wrt os_clock_measure()
             trace("Seeding duration outlier filter...");
-            int64_t initial_window[OUTLIER_WINDOW];
-            for (size_t run = 0; run < OUTLIER_WINDOW; ++run) {
+            int64_t initial_window[TEMPORAL_WINDOW];
+            for (size_t run = 0; run < TEMPORAL_WINDOW; ++run) {
                 int64_t ticks = ends[run] - starts[run];
                 ticks -= distribution_sample(&xclock->offsets);
                 initial_window[run] = ticks;
             }
-            outlier_filter_t filter = outlier_filter_initialize(initial_window);
+            temporal_filter_t filter = temporal_filter_initialize(initial_window);
 
             trace("Building duration distribution...");
             size_t num_normal_runs = 0;
-            OUTLIER_FILTER_FOREACH_NORMAL(&filter, ticks, {
+            TEMPORAL_FILTER_FOREACH_NORMAL(&filter, ticks, {
                 distribution_insert(builder, ticks);
                 ++num_normal_runs;
             });
             // There can be at most one outlier per input window
-            ensure_le(OUTLIER_WINDOW - num_normal_runs, (uint16_t)1);
-            for (size_t run = OUTLIER_WINDOW; run < num_runs; ++run) {
+            ensure_le(TEMPORAL_WINDOW - num_normal_runs, (uint16_t)1);
+            for (size_t run = TEMPORAL_WINDOW; run < num_runs; ++run) {
                 int64_t ticks = ends[run] - starts[run];
                 ticks -= distribution_sample(&xclock->offsets);
-                const outlier_filter_result_t result =
-                    outlier_filter_apply(&filter, ticks);
+                const temporal_filter_result_t result =
+                    temporal_filter_apply(&filter, ticks);
                 if (result.previous_not_outlier) {
-                    // TODO: Remove or change log level after debugging
                     tracef("- Reclassified previous outlier duration %zd as non-outlier",
                            result.previous_input);
-                    for (size_t pos = 0; pos < OUTLIER_WINDOW; ++pos) {
-                        const size_t idx = (filter.next_idx + pos) % OUTLIER_WINDOW;
-                        const size_t age = OUTLIER_WINDOW - 1 - pos;
+                    for (size_t pos = 0; pos < TEMPORAL_WINDOW; ++pos) {
+                        const size_t idx = (filter.next_idx + pos) % TEMPORAL_WINDOW;
+                        const size_t age = TEMPORAL_WINDOW - 1 - pos;
                         tracef("  * duration[%zu aka -%zu] is %zd",
                                run - age,
                                age,
