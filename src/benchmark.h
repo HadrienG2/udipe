@@ -92,7 +92,7 @@
     /// As this correction is meant to compensate a small input window, it
     /// should usually be tuned down when \ref TEMPORAL_WINDOW goes up and be
     /// tuned up when \ref TEMPORAL_WINDOW goes down.
-    #define TEMPORAL_TOLERANCE 1.0
+    #define TEMPORAL_TOLERANCE 0.2
     static_assert(TEMPORAL_TOLERANCE >= 0.0,
                   "TEMPORAL_TOLERANCE can only broaden the distribution");
 
@@ -978,6 +978,27 @@
         distribution_create_bin(builder, above_pos, value);
     }
 
+    /// Log the current state of a distribution builder
+    ///
+    /// This is typically done right before calling distribution_build(), to
+    /// check out the final state of the distribution after performing all
+    /// insertions.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param builder must be a \ref distribution_builder_t that has previously
+    ///                received at least one value via distribution_insert() and
+    ///                hasn't yet been turned into a \ref distribution_t via
+    ///                distribution_build().
+    /// \param level is the log level at which the distribution state should be
+    ///              logged.
+    /// \param header is a string that will precede the distribution display in
+    ///                logs.
+    UDIPE_NON_NULL_ARGS
+    void distribution_log(distribution_builder_t* builder,
+                          udipe_log_level_t level,
+                          const char* header);
+
     /// Switch a distribution from the building stage to the sampling stage
     ///
     /// This can only be done after at least one value has been inserted into
@@ -993,6 +1014,21 @@
     /// \returns a distribution that can be sampled via distribution_sample()
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_build(distribution_builder_t* builder);
+
+    /// Discard a distribution builder without building the associated
+    /// distribution
+    ///
+    /// The distribution builder must not be used after calling this function.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param builder must be a \ref distribution_builder_t that has previously
+    ///                received at least one value via distribution_insert() and
+    ///                hasn't yet been turned into a \ref distribution_t via
+    ///                distribution_build().
+    UDIPE_NON_NULL_ARGS
+    void distribution_discard(distribution_builder_t* builder);
+
 
     /// Number of values that were inserted into a \ref distribution_builder_t
     /// before the associated \ref distribution_t was built
@@ -1605,7 +1641,7 @@
         void* context,
         udipe_duration_ns_t warmup,
         size_t num_runs,
-        distribution_builder_t* builder,
+        distribution_builder_t* result_builder,
         stats_analyzer_t* analyzer
     ) {
         assert(num_runs > 0);
@@ -1651,15 +1687,16 @@
 
         trace("Building duration distribution...");
         size_t num_normal_runs = 0;
+        size_t num_initially_rejected = 0;
         size_t num_reclassified = 0;
         distribution_builder_t reject_builder;
         distribution_builder_t reclassify_builder;
-        if (log_enabled(UDIPE_TRACE)) {
+        if (log_enabled(UDIPE_DEBUG)) {
             reject_builder = distribution_initialize();
             reclassify_builder = distribution_initialize();
         }
         TEMPORAL_FILTER_FOREACH_NORMAL(&filter, duration, {
-            distribution_insert(builder, duration);
+            distribution_insert(result_builder, duration);
             ++num_normal_runs;
         });
         // There can be at most one outlier per input window
@@ -1681,45 +1718,48 @@
                            age,
                            filter.window[idx]);
                 }
-                distribution_insert(builder, result.previous_input);
+                distribution_insert(result_builder, result.previous_input);
                 ++num_normal_runs;
-                ++num_reclassified;
-                if (log_enabled(UDIPE_TRACE)) {
+                if (log_enabled(UDIPE_DEBUG)) {
                     distribution_insert(&reclassify_builder, result.previous_input);
+                    ++num_reclassified;
                 }
             }
             if (!result.current_is_outlier) {
-                distribution_insert(builder, duration);
+                distribution_insert(result_builder, duration);
                 ++num_normal_runs;
-            } else {
-                if (log_enabled(UDIPE_TRACE)) {
-                    distribution_insert(&reject_builder, duration);
-                }
+            } else if (log_enabled(UDIPE_DEBUG)) {
+                distribution_insert(&reject_builder, duration);
+                ++num_initially_rejected;
             }
             ensure_le(num_normal_runs, run + 1);
+            ensure_le(num_reclassified, num_initially_rejected);
         }
-        if (num_normal_runs < num_runs) {
-            const size_t num_outliers = num_runs - num_normal_runs;
-            debugf("Rejected %zu/%zu durations as high outliers",
-                   num_outliers, num_runs);
+        if (log_enabled(UDIPE_DEBUG)) {
+            if (num_initially_rejected > 0) {
+                distribution_log(&reject_builder,
+                                 UDIPE_DEBUG,
+                                 "Durations initially rejected as outliers");
+            }
+            distribution_discard(&reject_builder);
+            if (num_reclassified > 0) {
+                distribution_log(&reclassify_builder,
+                                 UDIPE_DEBUG,
+                                 "Durations later reclassified to non-outlier");
+                debugf("Reclassified %zu/%zu durations from outlier to normal.",
+                       num_reclassified, num_runs);
+            }
+            distribution_discard(&reclassify_builder);
+            if (num_normal_runs < num_runs) {
+                const size_t num_outliers = num_runs - num_normal_runs;
+                debugf("Eventually rejected %zu/%zu durations.",
+                       num_outliers, num_runs);
+            }
+            distribution_log(result_builder,
+                             UDIPE_DEBUG,
+                             "Accepted durations");
         }
-        if (num_reclassified > 0) {
-            debugf("Reclassified %zu/%zu durations from outlier to normal",
-                   num_reclassified, num_runs);
-        }
-        if (log_enabled(UDIPE_TRACE)) {
-            // TODO: Provide a cleaner way to display a distribution than
-            //       relying on the logging side-effect of building it
-            distribution_t dist;
-            debug("Distribution of ALL initially rejected inputs inc. reclassified:");
-            dist = distribution_build(&reject_builder);
-            distribution_finalize(&dist);
-            debug("Distribution of reclassified inputs:");
-            dist = distribution_build(&reclassify_builder);
-            distribution_finalize(&dist);
-            debug("Distribution of accepted inputs:");
-        }
-        distribution_t result = distribution_build(builder);
+        distribution_t result = distribution_build(result_builder);
         assert(distribution_len(&result) == num_runs);
         return result;
     }
@@ -1853,7 +1893,7 @@
         /// \param context works as in os_clock_measure()
         /// \param warmup works as in os_clock_measure()
         /// \param num_runs works as in os_clock_measure()
-        /// \param builder works as in os_clock_measure()
+        /// \param result_builder works as in os_clock_measure()
         /// \param analyzer works as in os_clock_measure()
         ///
         /// \returns the distribution of measured execution times in TSC ticks
@@ -1869,7 +1909,7 @@
             void* context,
             udipe_duration_ns_t warmup,
             size_t num_runs,
-            distribution_builder_t* builder,
+            distribution_builder_t* result_builder,
             stats_analyzer_t* analyzer
         ) {
             assert(num_runs > 0);
@@ -1938,7 +1978,7 @@
             trace("Building duration distribution...");
             size_t num_normal_runs = 0;
             TEMPORAL_FILTER_FOREACH_NORMAL(&filter, ticks, {
-                distribution_insert(builder, ticks);
+                distribution_insert(result_builder, ticks);
                 ++num_normal_runs;
             });
             // There can be at most one outlier per input window
@@ -1959,11 +1999,11 @@
                                age,
                                filter.window[idx]);
                     }
-                    distribution_insert(builder, result.previous_input);
+                    distribution_insert(result_builder, result.previous_input);
                     ++num_normal_runs;
                 }
                 if (!result.current_is_outlier) {
-                    distribution_insert(builder, ticks);
+                    distribution_insert(result_builder, ticks);
                     ++num_normal_runs;
                 }
                 ensure_le(num_normal_runs, run + 1);
@@ -1973,7 +2013,7 @@
                 debugf("Rejected %zu/%zu durations as high outliers",
                        num_outliers, num_runs);
             }
-            distribution_t result = distribution_build(builder);
+            distribution_t result = distribution_build(result_builder);
             assert(distribution_len(&result) == num_runs);
             return result;
         }

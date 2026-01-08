@@ -62,7 +62,7 @@
     /// Warmup duration used for OS clock offset calibration
     //
     // TODO: Tune on more systems
-    #define WARMUP_OFFSET_OS (100*UDIPE_MILLISECOND)
+    #define WARMUP_OFFSET_OS (1000*UDIPE_MILLISECOND)
 
     /// Number of benchmark runs used for OS clock offset calibration
     ///
@@ -519,6 +519,23 @@
     }
 
     UDIPE_NON_NULL_ARGS
+    void distribution_log(distribution_builder_t* builder,
+                          udipe_log_level_t level,
+                          const char* header) {
+        if (log_enabled(level)) {
+            const distribution_t* dist = &builder->inner;
+            const distribution_layout_t layout = distribution_layout(dist);
+            udipe_logf(level, "%s: {", header);
+            for (size_t bin = 0; bin < dist->num_bins; ++bin) {
+                udipe_logf(level,
+                           "  %zd: %zu,",
+                           layout.sorted_values[bin], layout.counts[bin]);
+            }
+            udipe_log(level, "}");
+        }
+    }
+
+    UDIPE_NON_NULL_ARGS
     distribution_t distribution_build(distribution_builder_t* builder) {
         trace("Extracting the distribution from the builder...");
         distribution_t dist = builder->inner;
@@ -527,23 +544,19 @@
         trace("Ensuring the distribution can be sampled...");
         ensure_ge(dist.num_bins, (size_t)1);
 
-        distribution_layout_t layout = distribution_layout(&dist);
-        if (log_enabled(UDIPE_DEBUG)) {
-            debug("Final distribution is {");
-            for (size_t bin = 0; bin < dist.num_bins; ++bin) {
-                debugf("  %zd: %zu,",
-                       layout.sorted_values[bin], layout.counts[bin]);
-            }
-            debug("}");
-        }
-
         trace("Turning value counts into end indices...");
+        distribution_layout_t layout = distribution_layout(&dist);
         size_t end_idx = 0;
         for (size_t bin = 0; bin < dist.num_bins; ++bin) {
             end_idx += layout.counts[bin];
             layout.end_indices[bin] = end_idx;
         }
         return dist;
+    }
+
+    UDIPE_NON_NULL_ARGS
+    void distribution_discard(distribution_builder_t* builder) {
+        distribution_finalize(&builder->inner);
     }
 
     UDIPE_NON_NULL_ARGS
@@ -923,16 +936,20 @@
                                   "  * Loop duration",
                                   loop_duration_stats,
                                   "ns");
-            if (loop_duration_stats.low > 10*offset_stats.high) {
-                debug("  * Loop finally contributes much more than clock offset!");
+            const signed_duration_ns_t loop_duration_spread =
+                loop_duration_stats.high - loop_duration_stats.low;
+            if (loop_duration_stats.low < 9*offset_stats.high) {
+                debug("  * Clock contribution may still be >10%...");
+            } else if(loop_duration_stats.low < 10*loop_duration_spread) {
+                debug("  * Duration may still fluctuates by >10%...");
+            } else {
+                debug("  * That's long enough and stable enough.");
                 clock.builder = distribution_initialize();
                 break;
-            } else {
-                debug("  * Measured duration is close to clock offset, try a longer loop...");
-                num_iters *= 4;
-                clock.builder = distribution_reset(&loop_durations);
-                continue;
             }
+            // If control reaches here, must still increase loop size
+            num_iters *= 2;
+            clock.builder = distribution_reset(&loop_durations);
         } while(true);
         infof("- Loops with >=%zu iterations have non-negligible duration.",
               num_iters);
@@ -984,7 +1001,8 @@
             } else if (precision <= 3*best_precision) {
                 // ...but keep trying until the uncertainty degradation becomes
                 // much worse than expected in a regime of stable iteration
-                // timing uncertainty.
+                // timing uncertainty, in which case loop duration fluctuates 2x
+                // more when loop iteration gets 2x higher.
                 debug("  * That's not much better/worse, keep trying...");
                 clock.builder = distribution_reset(&loop_durations);
                 continue;
