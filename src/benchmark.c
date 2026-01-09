@@ -1341,7 +1341,7 @@
             x86_measure_context_t* measure = (x86_measure_context_t*)context;
             x86_clock_t* clock = measure->clock;
             assert(run < measure->num_runs);
-            assert(num_runs < clock->num_durations);
+            assert(measure->num_runs < clock->num_durations);
             x86_instant* starts = clock->instants;
             x86_instant* ends = starts + measure->num_runs;
             const int64_t raw_ticks = ends[run] - starts[run];
