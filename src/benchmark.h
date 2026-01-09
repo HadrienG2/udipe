@@ -670,8 +670,6 @@
     UDIPE_NON_NULL_ARGS
     void temporal_filter_finalize(temporal_filter_t* filter);
 
-    // TODO: Add tests then integrate including FOREACH_NORMAL
-
     /// \}
 
 
@@ -1364,7 +1362,7 @@
     /// \}
 
 
-    /// \name Common clock properties
+    /// \name Clock-agnostic utilities
     /// \{
 
     /// Signed version of \ref udipe_duration_ns_t
@@ -1398,6 +1396,37 @@
     /// was carried out correctly with workload durations that far exceed the
     /// clock access delay.
     typedef int64_t signed_duration_ns_t;
+
+    /// Turn raw duration measurements into an outlier-filtered distribution
+    ///
+    /// This is an implementation detail of os_clock_measure() and
+    /// x86_clock_measure() that you should never need to use directly.
+    ///
+    /// \internal
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param compute_duration extracts the `run`-th duration from the clock's
+    ///                         internal buffers using information (e.g. a
+    ///                         pointer to the clock object) from `context`.
+    /// \param context provides the context information required by the
+    ///                compute_duration callback.
+    /// \param num_runs indicates how many duration measurements have been
+    ///                 taken by the clock.
+    /// \param result_builder is a distribution builder with the same semantics
+    ///                       as in os_clock_measure(): it should initially be
+    ///                       empty and will be consumed in the process of
+    ///                       producing a result.
+    ///
+    /// \returns a distribution of timings with outliers filtered out
+    UDIPE_NON_NULL_ARGS
+    distribution_t compute_duration_distribution(
+        int64_t (*compute_duration)(void* /* context */,
+                                    size_t /* run */),
+        void* context,
+        size_t num_runs,
+        distribution_builder_t* result_builder
+    );
 
     /// \}
 
@@ -1624,8 +1653,9 @@
     ///   calibration), an optimization barrier must be applied to the loop
     ///   counter to preserve the number of loop iterations.
     ///
-    /// `num_runs` controls how many timed calls to `workload` will occur, it
-    /// should be tuned such that...
+    /// `num_runs` controls how many timed calls to `workload` will occur. It
+    /// must be greater than \ref TEMPORAL_WINDOW and should be tuned such
+    /// that...
     ///
     /// - Results are reproducible enough across benchmark executions (what
     ///   constitutes "reproducible enough" is context dependent, a parameter
@@ -1649,8 +1679,8 @@
     ///               executed before duration measurements are taken, giving
     ///               the CPU some time to reach a steady performance state.
     /// \param num_runs indicates how many timed calls to `workload` should
-    ///                 be performed. It must be strictly greater than zero, see
-    ///                 above for tuning advice.
+    ///                 be performed. It must be strictly greater than \ref
+    ///                 TEMPORAL_WINDOW, see above for tuning advice.
     /// \param builder is a distribution builder within which output data will
     ///                be inserted, which should initially be empty (either
     ///                freshly built via distribution_initialize() or freshly
