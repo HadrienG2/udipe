@@ -92,7 +92,7 @@
     /// As this correction is meant to compensate a small input window, it
     /// should usually be tuned down when \ref TEMPORAL_WINDOW goes up and be
     /// tuned up when \ref TEMPORAL_WINDOW goes down.
-    #define TEMPORAL_TOLERANCE 0.5
+    #define TEMPORAL_TOLERANCE 0.1
     static_assert(TEMPORAL_TOLERANCE >= 0.0,
                   "TEMPORAL_TOLERANCE can only broaden the distribution");
 
@@ -813,7 +813,7 @@
         distribution_t inner;  ///< Internal data collection backend
     } distribution_builder_t;
 
-    /// Set up storage for a distribution
+    /// Set up a distribution builder
     ///
     /// This function must be called within the scope of with_logger().
     ///
@@ -821,6 +821,22 @@
     ///          via distribution_insert(), then turned into a \ref
     ///          distribution_t via distribution_build().
     distribution_builder_t distribution_initialize();
+
+    /// Allocate a distribution of duration-based values
+    ///
+    /// This is an implementation detail of other methods, you should use
+    /// distribution_initialize() instead of calling this method directly.
+    ///
+    /// \internal
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param capacity is the number of bins that the distribution should be
+    ///                 able to hold internally before reallocating.
+    ///
+    /// \returns a distribution that must later be liberated using
+    ///          distribution_finalize().
+    distribution_t distribution_allocate(size_t capacity);
 
     /// Create a new histogram bin
     ///
@@ -1326,6 +1342,28 @@
     /// \}
 
 
+    /// \name Basic workloads used for clock calibration
+    /// \{
+
+    /// Empty workload
+    ///
+    /// Used to measure the offset of the operating system clock and function
+    /// call/return overhead.
+    void nothing(void* /* context */);
+
+    /// Empty-loop workload
+    ///
+    /// Used to measure the maximal precision of a clock and the maximal
+    /// benchmark duration before OS interrupts start hurting clock precision.
+    ///
+    /// \param context must be a `const size_t*` indicating the desired amount
+    ///                of loop iterations.
+    UDIPE_NON_NULL_ARGS
+    void empty_loop(void* context);
+
+    /// \}
+
+
     /// \name Common clock properties
     /// \{
 
@@ -1582,8 +1620,8 @@
     ///   that these inputs change from one execution to another.
     /// - If `workload` emits outputs, then UDIPE_ASSUME_READ() should be used
     ///   to make the compiler assume that these outputs are being used.
-    /// - If `workload` is just an artificial empty loop (as used during
-    ///   calibration), then UDIPE_ASSUME_READ() should be used on the loop
+    /// - In the special case of an artificial loop (as used during
+    ///   calibration), an optimization barrier must be applied to the loop
     ///   counter to preserve the number of loop iterations.
     ///
     /// `num_runs` controls how many timed calls to `workload` will occur, it
@@ -1604,10 +1642,7 @@
     ///              offset-biased OS clock measurements (i.e. on Windows
     ///              `win32_frequency` must have been queried already, and on
     ///              all OSes `offset` must be zeroed out if not known yet).
-    /// \param workload is the workload whose duration should be measured. For
-    ///                 minimal overhead/bias, its definition should be visible
-    ///                 to the compiler at the point where this function is
-    ///                 called, so that it can be inlined into it.
+    /// \param workload is the workload whose duration should be measured.
     /// \param context encodes the parameters that should be passed to
     ///                `workload`, if any.
     /// \param warmup indicates how long the code should be continuously
@@ -1622,146 +1657,17 @@
     ///                recycled via distribution_reset()). It will be turned
     ///                into the output distribution returned by this function,
     ///                and therefore cannot be used after calling this function.
-    /// \param analyzer is a statistical analyzer that has been previously set
-    ///                 up via stats_analyzer_initialize() and hasn't been
-    ///                 destroyed via stats_analyzer_finalize() yet.
     ///
     /// \returns the distribution of measured execution times in nanoseconds
-    ///
-    /// \internal
-    ///
-    /// This function is marked as `static inline` to encourage the compiler to
-    /// make one copy of it per `workload` and inline `workload` into it,
-    /// assuming the caller did their homework on their side by exposing the
-    /// definition of `workload` at the point where os_clock_measure() is called.
-    UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6, 7)
-    static inline distribution_t os_clock_measure(
+    UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
+    distribution_t os_clock_measure(
         os_clock_t* clock,
         void (*workload)(void*),
         void* context,
         udipe_duration_ns_t warmup,
         size_t num_runs,
-        distribution_builder_t* result_builder,
-        stats_analyzer_t* analyzer
-    ) {
-        assert(num_runs > 0);
-        if (num_runs > clock->num_durations) {
-            trace("Reallocating storage from %zu to %zu durations...");
-            realtime_liberate(
-                clock->timestamps,
-                (clock->num_durations+1) * sizeof(os_timestamp_t)
-            );
-            clock->num_durations = num_runs;
-            clock->timestamps =
-                realtime_allocate((num_runs+1) * sizeof(os_timestamp_t));
-        }
-
-        trace("Warming up...");
-        os_timestamp_t* timestamps = clock->timestamps;
-        udipe_duration_ns_t elapsed = 0;
-        os_timestamp_t start = os_now();
-        do {
-            workload(context);
-            os_timestamp_t now = os_now();
-            elapsed = os_duration(clock, start, now);
-        } while(elapsed < warmup);
-
-        tracef("Performing %zu timed runs...", num_runs);
-        timestamps[0] = os_now();
-        for (size_t run = 0; run < num_runs; ++run) {
-            UDIPE_ASSUME_READ(timestamps);
-            workload(context);
-            timestamps[run+1] = os_now();
-        }
-        UDIPE_ASSUME_READ(timestamps);
-
-        // TODO: Deduplicate wrt x86_run_measure
-        trace("Seeding duration outlier filter...");
-        int64_t initial_window[TEMPORAL_WINDOW];
-        for (size_t run = 0; run < TEMPORAL_WINDOW; ++run) {
-            initial_window[run] = os_duration(clock,
-                                              timestamps[run],
-                                              timestamps[run+1]);
-        }
-        temporal_filter_t filter = temporal_filter_initialize(initial_window);
-
-        trace("Building duration distribution...");
-        size_t num_normal_runs = 0;
-        size_t num_initially_rejected = 0;
-        size_t num_reclassified = 0;
-        distribution_builder_t reject_builder;
-        distribution_builder_t reclassify_builder;
-        if (log_enabled(UDIPE_DEBUG)) {
-            reject_builder = distribution_initialize();
-            reclassify_builder = distribution_initialize();
-        }
-        TEMPORAL_FILTER_FOREACH_NORMAL(&filter, duration, {
-            distribution_insert(result_builder, duration);
-            ++num_normal_runs;
-        });
-        // There can be at most one outlier per input window
-        ensure_le(TEMPORAL_WINDOW - num_normal_runs, (uint16_t)1);
-        for (size_t run = TEMPORAL_WINDOW; run < num_runs; ++run) {
-            const int64_t duration = os_duration(clock,
-                                                 timestamps[run],
-                                                 timestamps[run+1]);
-            const temporal_filter_result_t result =
-                temporal_filter_apply(&filter, duration);
-            if (result.previous_not_outlier) {
-                tracef("- Reclassified previous outlier duration %zd as non-outlier",
-                       result.previous_input);
-                for (size_t pos = 0; pos < TEMPORAL_WINDOW; ++pos) {
-                    const size_t idx = (filter.next_idx + pos) % TEMPORAL_WINDOW;
-                    const size_t age = TEMPORAL_WINDOW - 1 - pos;
-                    tracef("  * duration[%zu aka -%zu] is %zd",
-                           run - age,
-                           age,
-                           filter.window[idx]);
-                }
-                distribution_insert(result_builder, result.previous_input);
-                ++num_normal_runs;
-                if (log_enabled(UDIPE_DEBUG)) {
-                    distribution_insert(&reclassify_builder, result.previous_input);
-                    ++num_reclassified;
-                }
-            }
-            if (!result.current_is_outlier) {
-                distribution_insert(result_builder, duration);
-                ++num_normal_runs;
-            } else if (log_enabled(UDIPE_DEBUG)) {
-                distribution_insert(&reject_builder, duration);
-                ++num_initially_rejected;
-            }
-            ensure_le(num_normal_runs, run + 1);
-        }
-        if (log_enabled(UDIPE_DEBUG)) {
-            if (num_initially_rejected > 0) {
-                distribution_log(&reject_builder,
-                                 UDIPE_DEBUG,
-                                 "Durations initially rejected as outliers");
-            }
-            distribution_discard(&reject_builder);
-            if (num_reclassified > 0) {
-                distribution_log(&reclassify_builder,
-                                 UDIPE_DEBUG,
-                                 "Durations later reclassified to non-outlier");
-                debugf("Reclassified %zu/%zu durations from outlier to normal.",
-                       num_reclassified, num_runs);
-            }
-            distribution_discard(&reclassify_builder);
-            if (num_normal_runs < num_runs) {
-                const size_t num_outliers = num_runs - num_normal_runs;
-                debugf("Eventually rejected %zu/%zu durations.",
-                       num_outliers, num_runs);
-            }
-            distribution_log(result_builder,
-                             UDIPE_DEBUG,
-                             "Accepted durations");
-        }
-        distribution_t result = distribution_build(result_builder);
-        assert(distribution_len(&result) == num_runs);
-        return result;
-    }
+        distribution_builder_t* result_builder
+    );
 
     /// Destroy the system clock
     ///
@@ -1893,129 +1799,17 @@
         /// \param warmup works as in os_clock_measure()
         /// \param num_runs works as in os_clock_measure()
         /// \param result_builder works as in os_clock_measure()
-        /// \param analyzer works as in os_clock_measure()
         ///
         /// \returns the distribution of measured execution times in TSC ticks
-        ///
-        /// \internal
-        ///
-        /// This function is `static inline` for the same reason that
-        /// os_clock_measure() is `static inline`.
-        UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6, 7)
-        static inline distribution_t x86_clock_measure(
+        UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
+        distribution_t x86_clock_measure(
             x86_clock_t* xclock,
             void (*workload)(void*),
             void* context,
             udipe_duration_ns_t warmup,
             size_t num_runs,
-            distribution_builder_t* result_builder,
-            stats_analyzer_t* analyzer
-        ) {
-            assert(num_runs > 0);
-            if (num_runs > xclock->num_durations) {
-                trace("Reallocating storage from %zu to %zu durations...");
-                realtime_liberate(
-                    xclock->instants,
-                    2 * xclock->num_durations * sizeof(x86_instant)
-                );
-                xclock->num_durations = num_runs;
-                xclock->instants =
-                    realtime_allocate(2 * num_runs * sizeof(x86_instant));
-            }
-
-            trace("Setting up measurement...");
-            x86_instant* starts = xclock->instants;
-            x86_instant* ends = xclock->instants + num_runs;
-            const bool strict = false;
-            x86_timestamp_t timestamp = x86_timer_start(strict);
-            const x86_cpu_id initial_cpu_id = timestamp.cpu_id;
-
-            trace("Warming up...");
-            udipe_duration_ns_t elapsed = 0;
-            clock_t start = clock();
-            do {
-                timestamp = x86_timer_start(strict);
-                assert(timestamp.cpu_id == initial_cpu_id);
-                UDIPE_ASSUME_READ(timestamp.ticks);
-
-                workload(context);
-
-                timestamp = x86_timer_end(strict);
-                assert(timestamp.cpu_id == initial_cpu_id);
-                UDIPE_ASSUME_READ(timestamp.ticks);
-
-                clock_t now = clock();
-                elapsed = (udipe_duration_ns_t)(now - start)
-                          * UDIPE_SECOND / CLOCKS_PER_SEC;
-            } while(elapsed < warmup);
-
-            tracef("Performing %zu timed runs...", num_runs);
-            for (size_t run = 0; run < num_runs; ++run) {
-                timestamp = x86_timer_start(strict);
-                assert(timestamp.cpu_id == initial_cpu_id);
-                starts[run] = timestamp.ticks;
-                UDIPE_ASSUME_READ(starts);
-
-                workload(context);
-
-                timestamp = x86_timer_end(strict);
-                assert(timestamp.cpu_id == initial_cpu_id);
-                ends[run] = timestamp.ticks;
-                UDIPE_ASSUME_READ(ends);
-            }
-
-            // TODO deduplicate wrt os_clock_measure()
-            trace("Seeding duration outlier filter...");
-            int64_t initial_window[TEMPORAL_WINDOW];
-            for (size_t run = 0; run < TEMPORAL_WINDOW; ++run) {
-                int64_t ticks = ends[run] - starts[run];
-                ticks -= distribution_sample(&xclock->offsets);
-                initial_window[run] = ticks;
-            }
-            temporal_filter_t filter = temporal_filter_initialize(initial_window);
-
-            trace("Building duration distribution...");
-            size_t num_normal_runs = 0;
-            TEMPORAL_FILTER_FOREACH_NORMAL(&filter, ticks, {
-                distribution_insert(result_builder, ticks);
-                ++num_normal_runs;
-            });
-            // There can be at most one outlier per input window
-            ensure_le(TEMPORAL_WINDOW - num_normal_runs, (uint16_t)1);
-            for (size_t run = TEMPORAL_WINDOW; run < num_runs; ++run) {
-                int64_t ticks = ends[run] - starts[run];
-                ticks -= distribution_sample(&xclock->offsets);
-                const temporal_filter_result_t result =
-                    temporal_filter_apply(&filter, ticks);
-                if (result.previous_not_outlier) {
-                    tracef("- Reclassified previous outlier duration %zd as non-outlier",
-                           result.previous_input);
-                    for (size_t pos = 0; pos < TEMPORAL_WINDOW; ++pos) {
-                        const size_t idx = (filter.next_idx + pos) % TEMPORAL_WINDOW;
-                        const size_t age = TEMPORAL_WINDOW - 1 - pos;
-                        tracef("  * duration[%zu aka -%zu] is %zd",
-                               run - age,
-                               age,
-                               filter.window[idx]);
-                    }
-                    distribution_insert(result_builder, result.previous_input);
-                    ++num_normal_runs;
-                }
-                if (!result.current_is_outlier) {
-                    distribution_insert(result_builder, ticks);
-                    ++num_normal_runs;
-                }
-                ensure_le(num_normal_runs, run + 1);
-            }
-            if (num_normal_runs < num_runs) {
-                const size_t num_outliers = num_runs - num_normal_runs;
-                debugf("Rejected %zu/%zu durations as high outliers",
-                       num_outliers, num_runs);
-            }
-            distribution_t result = distribution_build(result_builder);
-            assert(distribution_len(&result) == num_runs);
-            return result;
-        }
+            distribution_builder_t* result_builder
+        );
 
         /// Estimate real time duration statistics from a TSC clock ticks
         /// distribution

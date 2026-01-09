@@ -408,16 +408,7 @@
     /// array of `int64_t` followed by an array of `size_t`.
     const size_t distribution_bin_size = sizeof(int64_t) + sizeof(size_t);
 
-    /// Allocate a distribution of duration-based values
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param capacity is the number of bins that the distribution should be
-    ///                 able to hold internally before reallocating.
-    ///
-    /// \returns a distribution that must later be liberated using
-    ///          distribution_finalize().
-    static distribution_t distribution_allocate(size_t capacity) {
+    distribution_t distribution_allocate(size_t capacity) {
         void* const allocation = malloc(capacity * distribution_bin_size);
         exit_on_null(allocation, "Failed to allocate distribution storage");
         debugf("Allocated storage for %zu bins at location %p.",
@@ -772,27 +763,22 @@
     }
 
 
-    /// Empty benchmark workload
-    ///
-    /// Used to measure the offset of the operating system clock.
-    static inline void nothing(void* /* context */) {}
+    void nothing(void* /* context */) {}
 
-    /// Empty-loop benchmark workload
-    ///
-    /// Used to measure the maximal precision of a clock and the maximal
-    /// benchmark duration before OS interrupts start hurting clock precision.
-    ///
-    /// \param context must be a `const size_t*` indicating the desired amount
-    ///                of loop iterations.
     UDIPE_NON_NULL_ARGS
-    static inline void empty_loop(void* context) {
+    void empty_loop(void* context) {
         size_t num_iters = *((const size_t*)context);
         // Ensures that all loop lengths get the same codegen
         UDIPE_ASSUME_ACCESSED(num_iters);
         for (size_t iter = 0; iter < num_iters; ++iter) {
-            UDIPE_ASSUME_READ(iter);
+            // This is ASSUME_ACCESSED and not ASSUME_READ because with
+            // ASSUME_READ the compiler can unroll the loop and this will reduce
+            // timing reproducibility with respect to the pure dependency chain
+            // of a non-unrolled loop.
+            UDIPE_ASSUME_ACCESSED(iter);
         }
     }
+
 
     /// Log statistics from the calibration process
     ///
@@ -896,8 +882,7 @@
             NULL,
             WARMUP_OFFSET_OS,
             NUM_RUNS_OFFSET_OS,
-            &clock.builder,
-            analyzer
+            &clock.builder
         );
         clock.builder = distribution_reset(&clock.offsets);
         clock.offsets = tmp_offsets;
@@ -928,8 +913,7 @@
                 &num_iters,
                 WARMUP_SHORTEST_LOOP,
                 NUM_RUNS_SHORTEST_LOOP,
-                &clock.builder,
-                analyzer
+                &clock.builder
             );
             loop_duration_stats = stats_analyze(analyzer, &loop_durations);
             log_calibration_stats(UDIPE_DEBUG,
@@ -970,8 +954,7 @@
                 &num_iters,
                 WARMUP_BEST_LOOP,
                 NUM_RUNS_BEST_LOOP_OS,
-                &clock.builder,
-                analyzer
+                &clock.builder
             );
             loop_duration_stats = stats_analyze(analyzer, &loop_durations);
             log_calibration_stats(UDIPE_DEBUG,
@@ -1024,6 +1007,134 @@
                             clock.best_empty_iters,
                             "ns");
         return clock;
+    }
+
+    UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
+    distribution_t os_clock_measure(
+        os_clock_t* clock,
+        void (*workload)(void*),
+        void* context,
+        udipe_duration_ns_t warmup,
+        size_t num_runs,
+        distribution_builder_t* result_builder
+    ) {
+        assert(num_runs > 0);
+        if (num_runs > clock->num_durations) {
+            trace("Reallocating storage from %zu to %zu durations...");
+            realtime_liberate(
+                clock->timestamps,
+                (clock->num_durations+1) * sizeof(os_timestamp_t)
+            );
+            clock->num_durations = num_runs;
+            clock->timestamps =
+                realtime_allocate((num_runs+1) * sizeof(os_timestamp_t));
+        }
+
+        trace("Warming up...");
+        os_timestamp_t* timestamps = clock->timestamps;
+        udipe_duration_ns_t elapsed = 0;
+        os_timestamp_t start = os_now();
+        do {
+            workload(context);
+            os_timestamp_t now = os_now();
+            elapsed = os_duration(clock, start, now);
+        } while(elapsed < warmup);
+
+        tracef("Performing %zu timed runs...", num_runs);
+        timestamps[0] = os_now();
+        for (size_t run = 0; run < num_runs; ++run) {
+            UDIPE_ASSUME_READ(timestamps);
+            workload(context);
+            timestamps[run+1] = os_now();
+        }
+        UDIPE_ASSUME_READ(timestamps);
+
+        // TODO: Deduplicate wrt x86_run_measure
+        trace("Seeding duration outlier filter...");
+        int64_t initial_window[TEMPORAL_WINDOW];
+        for (size_t run = 0; run < TEMPORAL_WINDOW; ++run) {
+            initial_window[run] = os_duration(clock,
+                                              timestamps[run],
+                                              timestamps[run+1]);
+        }
+        temporal_filter_t filter = temporal_filter_initialize(initial_window);
+
+        trace("Building duration distribution...");
+        size_t num_normal_runs = 0;
+        size_t num_initially_rejected = 0;
+        size_t num_reclassified = 0;
+        distribution_builder_t reject_builder;
+        distribution_builder_t reclassify_builder;
+        if (log_enabled(UDIPE_DEBUG)) {
+            reject_builder = distribution_initialize();
+            reclassify_builder = distribution_initialize();
+        }
+        TEMPORAL_FILTER_FOREACH_NORMAL(&filter, duration, {
+            distribution_insert(result_builder, duration);
+            ++num_normal_runs;
+        });
+        // There can be at most one outlier per input window
+        ensure_le(TEMPORAL_WINDOW - num_normal_runs, (uint16_t)1);
+        for (size_t run = TEMPORAL_WINDOW; run < num_runs; ++run) {
+            const int64_t duration = os_duration(clock,
+                                                 timestamps[run],
+                                                 timestamps[run+1]);
+            const temporal_filter_result_t result =
+                temporal_filter_apply(&filter, duration);
+            if (result.previous_not_outlier) {
+                tracef("- Reclassified previous outlier duration %zd as non-outlier",
+                       result.previous_input);
+                for (size_t pos = 0; pos < TEMPORAL_WINDOW; ++pos) {
+                    const size_t idx = (filter.next_idx + pos) % TEMPORAL_WINDOW;
+                    const size_t age = TEMPORAL_WINDOW - 1 - pos;
+                    tracef("  * duration[%zu aka -%zu] is %zd",
+                           run - age,
+                           age,
+                           filter.window[idx]);
+                }
+                distribution_insert(result_builder, result.previous_input);
+                ++num_normal_runs;
+                if (log_enabled(UDIPE_DEBUG)) {
+                    distribution_insert(&reclassify_builder, result.previous_input);
+                    ++num_reclassified;
+                }
+            }
+            if (!result.current_is_outlier) {
+                distribution_insert(result_builder, duration);
+                ++num_normal_runs;
+            } else if (log_enabled(UDIPE_DEBUG)) {
+                distribution_insert(&reject_builder, duration);
+                ++num_initially_rejected;
+            }
+            ensure_le(num_normal_runs, run + 1);
+        }
+        if (log_enabled(UDIPE_DEBUG)) {
+            if (num_initially_rejected > 0) {
+                distribution_log(&reject_builder,
+                                 UDIPE_DEBUG,
+                                 "Durations initially rejected as outliers");
+            }
+            distribution_discard(&reject_builder);
+            if (num_reclassified > 0) {
+                distribution_log(&reclassify_builder,
+                                 UDIPE_DEBUG,
+                                 "Durations later reclassified to non-outlier");
+                debugf("Reclassified %zu/%zu durations from outlier to normal.",
+                       num_reclassified, num_runs);
+            }
+            distribution_discard(&reclassify_builder);
+            if (num_normal_runs < num_runs) {
+                const size_t num_outliers = num_runs - num_normal_runs;
+                debugf("Eventually rejected %zu/%zu durations.",
+                       num_outliers, num_runs);
+            }
+            distribution_log(result_builder,
+                             UDIPE_DEBUG,
+                             "Accepted durations");
+        }
+        distribution_t result = distribution_build(result_builder);
+        assert(distribution_len(&result) == num_runs);
+        return result;
     }
 
     UDIPE_NON_NULL_ARGS
@@ -1098,8 +1209,7 @@
                 &best_empty_iters,
                 WARMUP_BEST_LOOP,
                 NUM_RUNS_BEST_LOOP_X86,
-                &builder,
-                analyzer
+                &builder
             );
             log_calibration_stats(UDIPE_INFO,
                                   "- Offset-biased best loop",
@@ -1114,8 +1224,7 @@
                 NULL,
                 WARMUP_OFFSET_X86,
                 NUM_RUNS_OFFSET_X86,
-                &builder,
-                analyzer
+                &builder
             );
             builder = distribution_reset(&clock.offsets);
             clock.offsets = tmp_offsets;
@@ -1185,6 +1294,121 @@
                                 os->best_empty_iters,
                                 "ns");
             return clock;
+        }
+
+        UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
+        distribution_t x86_clock_measure(
+            x86_clock_t* xclock,
+            void (*workload)(void*),
+            void* context,
+            udipe_duration_ns_t warmup,
+            size_t num_runs,
+            distribution_builder_t* result_builder
+        ) {
+            assert(num_runs > 0);
+            if (num_runs > xclock->num_durations) {
+                trace("Reallocating storage from %zu to %zu durations...");
+                realtime_liberate(
+                    xclock->instants,
+                    2 * xclock->num_durations * sizeof(x86_instant)
+                );
+                xclock->num_durations = num_runs;
+                xclock->instants =
+                    realtime_allocate(2 * num_runs * sizeof(x86_instant));
+            }
+
+            trace("Setting up measurement...");
+            x86_instant* starts = xclock->instants;
+            x86_instant* ends = xclock->instants + num_runs;
+            const bool strict = false;
+            x86_timestamp_t timestamp = x86_timer_start(strict);
+            const x86_cpu_id initial_cpu_id = timestamp.cpu_id;
+
+            trace("Warming up...");
+            udipe_duration_ns_t elapsed = 0;
+            clock_t start = clock();
+            do {
+                timestamp = x86_timer_start(strict);
+                assert(timestamp.cpu_id == initial_cpu_id);
+                UDIPE_ASSUME_READ(timestamp.ticks);
+
+                workload(context);
+
+                timestamp = x86_timer_end(strict);
+                assert(timestamp.cpu_id == initial_cpu_id);
+                UDIPE_ASSUME_READ(timestamp.ticks);
+
+                clock_t now = clock();
+                elapsed = (udipe_duration_ns_t)(now - start)
+                          * UDIPE_SECOND / CLOCKS_PER_SEC;
+            } while(elapsed < warmup);
+
+            tracef("Performing %zu timed runs...", num_runs);
+            for (size_t run = 0; run < num_runs; ++run) {
+                timestamp = x86_timer_start(strict);
+                assert(timestamp.cpu_id == initial_cpu_id);
+                starts[run] = timestamp.ticks;
+                UDIPE_ASSUME_READ(starts);
+
+                workload(context);
+
+                timestamp = x86_timer_end(strict);
+                assert(timestamp.cpu_id == initial_cpu_id);
+                ends[run] = timestamp.ticks;
+                UDIPE_ASSUME_READ(ends);
+            }
+
+            // TODO deduplicate wrt os_clock_measure()
+            trace("Seeding duration outlier filter...");
+            int64_t initial_window[TEMPORAL_WINDOW];
+            for (size_t run = 0; run < TEMPORAL_WINDOW; ++run) {
+                int64_t ticks = ends[run] - starts[run];
+                ticks -= distribution_sample(&xclock->offsets);
+                initial_window[run] = ticks;
+            }
+            temporal_filter_t filter = temporal_filter_initialize(initial_window);
+
+            trace("Building duration distribution...");
+            size_t num_normal_runs = 0;
+            TEMPORAL_FILTER_FOREACH_NORMAL(&filter, ticks, {
+                distribution_insert(result_builder, ticks);
+                ++num_normal_runs;
+            });
+            // There can be at most one outlier per input window
+            ensure_le(TEMPORAL_WINDOW - num_normal_runs, (uint16_t)1);
+            for (size_t run = TEMPORAL_WINDOW; run < num_runs; ++run) {
+                int64_t ticks = ends[run] - starts[run];
+                ticks -= distribution_sample(&xclock->offsets);
+                const temporal_filter_result_t result =
+                    temporal_filter_apply(&filter, ticks);
+                if (result.previous_not_outlier) {
+                    tracef("- Reclassified previous outlier duration %zd as non-outlier",
+                           result.previous_input);
+                    for (size_t pos = 0; pos < TEMPORAL_WINDOW; ++pos) {
+                        const size_t idx = (filter.next_idx + pos) % TEMPORAL_WINDOW;
+                        const size_t age = TEMPORAL_WINDOW - 1 - pos;
+                        tracef("  * duration[%zu aka -%zu] is %zd",
+                               run - age,
+                               age,
+                               filter.window[idx]);
+                    }
+                    distribution_insert(result_builder, result.previous_input);
+                    ++num_normal_runs;
+                }
+                if (!result.current_is_outlier) {
+                    distribution_insert(result_builder, ticks);
+                    ++num_normal_runs;
+                }
+                ensure_le(num_normal_runs, run + 1);
+            }
+            if (num_normal_runs < num_runs) {
+                const size_t num_outliers = num_runs - num_normal_runs;
+                debugf("Rejected %zu/%zu durations as high outliers",
+                       num_outliers, num_runs);
+            }
+            distribution_t result = distribution_build(result_builder);
+            assert(distribution_len(&result) == num_runs);
+            return result;
         }
 
         UDIPE_NON_NULL_ARGS
