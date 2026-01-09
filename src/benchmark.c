@@ -763,8 +763,6 @@
     }
 
 
-    void nothing(void* /* context */) {}
-
     UDIPE_NON_NULL_ARGS
     void empty_loop(void* context) {
         size_t num_iters = *((const size_t*)context);
@@ -975,10 +973,11 @@
         clock.builder = distribution_initialize();
 
         info("Measuring actual clock offset...");
+        size_t num_iters = 0;
         distribution_t tmp_offsets = os_clock_measure(
             &clock,
-            nothing,
-            NULL,
+            empty_loop,
+            &num_iters,
             WARMUP_OFFSET_OS,
             NUM_RUNS_OFFSET_OS,
             &clock.builder
@@ -1003,7 +1002,7 @@
         info("Finding minimal measurable loop...");
         distribution_t loop_durations;
         stats_t loop_duration_stats;
-        size_t num_iters = 1;
+        num_iters = 1;
         do {
             debugf("- Trying loop with %zu iteration(s)...", num_iters);
             loop_durations = os_clock_measure(
@@ -1247,10 +1246,11 @@
 
             info("Measuring clock offset...");
             builder = distribution_initialize();
+            size_t empty_loop_iters = 0;
             distribution_t tmp_offsets = x86_clock_measure(
                 &clock,
-                nothing,
-                NULL,
+                empty_loop,
+                &empty_loop_iters,
                 WARMUP_OFFSET_X86,
                 NUM_RUNS_OFFSET_X86,
                 &builder

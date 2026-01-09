@@ -1343,12 +1343,6 @@
     /// \name Basic workloads used for clock calibration
     /// \{
 
-    /// Empty workload
-    ///
-    /// Used to measure the offset of the operating system clock and function
-    /// call/return overhead.
-    void nothing(void* /* context */);
-
     /// Empty-loop workload
     ///
     /// Used to measure the maximal precision of a clock and the maximal
