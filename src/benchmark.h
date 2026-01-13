@@ -26,6 +26,7 @@
 
     #include <assert.h>
     #include <hwloc.h>
+    #include <math.h>
     #include <stdalign.h>
     #include <stddef.h>
     #include <stdint.h>
@@ -781,7 +782,7 @@
         };
     } distribution_layout_t;
 
-    /// Determine the layout of a duration-based value distribution
+    /// Determine the memory layout of a \ref distribution_t
     ///
     /// \param allocation is the internal `allocation` of a \ref
     ///                   distribution_builder_t or \ref distribution_t.
@@ -820,7 +821,7 @@
     ///          distribution_t via distribution_build().
     distribution_builder_t distribution_initialize();
 
-    /// Allocate a distribution of duration-based values
+    /// Allocate a \ref distribution_t that can hold `capacity` distinct values
     ///
     /// This is an implementation detail of other methods, you should use
     /// distribution_initialize() instead of calling this method directly.
@@ -1063,7 +1064,127 @@
         return layout.end_indices[dist->num_bins - 1];
     }
 
-    /// Sample a value from a duration-based distribution
+    /// Extract the `index`-th value of `dist` by sorted rank
+    ///
+    /// In C indexing tradition, `0` designates the smallest value and
+    /// `distribution_len(dist) - 1` designates the largest value.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_build() and hasn't yet been recycled via
+    ///             distribution_reset() or destroyed via
+    ///             distribution_finalize().
+    /// \param index specifies the rank of the value of interest, which should
+    ///              be in the valid range from 0 inclusive to
+    ///              `distribution_len(dist)` exclusive.
+    ///
+    /// \returns the `index`-th value of `dist` by sorted rank
+    UDIPE_NON_NULL_ARGS
+    static inline
+    int64_t distribution_nth(const distribution_t* dist, size_t index) {
+        // Handle the case where the value is in the first histogram bin
+        assert(index < distribution_len(dist));
+        const distribution_layout_t layout = distribution_layout(dist);
+        const size_t first_pos = 0;
+        const size_t first_end_idx = layout.end_indices[first_pos];
+        if (index < first_end_idx) {
+            const int64_t first_value = layout.sorted_values[first_pos];
+            tracef("This is value %zd from first bin with end index %zu.",
+                   first_value, first_end_idx);
+            return first_value;
+        }
+
+        // At this point, we have established the following:
+        // - There are at least two bins in the histogram, because index
+        //   must belong to at least one bin and it's not the first one
+        // - index does not belong to the first bin
+        // - index is in bounds, so it must belong to the last bin or one of
+        //   the previous bins
+        //
+        // Use binary search to locate the bin to which index belongs, which
+        // is the first bin whose end index is strictly greater than index.
+        size_t below_pos = first_pos;
+        size_t above_pos = dist->num_bins - 1;
+        trace("Value belongs to the middle of the histogram, "
+              "will now find where via binary search...");
+        while (above_pos - below_pos > 1) {
+            assert(below_pos < above_pos);
+            const size_t below_end_idx = layout.end_indices[below_pos];
+            assert(below_end_idx <= index);
+            const size_t above_end_idx = layout.end_indices[above_pos];
+            assert(above_end_idx > index);
+            tracef("- Value is in range [%zd; %zd[ from bins ]%zu; %zu].",
+                   below_end_idx, above_end_idx, below_pos, above_pos);
+
+            const size_t middle_pos = below_pos + (above_pos - below_pos) / 2;
+            assert(below_pos <= middle_pos);
+            assert(middle_pos < above_pos);
+            const size_t middle_end_idx = layout.end_indices[middle_pos];
+            assert(below_end_idx <= middle_end_idx);
+            assert(middle_end_idx < above_end_idx);
+            tracef("- Investigating end index %zd from middle bin #%zu...",
+                   middle_end_idx, middle_pos);
+
+            if (middle_end_idx > index) {
+                trace("- It's larger: can eliminate all subsequent bins.");
+                above_pos = middle_pos;
+            } else {
+                trace("- It's smaller: can eliminate all previous bins.");
+                assert(middle_end_idx <= index);
+                below_pos = middle_pos;
+            }
+        }
+
+        // Narrowed down the pair of bins to which index belongs
+        const size_t below_end_idx = layout.end_indices[below_pos];
+        const size_t above_end_idx = layout.end_indices[above_pos];
+        tracef("Narrowed search to single bin ]%zu; %zu]: "
+               "value must come from bin #%zu.",
+               below_pos, above_pos, above_pos);
+        assert(above_pos == below_pos + 1);
+        assert(index >= below_end_idx);
+        assert(index < above_end_idx);
+        return layout.sorted_values[above_pos];
+    }
+
+    /// Compute a certain empirical quantile of a \ref distribution_t
+    ///
+    /// As statistical libraries vary widely in the way they estimate
+    /// distribution quantiles from sample quantiles, it's good to clarify our
+    /// definition. If we denote...
+    ///
+    /// - `N = distribution_len(dist)` the number of data points in `dist`.
+    /// - `p` the real-valued quantile specified as the `quantile` parameter,
+    ///   which is a floating-point number between 0.0 and 1.0.
+    ///
+    /// ...then assuming we dumped all values from the distribution into a
+    /// sorted array, we define the `p`-quantile of `dist` as the `i`-th value
+    /// of this array value in sorted order, where `i` is `p * (N - 1)` rounded
+    /// to the nearest integer.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_build() and hasn't yet been recycled via
+    ///             distribution_reset() or destroyed via
+    ///             distribution_finalize().
+    /// \param quantile is the quantile to be computed, expressed as a fraction
+    ///                 between 0.0 and 1.0.
+    ///
+    /// \returns the quantile of interest from `dist`, as defined above.
+    UDIPE_NON_NULL_ARGS
+    static inline
+    int64_t distribution_quantile(const distribution_t* dist, double quantile) {
+        assert(quantile >= 0.0 && quantile <= 1.0);
+        const size_t len = distribution_len(dist);
+        const size_t value_idx = round(quantile * (len - 1));
+        return distribution_nth(dist, value_idx);
+    }
+
+    /// Sample a value from a \ref distribution_t
     ///
     /// This function must be called within the scope of with_logger().
     ///
@@ -1077,79 +1198,13 @@
     ///          distribution via distribution_insert().
     UDIPE_NON_NULL_ARGS
     static inline int64_t distribution_sample(const distribution_t* dist) {
-        // Determine the histogram's memory layout
-        const distribution_layout_t layout = distribution_layout(dist);
-
-        // Sample one value as the index that this value would have in a dense
-        // array of duplicated values
         assert(dist->num_bins >= (size_t)1);
         const size_t num_values = distribution_len(dist);
         const size_t value_idx = rand() % num_values;
         tracef("Sampling %zu-th value from a distribution containing %zu values, "
                "spread across %zu bins.",
                value_idx, num_values, dist->num_bins);
-
-        // Handle the case where the value is in the first histogram bin
-        const size_t first_pos = 0;
-        const size_t first_end_idx = layout.end_indices[first_pos];
-        if (value_idx < first_end_idx) {
-            const int64_t first_value = layout.sorted_values[first_pos];
-            tracef("This is value %zd from first bin with end index %zu.",
-                   first_value, first_end_idx);
-            return first_value;
-        }
-
-        // At this point, we have established the following:
-        // - There are at least two bins in the histogram, because value_idx
-        //   must belong to at least one bin and it's not the first one
-        // - value_idx does not belong to the first bin
-        // - value_idx is in bounds, so it must belong to the last bin or one of
-        //   the previous bins
-        //
-        // Use binary search to locate the bin to which value_idx belongs, which
-        // is the first bin whose end index is strictly greater than value_idx.
-        size_t below_pos = first_pos;
-        size_t above_pos = dist->num_bins - 1;
-        trace("Value belongs to the middle of the histogram, "
-              "will now find where via binary search...");
-        while (above_pos - below_pos > 1) {
-            assert(below_pos < above_pos);
-            const size_t below_end_idx = layout.end_indices[below_pos];
-            assert(below_end_idx <= value_idx);
-            const size_t above_end_idx = layout.end_indices[above_pos];
-            assert(above_end_idx > value_idx);
-            tracef("- Value index is in range [%zd; %zd[ from bins ]%zu; %zu].",
-                   below_end_idx, above_end_idx, below_pos, above_pos);
-
-            const size_t middle_pos = below_pos + (above_pos - below_pos) / 2;
-            assert(below_pos <= middle_pos);
-            assert(middle_pos < above_pos);
-            const size_t middle_end_idx = layout.end_indices[middle_pos];
-            assert(below_end_idx <= middle_end_idx);
-            assert(middle_end_idx < above_end_idx);
-            tracef("- Investigating middle end index %zd from bin #%zu...",
-                   middle_end_idx, middle_pos);
-
-            if (middle_end_idx > value_idx) {
-                trace("- It's larger: can eliminate all subsequent bins.");
-                above_pos = middle_pos;
-            } else {
-                trace("- It's smaller: can eliminate all previous bins.");
-                assert(middle_end_idx <= value_idx);
-                below_pos = middle_pos;
-            }
-        }
-
-        // Narrowed down the pair of bins to which value_idx belongs
-        const size_t below_end_idx = layout.end_indices[below_pos];
-        const size_t above_end_idx = layout.end_indices[above_pos];
-        tracef("Narrowed search to single bin ]%zu; %zu]: "
-               "value_idx must come from bin #%zu.",
-               below_pos, above_pos, above_pos);
-        assert(above_pos == below_pos + 1);
-        assert(value_idx >= below_end_idx);
-        assert(value_idx < above_end_idx);
-        return layout.sorted_values[above_pos];
+        return distribution_nth(dist, value_idx);
     }
 
     /// Estimate a distribution of `left - right` differences
@@ -1199,7 +1254,7 @@
                                            int64_t factor,
                                            const distribution_t* denom);
 
-    /// Recycle a duration-based distribution for data recording
+    /// Recycle a \ref distribution_t for data recording
     ///
     /// This discards all data points from a distribution and switches it back
     /// to the \ref distribution_builder_t state where data points can be
@@ -1220,7 +1275,7 @@
     UDIPE_NON_NULL_ARGS
     distribution_builder_t distribution_reset(distribution_t* dist);
 
-    /// Destroy a duration-based distribution
+    /// Destroy a \ref distribution_t
     ///
     /// This function must be called within the scope of with_logger().
     ///
