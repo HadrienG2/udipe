@@ -640,11 +640,10 @@
         size_t ordinate;
     } axis_len_t;
     //
-    /// Compute the \ref axis_len_t of a certain plot
+    /// Compute the \ref axis_len_t of a certain type of plot
     // TODO rest of docs
     UDIPE_NON_NULL_ARGS
-    static axis_len_t plot_axis_len(const distribution_t* dist,
-                                    plot_type_t type) {
+    static axis_len_t plot_axis_len(plot_type_t type) {
         // -1 because there is no data on the title line
         const size_t ordinate_len = DISTRIBUTION_HEIGHT - 1;
         switch (type) {
@@ -898,7 +897,7 @@
                          const char* title,
                          const distribution_t* dist,
                          plot_type_t type) {
-        const axis_len_t len = plot_axis_len(dist, type);
+        const axis_len_t len = plot_axis_len(type);
 
         coord_t* const abscissa = alloca(len.abscissa * sizeof(coord_t));
         const range_t abscissa_range = plot_autoscale_abscissa(dist, type);
