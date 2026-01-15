@@ -1087,7 +1087,8 @@
             distribution_create_bin(builder, end_pos, value);
             return;
         }
-        assert(bin_pos < dist->num_bins);
+        assert(bin_pos >= 0);
+        assert((size_t)bin_pos < dist->num_bins);
 
         // Got a bin above or equal to the value, find out which
         const int64_t bin_value = layout.sorted_values[bin_pos];

@@ -841,7 +841,7 @@
                 const size_t count = ordinate[o].count;
                 if (count > max_count) max_count = count;
             }
-            assert(count <= (size_t)INT64_MAX);
+            assert(max_count <= (size_t)INT64_MAX);
             max_ordinate_width = printf_width_i64(max_count);
 
             result = (plot_layout_t){
