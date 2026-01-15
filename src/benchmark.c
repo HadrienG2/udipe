@@ -18,6 +18,20 @@
     #include <string.h>
 
 
+    /// Width of the distribution_log() textual display
+    ///
+    /// Increasing this improves the value count resolution of the textual
+    /// histogram, but the client needs a wider terminal to avoid getting a
+    /// garbled visual output.
+    #define DISTRIBUTION_WIDTH ((size_t)80)
+
+    /// Height of the distribution_log() textual display
+    ///
+    /// Increasing this improves the value resolution of the textual histogram,
+    /// but the client needs a taller terminal to avoid seeing the entire
+    /// distribution at once without scrolling.
+    #define DISTRIBUTION_HEIGHT ((size_t)25)
+
     /// Number of samples used for median duration computations
     ///
     /// To reduce the impact of outliers, we don't directly handle raw
@@ -509,20 +523,494 @@
         };
     }
 
+    /// printf display width of an integer
+    ///
+    /// This returns the argument that must be passed to the `%*` field width of
+    /// a printf format argument in order to match the display width of a
+    /// particular integer.
+    ///
+    /// Such a manual field width setup is needed when displaying justified
+    /// columns of integers that have varying magnitude and sign.
+    static inline int printf_width_i64(int64_t i) {
+        return (i > 0) ? floor(log10(i)) + 1
+                       : (i < 0) ? printf_width_i64(-i) + 1  // +1 for minus sign
+                                 : 1;
+    }
+
+    /// Segment from a single Unicode box-drawing line
+    ///
+    /// These ancient box drawing code points were already supported by the
+    /// original IBM PC, and should therefore be available in any
+    /// self-respecting modern terminal font.
+    static const char* const SINGLE_SEGMENT = "─";
+
+    /// Segment from a double Unicode bow-drawing line
+    ///
+    /// See \ref SINGLE_LINE_SEGMENT for terminal font compatibility notes.
+    static const char* const DOUBLE_SEGMENT = "═";
+
+    /// Size of a buffer that can hold horizontal lines up to a certain width
+    // TODO details
+    static size_t line_buffer_size(size_t max_width) {
+        const size_t single_segment_size = strlen(SINGLE_SEGMENT);
+        const size_t double_segment_size = strlen(DOUBLE_SEGMENT);
+        const size_t max_segment_size =
+            (single_segment_size <= double_segment_size) ? double_segment_size
+                                                         : single_segment_size;
+        return max_width*max_segment_size + 1;
+    }
+
+    /// Generate texte representing a horizontal line of a certain length
+    ///
+    /// \param buffer should be large enough to hold `width * strlen(segment) +
+    ///               1` bytes of UTF-8 data. Consider using the
+    ///               `line_buffer_size()` size calculation utility for
+    ///               long-lived allocations.
+    /// \param segment is the UTF-8 sequence used as a line segment. It should
+    ///                typically contain a single Unicode code point, whose
+    ///                repeated sequence looks like a horizontal line. For
+    ///                optimal results, you should favor segment code points
+    ///                that are widely supported by terminal fonts, span the
+    ///                full width of a monospace font, and are displayed as a
+    ///                single terminal column.
+    /// \param width is the number of occurences of `segment` that you want to
+    ///              draw instead of `buffer`. As noted above, `buffer` should
+    ///              be large enough to hold all of them + a terminating NUL.
     UDIPE_NON_NULL_ARGS
-    void distribution_log(distribution_builder_t* builder,
+    static void write_horizontal_line(char* buffer,
+                                      const char* segment,
+                                      size_t width) {
+        const size_t segment_size = strlen(segment);
+        for (size_t x = 0; x < width; ++x) {
+            memcpy(buffer + x*segment_size, segment, segment_size);
+        }
+        buffer[width*segment_size] = '\0';
+    }
+
+    /// Surround a textual title with an horizontal line
+    ///
+    /// If we denote `half_width` the result of dividing `full_width` by 2 and
+    /// rounding up, both `left_buffer` and `right_buffer` should be large
+    /// enough to hold `half_width * strlen(segment) + 1` bytes of data.
+    ///
+    /// \param left_buffer will hold the line from the left side of the title.
+    ///                    It should have the minimal size outlined above.
+    /// \param title should be an ASCII string. General Unicode strings are only
+    ///              partially supported and will result in a display of
+    ///              incorrect width.
+    /// \param right_buffer will hold the line from the right side of the title.
+    ///                     It should have the minimal size outlined above.
+    /// \param line_segment is a segment of the line that will surround `title`,
+    ///                     see write_horizontal_line() for more info.
+    /// \param width is the desired full width of the title in terminal
+    ///                 columns.
+    UDIPE_NON_NULL_ARGS
+    static void write_title_borders(char* left_buffer,
+                                    const char* title,
+                                    char* right_buffer,
+                                    const char* line_segment,
+                                    size_t width) {
+        const size_t min_width = 2 + strlen(title);
+        const size_t line_width = (min_width < width) ? width - min_width
+                                                      : 0;
+        const size_t right_width = line_width / 2;
+        const size_t left_width = line_width - right_width;
+        write_horizontal_line(left_buffer, line_segment, left_width);
+        const size_t segment_size = strlen(line_segment);
+        left_buffer[left_width * segment_size] = ' ';
+        left_buffer[left_width * segment_size + 1] = '\0';
+
+        right_buffer[0] = ' ';
+        write_horizontal_line(right_buffer + 1, line_segment, right_width);
+    }
+
+    // TODO doc
+    typedef enum plot_type_e {
+        HISTOGRAM,
+        QUANTILE_FUNCTION
+    } plot_type_t;
+
+    /// Number of abscissa and ordinate data points in a plot
+    ///
+    /// Some plots represent a function whose input is consecutive ranges of
+    /// values, rather than a individual values, and in this case there are more
+    /// abscissa than ordinates.
+    typedef struct axis_len_s {
+        size_t abscissa;
+        size_t ordinate;
+    } axis_len_t;
+    //
+    /// Compute the \ref axis_len_t of a certain plot
+    // TODO rest of docs
+    UDIPE_NON_NULL_ARGS
+    static axis_len_t plot_axis_len(const distribution_t* dist,
+                                    plot_type_t type) {
+        // -1 because there is no data on the title line
+        const size_t ordinate_len = DISTRIBUTION_HEIGHT - 1;
+        switch (type) {
+        case HISTOGRAM:
+            return (axis_len_t){
+                // Histograms have the start position on the title line followed
+                // by one value per bin which represents the end of the previous
+                // bin (inclusive) and the start of the next bin (exclusive).
+                .abscissa = ordinate_len + 1,
+                .ordinate = ordinate_len
+            };
+        case QUANTILE_FUNCTION:
+            return (axis_len_t){
+                // Quantile functions do not have anything on the title line
+                .abscissa = ordinate_len,
+                .ordinate = ordinate_len
+            };
+        }
+        exit_with_error("Control should never reach this point!");
+    }
+
+    // TODO doc
+    typedef union coord_u {
+        int64_t value;
+        double percentile;
+        size_t count;
+    } coord_t;
+
+    // TODO doc
+    typedef struct range_u {
+        coord_t first;
+        coord_t last;
+    } range_t;
+
+    /// Automatically determine the full-scale abscissa range for a plot
+    // TODO rest of docs
+    UDIPE_NON_NULL_ARGS
+    static range_t plot_autoscale_abscissa(const distribution_t* dist,
+                                           plot_type_t type) {
+        switch (type) {
+        case HISTOGRAM:
+            assert(dist->num_bins >= 1);
+            const distribution_layout_t layout = distribution_layout(dist);
+            const int64_t min = layout.sorted_values[0];
+            const int64_t max = layout.sorted_values[dist->num_bins - 1];
+            return (range_t){
+                .first = (coord_t){ .value = min },
+                .last = (coord_t){ .value = max }
+            };
+        case QUANTILE_FUNCTION:
+            return (range_t){
+                .first = (coord_t){ .percentile = 0.0 },
+                .last = (coord_t){ .percentile = 100.0 }
+            };
+        }
+        exit_with_error("Control should never reach this point!");
+    }
+
+    /// Tabulate the abscissa of a plot
+    // TODO rest of docs
+    UDIPE_NON_NULL_ARGS
+    static void plot_compute_abscissa(const distribution_t* dist,
+                                      plot_type_t type,
+                                      coord_t* abscissa,
+                                      range_t range,
+                                      axis_len_t len) {
+        assert(len.abscissa >= 2);
+        switch (type) {
+        case HISTOGRAM: {
+            const int64_t first = range.first.value;
+            const int64_t last = range.last.value;
+            for (size_t a = 0; a < len.abscissa; ++a) {
+                const int64_t value = first + (last - first) * a / (len.abscissa - 1);
+                abscissa[a] = (coord_t){ .value = value };
+            }
+            break;
+        }
+        case QUANTILE_FUNCTION: {
+            const double first = range.first.percentile;
+            const double last = range.last.percentile;
+            for (size_t a = 0; a < len.abscissa; ++a) {
+                const double percentile = first + (last - first) * a / (len.abscissa - 1);
+                abscissa[a] = (coord_t){ .percentile = percentile };
+            }
+            break;
+        }}
+    }
+
+    /// What value to return when
+
+    /// Number of values smaller than or equal to `value` if `include_equal` is
+    /// set, or strictly smaller than `value` otherwise.
+    // TODO rest of docs
+    UDIPE_NON_NULL_ARGS
+    static inline size_t num_values_below(const distribution_t* dist,
+                                          int64_t value,
+                                          bool include_equal) {
+        const distribution_layout_t layout = distribution_layout(dist);
+        const ptrdiff_t pos = distribution_bin_by_value(dist,
+                                                        value,
+                                                        BIN_BELOW);
+        if (pos < 0) return 0;
+        const int64_t bin_value = layout.sorted_values[pos];
+        if (bin_value < value || include_equal) {
+            return layout.end_ranks[pos];
+        } else {
+            return (pos == 0) ? 0 : layout.end_ranks[pos - 1];
+        }
+    }
+
+    /// Compute the ordinates from a plot
+    // TODO rest of docs
+    UDIPE_NON_NULL_ARGS
+    static void plot_compute_ordinate(const distribution_t* dist,
+                                      plot_type_t type,
+                                      const coord_t* abscissa,
+                                      coord_t* ordinate,
+                                      axis_len_t len) {
+        switch (type) {
+        case HISTOGRAM:
+            assert(len.abscissa == len.ordinate + 1);
+            size_t start_rank = num_values_below(dist, abscissa[0].value, false);
+            for (size_t o = 0; o < len.ordinate; ++o) {
+                const size_t end_rank = num_values_below(dist,
+                                                         abscissa[o+1].value,
+                                                         true);
+                const size_t count = end_rank - start_rank;
+                ordinate[o] = (coord_t){ .count = count };
+                start_rank = end_rank;
+            }
+            break;
+        case QUANTILE_FUNCTION:
+            assert(len.abscissa == len.ordinate);
+            for (size_t o = 0; o < len.ordinate; ++o) {
+                const double probability = abscissa[o].percentile / 100.0;
+                const int64_t quantile = distribution_quantile(dist, probability);
+                ordinate[o] = (coord_t){ .value = quantile };
+            }
+            break;
+        }
+    }
+
+    /// Visual layout parameters specific to histograms
+    // TODO rest of docs
+    typedef struct histogram_layout_s {
+        size_t max_count;
+        int value_width;
+    } histogram_layout_t;
+
+    /// Visual layout parameters specific to quantile functions
+    // TODO rest of docs
+    typedef struct quantile_function_layout_s {
+        int percent_precision;
+        int percent_width;
+    } quantile_function_layout_t;
+
+    /// Visual layout parameters of a textual plot
+    // TODO rest of docs
+    typedef struct plot_layout_s {
+        union {
+            histogram_layout_t histogram;
+            quantile_function_layout_t quantile_function;
+        };
+        size_t legend_width;
+        size_t data_width;
+        size_t max_bar_width;
+    } plot_layout_t;
+
+    /// Compute a plot's visual layout
+    // TODO rest of docs
+    UDIPE_NON_NULL_ARGS
+    static plot_layout_t plot_layout(const distribution_t* dist,
+                                     plot_type_t type,
+                                     const coord_t* abscissa,
+                                     const coord_t* ordinate,
+                                     axis_len_t len) {
+        assert(len.ordinate >= 1);
+        plot_layout_t result = { .legend_width = 0 };
+        size_t max_ordinate_width;
+        switch (type) {
+        case HISTOGRAM: {
+            assert(len.abscissa >= 1);
+            const int min_width = printf_width_i64(abscissa[0].value);
+            const int max_width =
+                printf_width_i64(abscissa[len.abscissa - 1].value);
+            const int value_width = (min_width <= max_width) ? max_width
+                                                             : min_width;
+
+            // 4 columns for the leading "to " and trailing ╔/╟ separator
+            const size_t legend_width = value_width + 4;
+
+            size_t max_count = 0;
+            for (size_t o = 0; o < len.ordinate; ++o) {
+                const size_t count = ordinate[o].count;
+                if (count > max_count) max_count = count;
+            }
+            assert(count <= (size_t)INT64_MAX);
+            max_ordinate_width = printf_width_i64(max_count);
+
+            result = (plot_layout_t){
+                .histogram = (histogram_layout_t){
+                    .max_count = max_count,
+                    .value_width = value_width
+                },
+                .legend_width = legend_width,
+            };
+            break;
+        }
+        case QUANTILE_FUNCTION: {
+            assert(len.abscissa >= 2);
+            const double min_percent_delta =
+                abscissa[1].percentile - abscissa[0].percentile;
+            const int percent_precision = (min_percent_delta >= 1.0)
+                                        ? 1
+                                        : 1 + ceil(-logf(min_percent_delta));
+            // 4 extra columns for the largest leading "100." of last percentile
+            const int percent_width = percent_precision + 4;
+
+            // 1 column for the trailing % and ╔/╟ separator
+            const size_t legend_width = percent_width + 2;
+
+            const int64_t max_value = ordinate[len.ordinate - 1].value;
+            max_ordinate_width = printf_width_i64(max_value);
+
+            result = (plot_layout_t){
+                .quantile_function = (quantile_function_layout_t){
+                    .percent_precision = percent_precision,
+                    .percent_width = percent_width
+                },
+                .legend_width = legend_width,
+            };
+            break;
+        }}
+
+        result.data_width  = (DISTRIBUTION_WIDTH > result.legend_width)
+                           ? DISTRIBUTION_WIDTH - result.legend_width
+                           : 0;
+
+        // Extra columns for the ┤ bar/value separator and value display
+        const size_t non_bar_width = max_ordinate_width + 1;
+        result.max_bar_width = (result.data_width > non_bar_width)
+                             ? result.data_width - non_bar_width
+                             : 0;
+        return result;
+    }
+
+    /// Emit a textual plot of some distribution
+    // TODO details
+    UDIPE_NON_NULL_ARGS
+    static void log_plot(udipe_log_level_t level,
+                         const char* title,
+                         const distribution_t* dist,
+                         plot_type_t type) {
+        const axis_len_t len = plot_axis_len(dist, type);
+
+        coord_t* const abscissa = alloca(len.abscissa * sizeof(coord_t));
+        const range_t abscissa_range = plot_autoscale_abscissa(dist, type);
+        plot_compute_abscissa(dist, type, abscissa, abscissa_range, len);
+
+        coord_t* const ordinate = alloca(len.ordinate * sizeof(coord_t));
+        plot_compute_ordinate(dist, type, abscissa, ordinate, len);
+
+        const plot_layout_t layout = plot_layout(dist,
+                                                 type,
+                                                 abscissa,
+                                                 ordinate,
+                                                 len);
+
+        const size_t line_size = line_buffer_size(layout.data_width);
+        char* const left_line = alloca(line_size);
+        char* const right_line = alloca(line_size);
+
+        write_title_borders(left_line,
+                            title,
+                            right_line,
+                            DOUBLE_SEGMENT,
+                            layout.data_width);
+        char* const bar_line = left_line;
+        switch (type) {
+        case HISTOGRAM:
+            const int value_width = layout.histogram.value_width;
+            udipe_logf(level,
+                       "   %*zd╔"
+                       "%s%s%s",
+                       value_width, abscissa[0].value,
+                       left_line, title, right_line);
+            const size_t max_count = layout.histogram.max_count;
+            assert(max_count != 0);
+            for (size_t o = 0; o < len.ordinate; ++o) {
+                const size_t count = ordinate[o].count;
+                // TODO extract implicit autoscale + deduplicate wrt below by
+                //      precomputing clamped_ordinate as a separate step.
+                const size_t bar_width =
+                    ceil(layout.max_bar_width * count
+                                              / (double)max_count);
+                write_horizontal_line(bar_line, SINGLE_SEGMENT, bar_width);
+                udipe_logf(level,
+                           "to %*zd╟"
+                           "%s┤%zu",
+                           value_width, abscissa[o+1].value,
+                           bar_line, count);
+            }
+            break;
+        case QUANTILE_FUNCTION:
+            udipe_logf(level,
+                       "%*s ╔"
+                       "%s%s%s",
+                       layout.quantile_function.percent_width, "",
+                       left_line, title, right_line);
+            // TODO: Extract implicit autoscale
+            const int64_t min = distribution_min(dist);
+            const int64_t max = distribution_max(dist);
+            assert(max >= min);
+            for (size_t o = 0; o < len.ordinate; ++o) {
+                const int64_t quantile = ordinate[o].value;
+                // TODO extract implicit autoscale + deduplicate wrt above by
+                //      precomputing clamped_ordinate as a separate step.
+                const double rel_ordinate =
+                    (max > min) ? (quantile - min) / (double)(max - min)
+                                : 0.5;
+                const double clamped_ordinate =
+                    (rel_ordinate < 0.0) ? 0.0
+                                         : (rel_ordinate > 1.0) ? 1.0
+                                                                : rel_ordinate;
+                const size_t bar_width =
+                    ceil(layout.max_bar_width * clamped_ordinate);
+                write_horizontal_line(bar_line, SINGLE_SEGMENT, bar_width);
+
+                const int percent_width = layout.quantile_function.percent_width;
+                const int percent_precision = layout.quantile_function.percent_precision;
+                const double percentile = abscissa[o].percentile;
+                udipe_logf(level,
+                           "%*.*f%%"
+                           "╟%s┤%zd",
+                           percent_width, percent_precision, percentile,
+                           bar_line, quantile);
+            }
+            break;
+        }
+    }
+
+    UDIPE_NON_NULL_ARGS
+    void distribution_log(const distribution_t* dist,
                           udipe_log_level_t level,
                           const char* header) {
         if (log_enabled(level)) {
-            const distribution_t* dist = &builder->inner;
-            const distribution_layout_t layout = distribution_layout(dist);
-            udipe_logf(level, "%s: {", header);
-            for (size_t bin = 0; bin < dist->num_bins; ++bin) {
-                udipe_logf(level,
-                           "  %zd: %zu,",
-                           layout.sorted_values[bin], layout.counts[bin]);
-            }
-            udipe_log(level, "}");
+            const size_t line_size = line_buffer_size(DISTRIBUTION_WIDTH);
+            char* const left_line = alloca(line_size);
+            char* const right_line = alloca(line_size);
+
+            write_title_borders(left_line,
+                                header,
+                                right_line,
+                                SINGLE_SEGMENT,
+                                DISTRIBUTION_WIDTH);
+            udipe_logf(level, "%s%s%s", left_line, header, right_line);
+
+            log_plot(level,
+                     "Histogram",
+                     dist,
+                     HISTOGRAM);
+
+            log_plot(level,
+                     "Quantile function",
+                     dist,
+                     QUANTILE_FUNCTION);
         }
     }
 
@@ -535,12 +1023,12 @@
         trace("Ensuring the distribution can be sampled...");
         ensure_ge(dist.num_bins, (size_t)1);
 
-        trace("Turning value counts into end indices...");
+        trace("Turning value counts into end ranks...");
         distribution_layout_t layout = distribution_layout(&dist);
-        size_t end_idx = 0;
+        size_t end_rank = 0;
         for (size_t bin = 0; bin < dist.num_bins; ++bin) {
-            end_idx += layout.counts[bin];
-            layout.end_indices[bin] = end_idx;
+            end_rank += layout.counts[bin];
+            layout.end_ranks[bin] = end_rank;
         }
         return dist;
     }
@@ -576,11 +1064,11 @@
         const size_t short_bins = shorter->num_bins;
         tracef("Iterating over the %zu bins of the shorter distribution...",
                short_bins);
-        size_t prev_short_end_idx = 0;
+        size_t prev_short_end_rank = 0;
         for (size_t short_pos = 0; short_pos < short_bins; ++short_pos) {
             const int64_t short_value = short_layout.sorted_values[short_pos];
-            const size_t short_end_idx = short_layout.end_indices[short_pos];
-            const size_t short_count = short_end_idx - prev_short_end_idx;
+            const size_t short_end_rank = short_layout.end_ranks[short_pos];
+            const size_t short_count = short_end_rank - prev_short_end_rank;
             tracef("- Bin #%zu contains %zu occurences of value %zd.",
                    short_pos, short_count, short_value);
             for (size_t long_sample = 0; long_sample < short_count; ++long_sample) {
@@ -590,7 +1078,7 @@
                 tracef("  * Random left-right difference is %zd.", signed_diff);
                 distribution_insert(builder, signed_diff);
             }
-            prev_short_end_idx = short_end_idx;
+            prev_short_end_rank = short_end_rank;
         }
         return distribution_build(builder);
     }
@@ -609,11 +1097,11 @@
             const size_t num_bins = num->num_bins;
             tracef("Iterating over the %zu bins of the numerator distribution...",
                    num_bins);
-            size_t prev_end_idx = 0;
+            size_t prev_end_rank = 0;
             for (size_t num_pos = 0; num_pos < num_bins; ++num_pos) {
                 const int64_t num_value = num_layout.sorted_values[num_pos];
-                const size_t curr_end_idx = num_layout.end_indices[num_pos];
-                const size_t num_count = curr_end_idx - prev_end_idx;
+                const size_t curr_end_rank = num_layout.end_ranks[num_pos];
+                const size_t num_count = curr_end_rank - prev_end_rank;
                 tracef("- Numerator bin #%zu contains %zu occurences of value %zd.",
                        num_pos, num_count, num_value);
                 for (size_t denom_sample = 0; denom_sample < num_count; ++denom_sample) {
@@ -623,7 +1111,7 @@
                     tracef("  * Scaled ratio sample is %zd.", scaled_ratio);
                     distribution_insert(builder, scaled_ratio);
                 }
-                prev_end_idx = curr_end_idx;
+                prev_end_rank = curr_end_rank;
             }
             return distribution_build(builder);
         } else {
@@ -632,11 +1120,11 @@
             const size_t denom_bins = denom->num_bins;
             tracef("Iterating over the %zu bins of the denominator distribution...",
                    denom_bins);
-            size_t prev_end_idx = 0;
+            size_t prev_end_rank = 0;
             for (size_t denom_pos = 0; denom_pos < denom_bins; ++denom_pos) {
                 const int64_t denom_value = denom_layout.sorted_values[denom_pos];
-                const size_t curr_end_idx = denom_layout.end_indices[denom_pos];
-                const size_t denom_count = curr_end_idx - prev_end_idx;
+                const size_t curr_end_rank = denom_layout.end_ranks[denom_pos];
+                const size_t denom_count = curr_end_rank - prev_end_rank;
                 tracef("- Denominator bin #%zu contains %zu occurences of value %zd.",
                        denom_pos, denom_count, denom_value);
                 for (size_t num_sample = 0; num_sample < denom_count; ++num_sample) {
@@ -646,7 +1134,7 @@
                     tracef("  * Scaled ratio sample is %zd.", scaled_ratio);
                     distribution_insert(builder, scaled_ratio);
                 }
-                prev_end_idx = curr_end_idx;
+                prev_end_rank = curr_end_rank;
             }
             return distribution_build(builder);
         }
@@ -915,31 +1403,39 @@
         }
 
         trace("Reporting results...");
+        distribution_t result = distribution_build(result_builder);
         if (log_enabled(UDIPE_DEBUG)) {
             if (num_initially_rejected > 0) {
-                distribution_log(&reject_builder,
+                distribution_t reject = distribution_build(&reject_builder);
+                distribution_log(&reject,
                                  UDIPE_DEBUG,
                                  "Durations initially rejected as outliers");
+                distribution_finalize(&reject);
+            } else {
+                distribution_discard(&reject_builder);
             }
-            distribution_discard(&reject_builder);
+            //
             if (num_reclassified > 0) {
-                distribution_log(&reclassify_builder,
+                distribution_t reclassify = distribution_build(&reclassify_builder);
+                distribution_log(&reclassify,
                                  UDIPE_DEBUG,
                                  "Durations later reclassified to non-outlier");
                 debugf("Reclassified %zu/%zu durations from outlier to normal.",
                        num_reclassified, num_runs);
+                distribution_finalize(&reclassify);
+            } else {
+                distribution_discard(&reclassify_builder);
             }
-            distribution_discard(&reclassify_builder);
+            //
             if (num_normal_runs < num_runs) {
                 const size_t num_outliers = num_runs - num_normal_runs;
                 debugf("Eventually rejected %zu/%zu durations.",
                        num_outliers, num_runs);
             }
-            distribution_log(result_builder,
+            distribution_log(&result,
                              UDIPE_DEBUG,
                              "Accepted durations");
         }
-        distribution_t result = distribution_build(result_builder);
         assert(distribution_len(&result) == num_runs);
         return result;
     }
@@ -2626,12 +3122,12 @@
 
             trace("Checking the final distribution's bins...");
             size_t expected_end_idx = 0;
-            size_t* prev_end_indices = prev_counts;
+            size_t* prev_end_ranks = prev_counts;
             for (size_t bin = 0; bin < dist.num_bins; ++bin) {
                 ensure_eq(layout.sorted_values[bin], prev_values[bin]);
                 expected_end_idx += prev_counts[bin];
-                ensure_eq(layout.end_indices[bin], expected_end_idx);
-                prev_end_indices[bin] = expected_end_idx;
+                ensure_eq(layout.end_ranks[bin], expected_end_idx);
+                prev_end_ranks[bin] = expected_end_idx;
             }
             prev_counts = NULL;
             ensure_eq(distribution_len(&dist), expected_end_idx);
@@ -2647,7 +3143,7 @@
                 for (size_t bin = 0; bin < dist.num_bins; ++bin) {
                     if (layout.sorted_values[bin] == sample) sampled_bin = bin;
                     ensure_eq(layout.sorted_values[bin], prev_values[bin]);
-                    ensure_eq(layout.end_indices[bin], prev_end_indices[bin]);
+                    ensure_eq(layout.end_ranks[bin], prev_end_ranks[bin]);
                 }
                 ensure_ne(sampled_bin, SIZE_MAX);
             }
@@ -2656,7 +3152,7 @@
             free(prev_data);
             prev_data = NULL;
             prev_values = NULL;
-            prev_end_indices = NULL;
+            prev_end_ranks = NULL;
 
             trace("Resetting the distribution...");
             prev_dist = dist;
