@@ -770,10 +770,11 @@
                 const size_t end_rank = num_values_below(dist,
                                                          abscissa[o+1].value,
                                                          true);
-                if (o == 0 || abscissa[o+1].value > abscissa[o].value) {
+                if (abscissa[o+1].value > abscissa[o].value || o == 0) {
                     const size_t count = end_rank - start_rank;
                     ordinate[o] = (coord_t){ .count = count };
                 } else {
+                    assert(abscissa[o+1].value == abscissa[o].value);
                     ordinate[o] = ordinate[o-1];
                 }
                 start_rank = end_rank;
