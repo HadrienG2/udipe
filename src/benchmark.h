@@ -387,7 +387,7 @@
     UDIPE_NON_NULL_ARGS
     void temporal_filter_make_max_normal(temporal_filter_t* filter,
                                         temporal_filter_result_t* result,
-                                        const char* reason);
+                                        const char reason[]);
 
     /// Update a temporal outlier filter's state after encountering an input
     /// smaller than its current `min`
@@ -1431,7 +1431,7 @@
     UDIPE_NON_NULL_ARGS
     void distribution_log(const distribution_t* dist,
                           udipe_log_level_t level,
-                          const char* header);
+                          const char header[]);
 
     /// Recycle a \ref distribution_t for data recording
     ///

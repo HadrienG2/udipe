@@ -298,7 +298,7 @@
     UDIPE_NON_NULL_ARGS
     void temporal_filter_make_max_normal(temporal_filter_t* filter,
                                         temporal_filter_result_t* result,
-                                        const char* reason) {
+                                        const char reason[]) {
         assert(filter->max > filter->max_normal);
         tracef("Reclassified max %zd as non-outlier: %s.",
                filter->max, reason);
@@ -550,7 +550,17 @@
     static const char* const DOUBLE_SEGMENT = "═";
 
     /// Size of a buffer that can hold horizontal lines up to a certain width
-    // TODO details
+    ///
+    /// This function determines how many bytes must be allocated to a buffer
+    /// that holds a horizontal line made of \ref SINGLE_SEGMENT or \ref
+    /// DOUBLE_SEGMENT, typically generated using write_horizontal_line() or as
+    /// part of write_title_borders().
+    ///
+    /// \param max_width is an upper bound on the width of the lines that will
+    ///                  be stored into this buffer, in terminal columns.
+    ///
+    /// \returns the number of bytes needed to hold a horizontal textual line of
+    ///          up to `max_width` segments.
     static size_t line_buffer_size(size_t max_width) {
         const size_t single_segment_size = strlen(SINGLE_SEGMENT);
         const size_t double_segment_size = strlen(DOUBLE_SEGMENT);
@@ -577,8 +587,8 @@
     ///              draw instead of `buffer`. As noted above, `buffer` should
     ///              be large enough to hold all of them + a terminating NUL.
     UDIPE_NON_NULL_ARGS
-    static void write_horizontal_line(char* buffer,
-                                      const char* segment,
+    static void write_horizontal_line(char buffer[],
+                                      const char segment[],
                                       size_t width) {
         const size_t segment_size = strlen(segment);
         for (size_t x = 0; x < width; ++x) {
@@ -605,10 +615,10 @@
     /// \param width is the desired full width of the title in terminal
     ///                 columns.
     UDIPE_NON_NULL_ARGS
-    static void write_title_borders(char* left_buffer,
-                                    const char* title,
-                                    char* right_buffer,
-                                    const char* line_segment,
+    static void write_title_borders(char left_buffer[],
+                                    const char title[],
+                                    char right_buffer[],
+                                    const char line_segment[],
                                     size_t width) {
         const size_t min_width = 2 + strlen(title);
         const size_t line_width = (min_width < width) ? width - min_width
@@ -624,7 +634,15 @@
         write_horizontal_line(right_buffer + 1, line_segment, right_width);
     }
 
-    // TODO doc
+    /// Kind of plot being drawn
+    ///
+    /// Some plot drawing logic depends on the kind of plot that is being drawn,
+    /// this enum is used to select the appropriate logic for a plot of
+    /// interest.
+    ///
+    /// It is very important that a consistent `plot_type_t` is used for all
+    /// function calls below when generating a certain kind of plot, but the
+    /// toplevel `log_plot()` function will take care of this for you.
     typedef enum plot_type_e {
         HISTOGRAM,
         QUANTILE_FUNCTION
@@ -633,15 +651,19 @@
     /// Number of abscissa and ordinate data points in a plot
     ///
     /// Some plots represent a function whose input is consecutive ranges of
-    /// values, rather than a individual values, and in this case there are more
-    /// abscissa than ordinates.
+    /// values, rather than individual values, and in this case there are more
+    /// abscissa than ordinates because for N ordinates we need N+1 abscissas.
     typedef struct axis_len_s {
         size_t abscissa;
         size_t ordinate;
     } axis_len_t;
     //
     /// Compute the \ref axis_len_t of a certain type of plot
-    // TODO rest of docs
+    ///
+    /// \param type is the kind of plot that as being drawn
+    ///
+    /// \returns the number of abscissa and ordinate data points that the plot
+    ///          will be composed of.
     UDIPE_NON_NULL_ARGS
     static axis_len_t plot_axis_len(plot_type_t type) {
         // -1 because there is no data on the title line
@@ -665,33 +687,51 @@
         exit_with_error("Control should never reach this point!");
     }
 
-    // TODO doc
+    /// Horizontal or vertical plot coordinate
+    ///
+    /// This union, which is tagged by the \ref plot_type_t in use, is used to
+    /// clarify which coordinate type is used in the plot's internal data
+    /// buffers below. Indeed, from the perspective of plot type agnostic code,
+    /// a coordinate is just an 64-bit data blob of unknown numeric type.
     typedef union coord_u {
         int64_t value;
         double percentile;
         size_t count;
     } coord_t;
 
-    // TODO doc
+    /// Horizontal or vertical plot range
+    ///
+    /// This struct is used to set bounds on the value ranges represented by a
+    /// plot's axis. The proper way to interpret it depends on the \ref
+    /// plot_type_t and the target axis, but it is guaranteed that `first` and
+    /// `last` will always use the same \ref coord_t variant.
     typedef struct range_u {
         coord_t first;
         coord_t last;
     } range_t;
 
     /// Automatically determine the full-scale abscissa range for a plot
-    // TODO rest of docs
+    ///
+    /// This sets up the abscissa axis such that the plot will display the
+    /// function of interest over its full range of input values (distribution
+    /// elements for histograms, probabilities for quantile functions).
+    ///
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_build() and hasn't yet been recycled via
+    ///             distribution_reset() or destroyed via
+    ///             distribution_finalize().
+    /// \param type is the kind of plot that is being drawn.
+    ///
+    /// \returns the maximal abscissa range for the plot of interest.
     UDIPE_NON_NULL_ARGS
     static range_t plot_autoscale_abscissa(const distribution_t* dist,
                                            plot_type_t type) {
         switch (type) {
         case HISTOGRAM:
-            assert(dist->num_bins >= 1);
-            const distribution_layout_t layout = distribution_layout(dist);
-            const int64_t min = layout.sorted_values[0];
-            const int64_t max = layout.sorted_values[dist->num_bins - 1];
             return (range_t){
-                .first = (coord_t){ .value = min },
-                .last = (coord_t){ .value = max }
+                .first = (coord_t){ .value = distribution_min(dist) },
+                .last = (coord_t){ .value = distribution_max(dist) }
             };
         case QUANTILE_FUNCTION:
             return (range_t){
@@ -703,11 +743,27 @@
     }
 
     /// Tabulate the abscissa of a plot
-    // TODO rest of docs
+    ///
+    /// From an abscissa `range` which can be computed via
+    /// plot_autoscale_abscissa(), and an axis length `len` which can be
+    /// computed via plot_axis_len(), this function generates a linearly spaced
+    /// set of abscissa coordinates inside of buffer `abscissa`.
+    ///
+    /// \param type is the kind of plot that is being drawn, which must be
+    ///             consistent with the inputs previously given to
+    ///             plot_autoscale_abscissa() and plot_axis_len().
+    /// \param abscissa is a buffer that will receive a number of abscissa
+    ///                 coordinates dictated by `len::abscissa` and should be
+    ///                 dimensioned as such.
+    /// \param range is the range that the abscissa can take. It can be
+    ///              automatically inferred from data using
+    ///              plot_autoscale_abscissa(), and should not be wider than the
+    ///              actual data range.
+    /// \param len is the length of the plot's axes, which can be generated
+    ///            using plot_axis_len().
     UDIPE_NON_NULL_ARGS
-    static void plot_compute_abscissa(const distribution_t* dist,
-                                      plot_type_t type,
-                                      coord_t* abscissa,
+    static void plot_compute_abscissa(plot_type_t type,
+                                      coord_t abscissa[],
                                       range_t range,
                                       axis_len_t len) {
         assert(len.abscissa >= 2);
@@ -732,11 +788,22 @@
         }}
     }
 
-    /// What value to return when
-
     /// Number of values smaller than or equal to `value` if `include_equal` is
     /// set, or strictly smaller than `value` otherwise.
-    // TODO rest of docs
+    ///
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_build() and hasn't yet been recycled via
+    ///             distribution_reset() or destroyed via
+    ///             distribution_finalize().
+    /// \param value is the value which you want to position with respect to the
+    ///              values inside of `dist`.
+    /// \param include_equal specifies if values from `dist` that are equal to
+    ///                      `value` should be included in the output count or
+    ///                      not.
+    ///
+    /// \returns the number of values inside of `dist` that are smaller than
+    ///          (and possibly equal to) `value`.
     UDIPE_NON_NULL_ARGS
     static inline size_t num_values_below(const distribution_t* dist,
                                           int64_t value,
@@ -755,12 +822,33 @@
     }
 
     /// Compute the ordinates from a plot
-    // TODO rest of docs
+    ///
+    /// From a previously generated set of increasing abscissa values stored in
+    /// `abscissa`, which can be generated via plot_compute_abscissa(), this
+    /// function writes the matching set of ordinate values to `ordinate`.
+    ///
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_build() and hasn't yet been recycled via
+    ///             distribution_reset() or destroyed via
+    ///             distribution_finalize().
+    /// \param type is the kind of plot that is being drawn, which must be
+    ///             consistent with the inputs previously given to
+    ///             plot_compute_abscissa() and plot_axis_len().
+    /// \param abscissa is the set of abscissa values at which the ordinates
+    ///                 will be evaluated, which can be generated using
+    ///                 plot_compute_abscissa(). Abscissa values should be
+    ///                 sorted in increasing order, but are allowed to repeat.
+    /// \param ordinate is a buffer that will receive a number of ordinate
+    ///                 coordinates dictated by `len::ordinate` and should be
+    ///                 dimensioned as such.
+    /// \param len is the length of the plot's axes, which can be generated
+    ///            using plot_axis_len().
     UDIPE_NON_NULL_ARGS
     static void plot_compute_ordinate(const distribution_t* dist,
                                       plot_type_t type,
-                                      const coord_t* abscissa,
-                                      coord_t* ordinate,
+                                      const coord_t abscissa[],
+                                      coord_t ordinate[],
                                       axis_len_t len) {
         switch (type) {
         case HISTOGRAM:
@@ -784,6 +872,7 @@
             assert(len.abscissa == len.ordinate);
             for (size_t o = 0; o < len.ordinate; ++o) {
                 const double probability = abscissa[o].percentile / 100.0;
+                assert(probability >= 0.0 && probability <= 1.0);
                 const int64_t quantile = distribution_quantile(dist, probability);
                 ordinate[o] = (coord_t){ .value = quantile };
             }
@@ -822,8 +911,8 @@
     UDIPE_NON_NULL_ARGS
     static plot_layout_t plot_layout(const distribution_t* dist,
                                      plot_type_t type,
-                                     const coord_t* abscissa,
-                                     const coord_t* ordinate,
+                                     const coord_t abscissa[],
+                                     const coord_t ordinate[],
                                      axis_len_t len) {
         assert(len.ordinate >= 1);
         plot_layout_t result = { .legend_width = 0 };
@@ -899,14 +988,14 @@
     // TODO details
     UDIPE_NON_NULL_ARGS
     static void log_plot(udipe_log_level_t level,
-                         const char* title,
+                         const char title[],
                          const distribution_t* dist,
                          plot_type_t type) {
         const axis_len_t len = plot_axis_len(type);
 
         coord_t* const abscissa = alloca(len.abscissa * sizeof(coord_t));
         const range_t abscissa_range = plot_autoscale_abscissa(dist, type);
-        plot_compute_abscissa(dist, type, abscissa, abscissa_range, len);
+        plot_compute_abscissa(type, abscissa, abscissa_range, len);
 
         coord_t* const ordinate = alloca(len.ordinate * sizeof(coord_t));
         plot_compute_ordinate(dist, type, abscissa, ordinate, len);
@@ -993,7 +1082,7 @@
     UDIPE_NON_NULL_ARGS
     void distribution_log(const distribution_t* dist,
                           udipe_log_level_t level,
-                          const char* header) {
+                          const char header[]) {
         if (log_enabled(level)) {
             const size_t line_size = line_buffer_size(DISTRIBUTION_WIDTH);
             char* const left_line = alloca(line_size);
@@ -2064,7 +2153,7 @@
     DEFINE_PUBLIC
     UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 3)
     bool udipe_benchmark_run(udipe_benchmark_t* benchmark,
-                             const char* name,
+                             const char name[],
                              udipe_benchmark_runnable_t runnable,
                              void* context) {
         bool name_matches;
