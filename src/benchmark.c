@@ -654,8 +654,8 @@
     /// values, rather than individual values, and in this case there are more
     /// abscissa than ordinates because for N ordinates we need N+1 abscissas.
     typedef struct axis_len_s {
-        size_t abscissa;
-        size_t ordinate;
+        size_t abscissa;  ///< Number of abscissa points
+        size_t ordinate;  ///< Number of ordinate points
     } axis_len_t;
     //
     /// Compute the \ref axis_len_t of a certain type of plot
@@ -694,9 +694,9 @@
     /// buffers below. Indeed, from the perspective of plot type agnostic code,
     /// a coordinate is just an 64-bit data blob of unknown numeric type.
     typedef union coord_u {
-        int64_t value;
-        double percentile;
-        size_t count;
+        int64_t value;  ///< A value previously inserted into the distribution
+        double percentile;  ///< A percentile between 0.0 and 100.0
+        size_t count;  ///< A number of values matching some criterion
     } coord_t;
 
     /// Horizontal or vertical plot range
@@ -706,8 +706,8 @@
     /// plot_type_t and the target axis, but it is guaranteed that `first` and
     /// `last` will always use the same \ref coord_t variant.
     typedef struct range_u {
-        coord_t first;
-        coord_t last;
+        coord_t first;  ///< Inclusive lower bound
+        coord_t last;  ///< Inclusive upper bound
     } range_t;
 
     /// Automatically determine the full-scale abscissa range for a plot
@@ -880,34 +880,111 @@
         }
     }
 
+    /// Automatically determine the full-scale ordinate range for a plot
+    ///
+    /// This sets up the ordinate axis such that the plot will display the full
+    /// range of values from the function of interest, without saturating on the
+    /// maximum side, and using either the minimum ordinate value or 0 on the
+    /// minimum side depending on what's customary for a given plot type.
+    ///
+    /// \param type is the kind of plot that is being drawn. It must be
+    ///             consistent with the parameter that was passed to
+    ///             plot_compute_ordinate() and plot_axis_len().
+    /// \param ordinate is the set of ordinates that were previously computed
+    ///                 via plots_compute_ordinate().
+    /// \param len is the length of the plot's axes, which can be generated
+    ///            using plot_axis_len().
+    ///
+    /// \returns the full-scale ordinate range for the plot of interest.
+    UDIPE_NON_NULL_ARGS
+    static range_t plot_autoscale_ordinate(plot_type_t type,
+                                           const coord_t ordinate[],
+                                           axis_len_t len) {
+        assert(len.ordinate >= 1);
+        switch (type) {
+        case HISTOGRAM:
+            size_t max_count = 0;
+            for (size_t o = 0; o < len.ordinate; ++o) {
+                const size_t count = ordinate[o].count;
+                if (count > max_count) max_count = count;
+            }
+            return (range_t){
+                .first = (coord_t){ .count = 0 },
+                .last = (coord_t){ .count = max_count }
+            };
+        case QUANTILE_FUNCTION:
+            return (range_t){
+                .first = (coord_t){ .value = ordinate[0].value },
+                .last = (coord_t){ .count = ordinate[len.ordinate - 1].value }
+            };
+        }
+        exit_with_error("Control should never reach this point!");
+    }
+
     /// Visual layout parameters specific to histograms
-    // TODO rest of docs
+    ///
+    /// This information is needed when rendering \ref HISTOGRAM plots.
     typedef struct histogram_layout_s {
-        size_t max_count;
-        int value_width;
+        size_t max_count;  ///< Maximal count used as an ordinate value
+        int value_width;  ///< Width of abscissa values
     } histogram_layout_t;
 
     /// Visual layout parameters specific to quantile functions
-    // TODO rest of docs
+    ///
+    /// This information is needed when rendering \ref QUANTILE_FUNCTION plots.
     typedef struct quantile_function_layout_s {
-        int percent_precision;
-        int percent_width;
+        int percent_precision;  ///< Precision of abscissa percentiles
+        int percent_width;  ///< Width of abscissa percentiles
     } quantile_function_layout_t;
 
     /// Visual layout parameters of a textual plot
-    // TODO rest of docs
+    ///
+    /// This visual layout information is needed when rendering a plot.
     typedef struct plot_layout_s {
+        // Information specific to a particular plot type
         union {
             histogram_layout_t histogram;
             quantile_function_layout_t quantile_function;
         };
-        size_t legend_width;
+
+        /// Width of the data region, excluding abscissa legend
+        ///
+        /// This indicates how many terminal columns can be used when rendering
+        /// plot titles, bars and ordinate legends.
         size_t data_width;
+
+        /// Full width of the data bars, excluding abscissa and ordinate legend
+        ///
+        /// This indicates the number of terminal columns that the longest
+        /// display bar should use.
         size_t max_bar_width;
     } plot_layout_t;
 
     /// Compute a plot's visual layout
-    // TODO rest of docs
+    ///
+    /// From a plot's abscissa and ordinate data, which were previously computed
+    /// using plot_compute_abscissa() and plot_compute_ordinate(), this
+    /// determines how the plot should be visually laid out in the terminal i.e.
+    /// what are the width and precision parameters of the various print
+    /// statements and how many terminal columns can be used by various visual
+    /// elements.
+    ///
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_build() and hasn't yet been recycled via
+    ///             distribution_reset() or destroyed via
+    ///             distribution_finalize().
+    /// \param type is the kind of plot that is being drawn, which must be
+    ///             consistent with the inputs previously given to
+    ///             plot_compute_abscissa() and plot_compute_ordinate().
+    /// \param abscissa is the set of abscissa values at which the ordinates
+    ///                 will be evaluated, which can be generated using
+    ///                 plot_compute_abscissa(). Abscissa values should be
+    ///                 sorted in increasing order, but are allowed to repeat.
+    /// \param ordinate is the set of ordinate values evaluated at each position
+    ///                 or interval from `abscissa`.
+    /// \param len is the length of the plot's axes, which can be generated
+    ///            using plot_axis_len().
     UDIPE_NON_NULL_ARGS
     static plot_layout_t plot_layout(const distribution_t* dist,
                                      plot_type_t type,
@@ -915,8 +992,8 @@
                                      const coord_t ordinate[],
                                      axis_len_t len) {
         assert(len.ordinate >= 1);
-        plot_layout_t result = { .legend_width = 0 };
-        size_t max_ordinate_width;
+        plot_layout_t result = { 0 };
+        size_t legend_width, max_ordinate_width;
         switch (type) {
         case HISTOGRAM: {
             assert(len.abscissa >= 1);
@@ -927,7 +1004,7 @@
                                                              : min_width;
 
             // 4 columns for the leading "to " and trailing ╔/╟ separator
-            const size_t legend_width = value_width + 4;
+            legend_width = value_width + 4;
 
             size_t max_count = 0;
             for (size_t o = 0; o < len.ordinate; ++o) {
@@ -941,8 +1018,7 @@
                 .histogram = (histogram_layout_t){
                     .max_count = max_count,
                     .value_width = value_width
-                },
-                .legend_width = legend_width,
+                }
             };
             break;
         }
@@ -957,7 +1033,7 @@
             const int percent_width = percent_precision + 4;
 
             // 1 column for the trailing % and ╔/╟ separator
-            const size_t legend_width = percent_width + 2;
+            legend_width = percent_width + 2;
 
             const int64_t max_value = ordinate[len.ordinate - 1].value;
             max_ordinate_width = printf_width_i64(max_value);
@@ -966,14 +1042,13 @@
                 .quantile_function = (quantile_function_layout_t){
                     .percent_precision = percent_precision,
                     .percent_width = percent_width
-                },
-                .legend_width = legend_width,
+                }
             };
             break;
         }}
 
-        result.data_width  = (DISTRIBUTION_WIDTH > result.legend_width)
-                           ? DISTRIBUTION_WIDTH - result.legend_width
+        result.data_width  = (DISTRIBUTION_WIDTH > legend_width)
+                           ? DISTRIBUTION_WIDTH - legend_width
                            : 0;
 
         // Extra columns for the ┤ bar/value separator and value display
@@ -984,8 +1059,85 @@
         return result;
     }
 
-    /// Emit a textual plot of some distribution
-    // TODO details
+    /// Write the plot line associated with `ordinate` to `output`
+    ///
+    /// This draws the horizontal line used to display a certain `ordinate` into
+    /// the buffer `output`, following the ordinate scaling specified by
+    /// `ordinate_range` and the terminal column budget specified by `layout`.
+    ///
+    /// \param type is the kind of plot that is being drawn, which must be
+    ///             consistent with the inputs previously given to
+    ///             plot_compute_ordinate(), plot_autoscale_ordinate() and
+    ///             plot_layout().
+    /// \param ordinate_range specifies the minimum and maximum ordinate values
+    ///                       outside of which the ordinate scale will saturate
+    ///                       to a min/max bar length.
+    /// \param layout specifies the plot layout, used here to figure out the
+    ///               terminal column budget for horizontal lines.
+    /// \param ordinate is the ordinate whose display is meant to be drawn.
+    /// \param output is the text buffer into which the ordinate line display
+    ///               will be recorded. It must be able to hold at least the
+    ///               amount of bytes specified by
+    ///               `line_buffer_size(layout->max_bar_width)`.
+    UDIPE_NON_NULL_ARGS
+    static void plot_draw_line(plot_type_t type,
+                               range_t ordinate_range,
+                               const plot_layout_t* layout,
+                               coord_t ordinate,
+                               char output[]) {
+        double rel_ordinate;
+        switch (type) {
+        case HISTOGRAM: {
+            const size_t count = ordinate.count;
+            const size_t first_count = ordinate_range.first.count;
+            const size_t last_count = ordinate_range.last.count;
+            if (first_count < last_count) {
+                rel_ordinate = (count - first_count)
+                             / (double)(last_count - first_count);
+            } else {
+                assert(first_count == last_count);
+                rel_ordinate = 0.5;
+            }
+            break;
+        }
+        case QUANTILE_FUNCTION: {
+            const int64_t value = ordinate.value;
+            const int64_t first_value = ordinate_range.first.value;
+            const int64_t last_value = ordinate_range.last.value;
+            if (first_value < last_value) {
+                rel_ordinate = (value - first_value)
+                             / (double)(last_value - first_value);
+            } else {
+                assert(first_value == last_value);
+                rel_ordinate = 0.5;
+            }
+            break;
+        }}
+
+        const double clamped_ordinate =
+            (rel_ordinate < 0.0) ? 0.0
+                                 : (rel_ordinate > 1.0) ? 1.0
+                                                        : rel_ordinate;
+        const size_t bar_width =
+            ceil(layout->max_bar_width * clamped_ordinate);
+        write_horizontal_line(output, SINGLE_SEGMENT, bar_width);
+    }
+
+    /// Emit a textual plot of some distribution as a log
+    ///
+    /// This function should normally be gated on `log_enabled(level)` to ensure
+    /// that it is only called when the specified log level is enabled.
+    ///
+    /// \param level is the log level at which the plot should be emitted
+    /// \param title is the caption that should be added on top of the plot. For
+    ///              optimal visual results, it should preferably be composed of
+    ///              ASCII chars only.
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_build() and hasn't yet been recycled via
+    ///             distribution_reset() or destroyed via
+    ///             distribution_finalize().
+    /// \param type is the kind of plot that is being drawn.
     UDIPE_NON_NULL_ARGS
     static void log_plot(udipe_log_level_t level,
                          const char title[],
@@ -999,6 +1151,9 @@
 
         coord_t* const ordinate = alloca(len.ordinate * sizeof(coord_t));
         plot_compute_ordinate(dist, type, abscissa, ordinate, len);
+        const range_t ordinate_range = plot_autoscale_ordinate(type,
+                                                               ordinate,
+                                                               len);
 
         const plot_layout_t layout = plot_layout(dist,
                                                  type,
@@ -1024,21 +1179,17 @@
                        "%s%s%s",
                        value_width, abscissa[0].value,
                        left_line, title, right_line);
-            const size_t max_count = layout.histogram.max_count;
-            assert(max_count != 0);
             for (size_t o = 0; o < len.ordinate; ++o) {
-                const size_t count = ordinate[o].count;
-                // TODO extract implicit autoscale + deduplicate wrt below by
-                //      precomputing clamped_ordinate as a separate step.
-                const size_t bar_width =
-                    ceil(layout.max_bar_width * count
-                                              / (double)max_count);
-                write_horizontal_line(bar_line, SINGLE_SEGMENT, bar_width);
+                plot_draw_line(type,
+                               ordinate_range,
+                               &layout,
+                               ordinate[o],
+                               bar_line);
                 udipe_logf(level,
                            "to %*zd╟"
                            "%s┤%zu",
                            value_width, abscissa[o+1].value,
-                           bar_line, count);
+                           bar_line, ordinate[o].count);
             }
             break;
         case QUANTILE_FUNCTION:
@@ -1047,25 +1198,12 @@
                        "%s%s%s",
                        layout.quantile_function.percent_width, "",
                        left_line, title, right_line);
-            // TODO: Extract implicit autoscale
-            const int64_t min = distribution_min(dist);
-            const int64_t max = distribution_max(dist);
-            assert(max >= min);
             for (size_t o = 0; o < len.ordinate; ++o) {
-                const int64_t quantile = ordinate[o].value;
-                // TODO extract implicit autoscale + deduplicate wrt above by
-                //      precomputing clamped_ordinate as a separate step.
-                const double rel_ordinate =
-                    (max > min) ? (quantile - min) / (double)(max - min)
-                                : 0.5;
-                const double clamped_ordinate =
-                    (rel_ordinate < 0.0) ? 0.0
-                                         : (rel_ordinate > 1.0) ? 1.0
-                                                                : rel_ordinate;
-                const size_t bar_width =
-                    ceil(layout.max_bar_width * clamped_ordinate);
-                write_horizontal_line(bar_line, SINGLE_SEGMENT, bar_width);
-
+                plot_draw_line(type,
+                               ordinate_range,
+                               &layout,
+                               ordinate[o],
+                               bar_line);
                 const int percent_width = layout.quantile_function.percent_width;
                 const int percent_precision = layout.quantile_function.percent_precision;
                 const double percentile = abscissa[o].percentile;
@@ -1073,7 +1211,7 @@
                            "%*.*f%%"
                            "╟%s┤%zd",
                            percent_width, percent_precision, percentile,
-                           bar_line, quantile);
+                           bar_line, ordinate[o].value);
             }
             break;
         }
