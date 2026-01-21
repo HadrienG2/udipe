@@ -785,10 +785,9 @@
         }
 
         void temporal_filter_unit_tests() {
-            configure_rand();
-
             infof("Running temporal_filter_t tests from %zu initial states...",
                   NUM_INITIAL_STATES);
+            configure_rand();
             with_log_level(UDIPE_TRACE, {
                 for (size_t state = 0; state < NUM_INITIAL_STATES; ++state) {
                     trace("- Generating initial inputs...");

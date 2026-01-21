@@ -116,6 +116,7 @@ target_sources(udipe
                        src/address_wait.h
                        src/benchmark.c
                        src/benchmark.h
+                       src/benchmark/distribution.h
                        src/benchmark/temporal_filter.c
                        src/benchmark/temporal_filter.h
                        src/bit_array.c

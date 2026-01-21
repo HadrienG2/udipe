@@ -186,7 +186,11 @@
                                  size_t pos,
                                  int64_t value) {
         distribution_t* dist = &builder->inner;
+        assert(pos <= dist->num_bins);
         distribution_layout_t layout = distribution_layout(dist);
+        if (pos > 0) assert(layout.sorted_values[pos - 1] < value);
+        if (pos < dist->num_bins) assert(layout.sorted_values[pos] > value);
+
         if (dist->num_bins < dist->capacity) {
             trace("There's enough room in the allocation for this new bin.");
             const size_t end_pos = dist->num_bins;
@@ -991,7 +995,7 @@
         distribution_t dist = builder->inner;
         distribution_poison(&builder->inner);
 
-        trace("Ensuring the distribution can be sampled...");
+        trace("Ensuring the distribution is not empty...");
         ensure_ge(dist.num_bins, (size_t)1);
 
         trace("Turning value counts into end ranks...");
@@ -1010,12 +1014,65 @@
     }
 
     UDIPE_NON_NULL_ARGS
+    distribution_t distribution_scale(distribution_builder_t* builder,
+                                      int64_t factor,
+                                      const distribution_t* dist) {
+        assert(builder->inner.num_bins == 0);
+
+        if (factor == 0) {
+            trace("Handling zero factor special case...");
+            assert(builder->inner.capacity >= 1);
+            distribution_layout_t builder_layout = distribution_layout(&builder->inner);
+            builder_layout.sorted_values[0] = 0;
+            builder_layout.counts[0] = distribution_len(dist);
+            builder->inner.num_bins = 1;
+            return distribution_build(builder);
+        }
+
+        const size_t num_bins = dist->num_bins;
+        if (builder->inner.capacity < num_bins) {
+            tracef("Enlarging builder to match input capacity %zu...",
+                   dist->capacity);
+            distribution_finalize(&builder->inner);
+            builder->inner = distribution_allocate(dist->capacity);
+        }
+
+        assert(factor != 0);
+        trace("Handling nonzero factor, flipping bin order if negative...");
+        const distribution_layout_t dist_layout = distribution_layout(dist);
+        distribution_layout_t builder_layout = distribution_layout(&builder->inner);
+        size_t prev_end_rank = 0;
+        for (size_t dist_pos = 0; dist_pos < num_bins; ++dist_pos) {
+            const int64_t dist_value = dist_layout.sorted_values[dist_pos];
+            const int64_t scaled_value = factor * dist_value;
+
+            const size_t dist_end_rank = dist_layout.end_ranks[dist_pos];
+            assert(dist_end_rank > prev_end_rank);  // Nonzero positive count
+            const size_t count = dist_end_rank - prev_end_rank;
+            prev_end_rank = dist_end_rank;
+
+            const size_t builder_pos = (factor > 0) ? dist_pos
+                                                    : num_bins - dist_pos - 1;
+
+            tracef("- Input bin #%zu with %zu occurences of %zd becomes "
+                   "output bin #%zu with as many occurences of scaled %zd.",
+                   dist_pos, count, dist_value,
+                   builder_pos, scaled_value);
+            builder_layout.sorted_values[builder_pos] = scaled_value;
+            builder_layout.counts[builder_pos] = count;
+        }
+        builder->inner.num_bins = dist->num_bins;
+        return distribution_build(builder);
+    }
+
+    UDIPE_NON_NULL_ARGS
     distribution_t distribution_sub(distribution_builder_t* builder,
                                     const distribution_t* left,
                                     const distribution_t* right) {
+        assert(builder->inner.num_bins == 0);
+
         // To avoid "amplifying" outliers by using multiple copies, we iterate
         // over the shortest distribution and sample from the longest one
-        assert(builder->inner.num_bins == 0);
         const distribution_t* shorter;
         const distribution_t* longer;
         int64_t diff_sign;
@@ -1043,7 +1100,7 @@
             tracef("- Bin #%zu contains %zu occurences of value %zd.",
                    short_pos, short_count, short_value);
             for (size_t long_sample = 0; long_sample < short_count; ++long_sample) {
-                const int64_t diff = short_value - distribution_sample(longer);
+                const int64_t diff = short_value - distribution_choose(longer);
                 tracef("  * Random short-long difference is %zd.", diff);
                 const int64_t signed_diff = diff_sign * diff;
                 tracef("  * Random left-right difference is %zd.", signed_diff);
@@ -1059,9 +1116,10 @@
                                            const distribution_t* num,
                                            int64_t factor,
                                            const distribution_t* denom) {
+        assert(builder->inner.num_bins == 0);
+
         // To avoid "amplifying" outliers by using multiple copies, we iterate
         // over the shortest distribution and sample from the longest one
-        assert(builder->inner.num_bins == 0);
         if (distribution_len(num) <= distribution_len(num)) {
             trace("Numerator distribution is shorter, will iterate over num and sample from denom.");
             const distribution_layout_t num_layout = distribution_layout(num);
@@ -1076,7 +1134,7 @@
                 tracef("- Numerator bin #%zu contains %zu occurences of value %zd.",
                        num_pos, num_count, num_value);
                 for (size_t denom_sample = 0; denom_sample < num_count; ++denom_sample) {
-                    const int64_t denom_value = distribution_sample(denom);
+                    const int64_t denom_value = distribution_choose(denom);
                     tracef("  * Sampled random denominator value %zd.", denom_value);
                     const int64_t scaled_ratio = num_value * factor / denom_value;
                     tracef("  * Scaled ratio sample is %zd.", scaled_ratio);
@@ -1099,7 +1157,7 @@
                 tracef("- Denominator bin #%zu contains %zu occurences of value %zd.",
                        denom_pos, denom_count, denom_value);
                 for (size_t num_sample = 0; num_sample < denom_count; ++num_sample) {
-                    const int64_t num_value = distribution_sample(num);
+                    const int64_t num_value = distribution_choose(num);
                     tracef("  * Sampled random numerator value %zd.", num_value);
                     const int64_t scaled_ratio = num_value * factor / denom_value;
                     tracef("  * Scaled ratio sample is %zd.", scaled_ratio);
@@ -1171,7 +1229,7 @@
         for (size_t median = 0; median < analyzer->num_medians; ++median) {
             tracef("- Computing medians[%zu]...", median);
             for (size_t sample = 0; sample < NUM_MEDIAN_SAMPLES; ++sample) {
-                const int64_t value = distribution_sample(dist);
+                const int64_t value = distribution_choose(dist);
                 tracef("  * Inserting sample %zd...", value);
                 ptrdiff_t prev;
                 for (prev = sample - 1; prev >= 0; --prev) {
@@ -1812,7 +1870,7 @@
             x86_instant* starts = clock->instants;
             x86_instant* ends = starts + measure->num_runs;
             const int64_t raw_ticks = ends[run] - starts[run];
-            return raw_ticks - distribution_sample(&clock->offsets);
+            return raw_ticks - distribution_choose(&clock->offsets);
         }
 
         UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
@@ -2536,7 +2594,7 @@
             const size_t num_samples = 10 * dist.num_bins;
             for (size_t i = 0; i < num_samples; ++i) {
                 trace("- Grabbing one sample...");
-                const int64_t sample = distribution_sample(&dist);
+                const int64_t sample = distribution_choose(&dist);
 
                 trace("- Checking const correctness and locating sampled bin...");
                 size_t sampled_bin = SIZE_MAX;
