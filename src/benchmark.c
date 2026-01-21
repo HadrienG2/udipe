@@ -2155,7 +2155,7 @@
 
         /// Test distribution_builder_t and distribution_t
         ///
-        static void test_distibution() {
+        static void test_distribution() {
             trace("Setting up a distribution...");
             distribution_builder_t builder = distribution_initialize();
             const void* const initial_allocation = builder.inner.allocation;
@@ -2636,7 +2636,7 @@
 
             debug("Running distribution unit tests...");
             with_log_level(UDIPE_TRACE, {
-                test_distibution();
+                test_distribution();
             });
 
             // TODO: Add unit tests for stats, then clocks
