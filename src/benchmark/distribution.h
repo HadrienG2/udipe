@@ -604,16 +604,17 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param builder must be a \ref distribution_builder_t that has previously
-    ///                received at least one value via distribution_insert() and
-    ///                hasn't been turned into a \ref distribution_t or
-    ///                destroyed since. It will be consumed by this function and
-    ///                cannot be used again.
+    /// \param non_empty_builder must be a \ref distribution_builder_t that has
+    ///                          previously received at least one value via
+    ///                          distribution_insert() and hasn't been turned
+    ///                          into a \ref distribution_t or destroyed since.
+    ///                          It will be consumed by this function and cannot
+    ///                          be used again.
     ///
     /// \returns a \ref distribution_t that can be used to efficiently query
     ///          various statistical properties of previously inserted values.
     UDIPE_NON_NULL_ARGS
-    distribution_t distribution_build(distribution_builder_t* builder);
+    distribution_t distribution_build(distribution_builder_t* non_empty_builder);
 
     /// Destroy a distribution builder
     ///
@@ -641,17 +642,17 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param builder must be a \ref distribution_builder_t that was freshly
-    ///                built via distribution_initialize() or
-    ///                distribution_reset() and hasn't been subjected to any
-    ///                other operation since. It will be consumed by this
-    ///                function and cannot be used again.
+    /// \param empty_builder must be a \ref distribution_builder_t that was
+    ///                      freshly built via distribution_initialize() or
+    ///                      distribution_reset() and hasn't been subjected to
+    ///                      any other operation since. It will be consumed by
+    ///                      this function and cannot be used again.
     /// \param factor is the factor applied to each data point from `dist`.
     /// \param dist is the distribution from which data points are extracted.
     ///
     /// \returns the distribution of scaled data points.
     UDIPE_NON_NULL_ARGS
-    distribution_t distribution_scale(distribution_builder_t* builder,
+    distribution_t distribution_scale(distribution_builder_t* empty_builder,
                                       int64_t factor,
                                       const distribution_t* dist);
 
@@ -671,11 +672,11 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param builder must be a \ref distribution_builder_t that was freshly
-    ///                built via distribution_initialize() or
-    ///                distribution_reset() and hasn't been subjected to any
-    ///                other operation since. It will be consumed by this
-    ///                function and cannot be used again.
+    /// \param empty_builder must be a \ref distribution_builder_t that was
+    ///                      freshly built via distribution_initialize() or
+    ///                      distribution_reset() and hasn't been subjected to
+    ///                      any other operation since. It will be consumed by
+    ///                      this function and cannot be used again.
     /// \param left is the distribution from which the left hand side of the
     ///             subtraction will be taken.
     /// \param right is the distribution from which the right hand side of the
@@ -683,7 +684,7 @@
     ///
     /// \returns an estimated distribution of `left - right` differences.
     UDIPE_NON_NULL_ARGS
-    distribution_t distribution_sub(distribution_builder_t* builder,
+    distribution_t distribution_sub(distribution_builder_t* empty_builder,
                                     const distribution_t* left,
                                     const distribution_t* right);
 
@@ -699,11 +700,11 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param builder must be a \ref distribution_builder_t that was freshly
-    ///                built via distribution_initialize() or
-    ///                distribution_reset() and hasn't been subjected to any
-    ///                other operation since. It will be consumed by this
-    ///                function and cannot be used again.
+    /// \param empty_builder must be a \ref distribution_builder_t that was
+    ///                      freshly built via distribution_initialize() or
+    ///                      distribution_reset() and hasn't been subjected to
+    ///                      any other operation since. It will be consumed by
+    ///                      this function and cannot be used again.
     /// \param num is the distribution from which the numerator of the
     ///            scaled ratio will be taken.
     /// \param factor is a constant factor by which every data point from `num`
@@ -715,7 +716,7 @@
     /// \returns an estimated distribution of `num * factor / denom` scaled
     ///          ratios
     UDIPE_NON_NULL_ARGS
-    distribution_t distribution_scaled_div(distribution_builder_t* builder,
+    distribution_t distribution_scaled_div(distribution_builder_t* empty_builder,
                                            const distribution_t* num,
                                            int64_t factor,
                                            const distribution_t* denom);

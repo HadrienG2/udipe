@@ -123,10 +123,10 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    distribution_t distribution_build(distribution_builder_t* builder) {
+    distribution_t distribution_build(distribution_builder_t* non_empty_builder) {
         trace("Extracting the distribution from the builder...");
-        distribution_t dist = builder->inner;
-        distribution_poison(&builder->inner);
+        distribution_t dist = non_empty_builder->inner;
+        distribution_poison(&non_empty_builder->inner);
 
         trace("Ensuring the distribution is not empty...");
         ensure_ge(dist.num_bins, (size_t)1);
@@ -150,10 +150,11 @@
     // === Building distributions from other distributions ===
 
     UDIPE_NON_NULL_ARGS
-    distribution_t distribution_scale(distribution_builder_t* builder,
+    distribution_t distribution_scale(distribution_builder_t* empty_builder,
                                       int64_t factor,
                                       const distribution_t* dist) {
-        ensure_eq(builder->inner.num_bins, (size_t)0);
+        ensure_eq(empty_builder->inner.num_bins, (size_t)0);
+        distribution_builder_t* builder = empty_builder;
 
         if (factor == 0) {
             trace("Handling zero factor special case...");
@@ -202,10 +203,11 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    distribution_t distribution_sub(distribution_builder_t* builder,
+    distribution_t distribution_sub(distribution_builder_t* empty_builder,
                                     const distribution_t* left,
                                     const distribution_t* right) {
-        ensure_eq(builder->inner.num_bins, (size_t)0);
+        ensure_eq(empty_builder->inner.num_bins, (size_t)0);
+        distribution_builder_t* builder = empty_builder;
 
         // To avoid "amplifying" outliers by using multiple copies, we iterate
         // over the shortest distribution and sample from the longest one
@@ -248,11 +250,12 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    distribution_t distribution_scaled_div(distribution_builder_t* builder,
+    distribution_t distribution_scaled_div(distribution_builder_t* empty_builder,
                                            const distribution_t* num,
                                            int64_t factor,
                                            const distribution_t* denom) {
-        ensure_eq(builder->inner.num_bins, (size_t)0);
+        ensure_eq(empty_builder->inner.num_bins, (size_t)0);
+        distribution_builder_t* builder = empty_builder;
 
         // To avoid "amplifying" outliers by using multiple copies, we iterate
         // over the shortest distribution and sample from the longest one
