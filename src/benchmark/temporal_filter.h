@@ -12,7 +12,7 @@
 
     #include <udipe/pointer.h>
 
-    #include "log.h"
+    #include "../log.h"
 
     #include <assert.h>
     #include <stddef.h>

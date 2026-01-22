@@ -9,10 +9,6 @@
     //! `udipe/benchmarks.h` with private utilities that can only be used within
     //! the libudipe codebase and microbenchmarks thereof.
 
-    // TODO: Consider splitting this module into a directory of more specialized
-    //       benchmarking modules like benchmark/distribution.h,
-    //       benchmark/stats.h, benchmark/clock.h...
-
     #include <udipe/benchmark.h>
 
     #include <udipe/pointer.h>
@@ -20,7 +16,6 @@
 
     #include "arch.h"
     #include "benchmark/distribution.h"
-    #include "benchmark/temporal_filter.h"
     #include "name_filter.h"
 
     #include <assert.h>
@@ -37,43 +32,9 @@
     #endif
 
 
-    /// \name Duration-based value distribution
-    /// \{
-
-    // TODO: Extract to a dedicated distribution_log.h header along with
-    //       associated utilities from benchmark.c that will become non-static
-    //       along the way. Add that header to CMake.
-
-    /// Log the shape of a \ref distribution_t as a textual histogram
-    ///
-    /// This is typically done right before calling distribution_build(), to
-    /// check out the final state of the distribution after performing all
-    /// insertions.
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param dist must be a \ref distribution_t that has previously
-    ///             been generated from a \ref distribution_builder_t via
-    ///             distribution_build() and hasn't yet been recycled via
-    ///             distribution_reset() or destroyed via
-    ///             distribution_finalize(). It will be turned into the output
-    ///             distribution builder returned by this function, and
-    ///             therefore cannot be used after calling this function.
-    /// \param level is the log level at which the distribution state should be
-    ///              logged.
-    /// \param header is a string that will precede the distribution display in
-    ///                logs.
-    UDIPE_NON_NULL_ARGS
-    void distribution_log(const distribution_t* dist,
-                          udipe_log_level_t level,
-                          const char header[]);
-
-    // TODO: Extract distribution stuff from benchmark.c into distribution.c and
-    //       distribution_plot.c, which must be added to CMake as well.
-
-    /// \}
-
-    // TODO: ...then split the rest too, fixing up stats along the way
+    // TODO: Finish splitting this module into a directory of more specialized
+    //       benchmarking modules like benchmark/distribution.h,
+    //       benchmark/stats.h, benchmark/clock.h...
 
 
     /// \name Statistical analysis of duration-based data

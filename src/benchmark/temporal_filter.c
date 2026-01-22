@@ -4,8 +4,8 @@
 
     #include <udipe/pointer.h>
 
-    #include "error.h"
-    #include "unit_tests.h"
+    #include "../error.h"
+    #include "../unit_tests.h"
 
     #include <assert.h>
     #include <math.h>

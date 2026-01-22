@@ -13,8 +13,8 @@
 
     #include <udipe/pointer.h>
 
-    #include "error.h"
-    #include "log.h"
+    #include "../error.h"
+    #include "../log.h"
 
     #include <assert.h>
     #include <math.h>
@@ -770,6 +770,43 @@
         const size_t bin = distribution_bin_by_rank(dist, rank);
         const distribution_layout_t layout = distribution_layout(dist);
         return layout.sorted_values[bin];
+    }
+
+    /// Determine how many values of `dist` are smaller than `value`, possibly
+    /// including `value` itself if it is present
+    ///
+    /// If `value` is present in `dist`, then `include_equal = false` returns
+    /// the rank of the first occurence of this value (as understood by
+    /// distribution_nth()) and `include_equal = false` returns the rank of the
+    /// last occurence plus one.
+    ///
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_build() and hasn't been turned back into a \ref
+    ///             distribution_builder_t or destroyed since.
+    /// \param value is the value which you want to position with respect to the
+    ///              values inside of `dist`.
+    /// \param include_equal specifies if values from `dist` that are equal to
+    ///                      `value` should be included in the output count or
+    ///                      not.
+    ///
+    /// \returns the number of values inside of `dist` that are smaller than
+    ///          (and possibly equal to) `value`.
+    UDIPE_NON_NULL_ARGS
+    static inline size_t distribution_count_below(const distribution_t* dist,
+                                                  int64_t value,
+                                                  bool include_equal) {
+        const distribution_layout_t layout = distribution_layout(dist);
+        const ptrdiff_t pos = distribution_bin_by_value(dist,
+                                                        value,
+                                                        BIN_BELOW);
+        if (pos < 0) return 0;
+        const int64_t bin_value = layout.sorted_values[pos];
+        if (bin_value < value || include_equal) {
+            return layout.end_ranks[pos];
+        } else {
+            return (pos == 0) ? 0 : layout.end_ranks[pos - 1];
+        }
     }
 
     /// Evaluate the quantile function of `dist` for some `probability`

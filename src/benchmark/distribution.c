@@ -4,10 +4,10 @@
 
     #include <udipe/pointer.h>
 
-    #include "error.h"
-    #include "log.h"
-    #include "memory.h"
-    #include "unit_tests.h"
+    #include "../error.h"
+    #include "../log.h"
+    #include "../memory.h"
+    #include "../unit_tests.h"
 
     #include <assert.h>
     #include <stdalign.h>
