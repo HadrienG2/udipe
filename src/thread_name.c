@@ -222,7 +222,7 @@ const char* get_thread_name() {
     // Set up thread-local name buffering. Even on platforms where thread name
     // lengths are bounded, we cannot use a stack-allocated fixed-size buffer
     // because we must return a pointer to the buffer from this function.
-    call_once(&thread_name_init, thread_name_initialize);
+    call_once(&thread_name_init, &thread_name_initialize);
 
     // Query the current thread name
     thread_name_t* thread_name = NULL;

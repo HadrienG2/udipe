@@ -18,6 +18,7 @@ mkdir -p build-{test,bench}
 # again in a manner that should produce more readable output
 function separator() {
     printf "\n\n=== ERROR: Let's try that again more slowly... ===\n\n"
+    return 0
 }
 
 # Set up or update the testing build
