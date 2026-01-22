@@ -97,7 +97,7 @@ static void read_system_config() {
 
 DEFINE_PUBLIC void expect_system_config() {
     static once_flag config_was_read = ONCE_FLAG_INIT;
-    call_once(&config_was_read, read_system_config);
+    call_once(&config_was_read, &read_system_config);
 }
 
 /// Current system allocation granularity in bytes
@@ -161,7 +161,7 @@ static bool try_increase_mlock_budget(size_t size) {
     trace("Will now attempt to increase the memory locking limit to accomodate "
           "for %zu more locked bytes.");
     static once_flag mutex_initialized = ONCE_FLAG_INIT;
-    call_once(&mutex_initialized, mlock_budget_mutex_initialize);
+    call_once(&mutex_initialized, &mlock_budget_mutex_initialize);
     mtx_lock(&mlock_budget_mutex);
 
     bool result = false;
@@ -447,9 +447,9 @@ void realtime_liberate(void* buffer, size_t size) {
 
     /// Test memory allocation functions with a certain allocation size
     static void check_allocation_size(size_t size) {
-        volatile unsigned char* alloc = (volatile unsigned char*)realtime_allocate(size);
-        tracef("Allocated memory at address %p.", (void*)alloc);
-        ensure_ne((size_t)alloc, (size_t)0);
+        void* const raw_alloc = realtime_allocate(size);
+        tracef("Allocated memory at address %p.", raw_alloc);
+        ensure_ne((size_t)raw_alloc, (size_t)0);
 
         const size_t page_size = get_page_size();
         size_t min_size = size;
@@ -457,6 +457,7 @@ void realtime_liberate(void* buffer, size_t size) {
         tracef("Allocation should be at least %zu bytes large.", min_size);
 
         trace("Writing and checking each of the expected bytes...");
+        volatile unsigned char* alloc = (volatile unsigned char*)raw_alloc;
         for (size_t byte = 0; byte < min_size; ++byte) {
             unsigned char value = (unsigned char)(byte % 255 + 1);
             alloc[byte] = value;
@@ -464,7 +465,7 @@ void realtime_liberate(void* buffer, size_t size) {
         }
 
         trace("Liberating the allocation...");
-        realtime_liberate((void*)alloc, size);
+        realtime_liberate(raw_alloc, size);
     }
 
     /// Run the unit tests for memory allocation functions

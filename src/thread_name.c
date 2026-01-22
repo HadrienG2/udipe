@@ -196,7 +196,7 @@ void set_thread_name(const char* name) {
         #warning "Sorry, we don't fully support your operating system yet. Please file a bug report about it!"
 
         trace("- Setting up thread name storage...");
-        call_once(&thread_name_init, thread_name_initialize);
+        call_once(&thread_name_init, &thread_name_initialize);
 
         trace("- Allocating or reusing thread name buffer...");
         thread_name_t* thread_name =

@@ -185,7 +185,7 @@ logger_t logger_initialize(udipe_log_config_t config) {
 
     // Record the application startup time on first call
     static once_flag startup_time_recorded = ONCE_FLAG_INIT;
-    call_once(&startup_time_recorded, record_startup_time);
+    call_once(&startup_time_recorded, &record_startup_time);
 
     // Select and configure log level
     switch (config.min_level) {

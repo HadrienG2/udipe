@@ -382,7 +382,9 @@ void logger_restore(const logger_state_t* state);
 #ifndef NDEBUG
     void validate_log(udipe_log_level_t level);
 #else
-    static inline void validate_log(udipe_log_level_t) {}
+    static inline void validate_log(udipe_log_level_t) {
+        // Intentionally left empty in `Release` builds.
+    }
 #endif
 
 /// GNU attributes of logf_impl()
