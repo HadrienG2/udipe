@@ -5,6 +5,8 @@
     #include <udipe/log.h>
     #include <udipe/pointer.h>
 
+    #include "error.h"
+    #include "log.h"
     #include "memory.h"
     #include "unit_tests.h"
     #include "visibility.h"
@@ -510,7 +512,7 @@
                                       coord_t abscissa[],
                                       range_t range,
                                       axis_len_t len) {
-        assert(len.abscissa >= 2);
+        ensure_ge(len.abscissa, (size_t)2);
         switch (type) {
         case HISTOGRAM: {
             const int64_t first = range.first.value;
@@ -596,7 +598,7 @@
                                       axis_len_t len) {
         switch (type) {
         case HISTOGRAM:
-            assert(len.abscissa == len.ordinate + 1);
+            ensure_eq(len.abscissa, len.ordinate + 1);
             size_t start_rank = num_values_below(dist, abscissa[0].value, false);
             for (size_t o = 0; o < len.ordinate; ++o) {
                 const size_t end_rank = num_values_below(dist,
@@ -613,7 +615,7 @@
             }
             break;
         case QUANTILE_FUNCTION:
-            assert(len.abscissa == len.ordinate);
+            ensure_eq(len.abscissa, len.ordinate);
             for (size_t o = 0; o < len.ordinate; ++o) {
                 const double probability = abscissa[o].percentile / 100.0;
                 assert(probability >= 0.0 && probability <= 1.0);
@@ -644,7 +646,7 @@
     static range_t plot_autoscale_ordinate(plot_type_t type,
                                            const coord_t ordinate[],
                                            axis_len_t len) {
-        assert(len.ordinate >= 1);
+        ensure_ge(len.ordinate, (size_t)1);
         switch (type) {
         case HISTOGRAM:
             size_t max_count = 0;
@@ -735,12 +737,12 @@
                                      const coord_t abscissa[],
                                      const coord_t ordinate[],
                                      axis_len_t len) {
-        assert(len.ordinate >= 1);
+        ensure_ge(len.ordinate, (size_t)1);
         plot_layout_t result = { 0 };
         size_t legend_width, max_ordinate_width;
         switch (type) {
         case HISTOGRAM: {
-            assert(len.abscissa >= 1);
+            ensure_ge(len.abscissa, (size_t)1);
             const int min_width = printf_width_i64(abscissa[0].value);
             const int max_width =
                 printf_width_i64(abscissa[len.abscissa - 1].value);
@@ -755,7 +757,7 @@
                 const size_t count = ordinate[o].count;
                 if (count > max_count) max_count = count;
             }
-            assert(max_count <= (size_t)INT64_MAX);
+            ensure_le(max_count, (size_t)INT64_MAX);
             max_ordinate_width = printf_width_i64(max_count);
 
             result = (plot_layout_t){
@@ -767,7 +769,7 @@
             break;
         }
         case QUANTILE_FUNCTION: {
-            assert(len.abscissa >= 2);
+            ensure_ge(len.abscissa, (size_t)2);
             const double min_percent_delta =
                 abscissa[1].percentile - abscissa[0].percentile;
             const int percent_precision = (min_percent_delta >= 1.0)
@@ -1017,11 +1019,11 @@
     distribution_t distribution_scale(distribution_builder_t* builder,
                                       int64_t factor,
                                       const distribution_t* dist) {
-        assert(builder->inner.num_bins == 0);
+        ensure_eq(builder->inner.num_bins, (size_t)0);
 
         if (factor == 0) {
             trace("Handling zero factor special case...");
-            assert(builder->inner.capacity >= 1);
+            ensure_ge(builder->inner.capacity, (size_t)1);
             distribution_layout_t builder_layout = distribution_layout(&builder->inner);
             builder_layout.sorted_values[0] = 0;
             builder_layout.counts[0] = distribution_len(dist);
@@ -1037,7 +1039,7 @@
             builder->inner = distribution_allocate(dist->capacity);
         }
 
-        assert(factor != 0);
+        ensure_ne(factor, (int64_t)0);
         trace("Handling nonzero factor, flipping bin order if negative...");
         const distribution_layout_t dist_layout = distribution_layout(dist);
         distribution_layout_t builder_layout = distribution_layout(&builder->inner);
@@ -1069,7 +1071,7 @@
     distribution_t distribution_sub(distribution_builder_t* builder,
                                     const distribution_t* left,
                                     const distribution_t* right) {
-        assert(builder->inner.num_bins == 0);
+        ensure_eq(builder->inner.num_bins, (size_t)0);
 
         // To avoid "amplifying" outliers by using multiple copies, we iterate
         // over the shortest distribution and sample from the longest one
@@ -1116,7 +1118,7 @@
                                            const distribution_t* num,
                                            int64_t factor,
                                            const distribution_t* denom) {
-        assert(builder->inner.num_bins == 0);
+        ensure_eq(builder->inner.num_bins, (size_t)0);
 
         // To avoid "amplifying" outliers by using multiple copies, we iterate
         // over the shortest distribution and sample from the longest one
@@ -1465,7 +1467,7 @@
                              UDIPE_DEBUG,
                              "Accepted durations");
         }
-        assert(distribution_len(&result) == num_runs);
+        ensure_eq(distribution_len(&result), num_runs);
         return result;
     }
 
@@ -2174,7 +2176,7 @@
                     - (char*)initial_layout.sorted_values;
             ensure_eq(values_size, initial_capacity * sizeof(int64_t));
 
-            assert(RAND_MAX <= INT64_MAX);
+            ensure_le((uint64_t)RAND_MAX, INT64_MAX);
             const int64_t value3 = rand() - RAND_MAX / 2;
             tracef("Inserting value3 = %zd for the first time...", value3);
             distribution_insert(&builder, value3);
