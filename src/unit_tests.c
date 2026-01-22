@@ -5,7 +5,7 @@
     #include <udipe/log.h>
 
     #include "address_wait.h"
-    #include "benchmark.h"
+    #include "benchmark/distribution.h"
     #include "benchmark/temporal_filter.h"
     #include "bit_array.h"
     #include "buffer.h"
@@ -59,7 +59,7 @@
             NAME_FILTERED_CALL(filter, bit_array_unit_tests);
             NAME_FILTERED_CALL(filter, buffer_unit_tests);
             NAME_FILTERED_CALL(filter, temporal_filter_unit_tests);
-            NAME_FILTERED_CALL(filter, benchmark_unit_tests);
+            NAME_FILTERED_CALL(filter, distribution_unit_tests);
             NAME_FILTERED_CALL(filter, command_unit_tests);
 
             name_filter_finalize(&filter);

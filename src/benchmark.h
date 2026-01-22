@@ -432,6 +432,8 @@
             bool result = QueryPerformanceCounter(&timestamp);
             assert(result);
         #else
+            // Future thought: could use timespec_get() here as it's basically
+            // the standard C version of CLOCK_REALTIME.
             #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
         #endif
         return timestamp;
@@ -837,12 +839,6 @@
     };
 
 
-    #ifdef UDIPE_BUILD_TESTS
-        /// Unit tests
-        ///
-        /// This function runs all the unit tests for this module. It must be called
-        /// within the scope of with_logger().
-        void benchmark_unit_tests();
-    #endif
+    // TODO: Add unit tests
 
 #endif  // UDIPE_BUILD_BENCHMARKS

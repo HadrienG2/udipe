@@ -13,19 +13,7 @@
     #include <stdint.h>
 
 
-    temporal_filter_t
-    temporal_filter_initialize(const int64_t initial_window[TEMPORAL_WINDOW]) {
-        trace("Setting up a temporal outlier filter...");
-        temporal_filter_t result = {
-            .next_idx = 0
-        };
-        for (size_t i = 0; i < TEMPORAL_WINDOW; ++i) {
-            result.window[i] = initial_window[i];
-        }
-        temporal_filter_set_min(&result);
-        temporal_filter_init_maxima(&result);
-        return result;
-    }
+    // === Implementation details ===
 
     UDIPE_NON_NULL_ARGS
     void temporal_filter_set_min(temporal_filter_t* filter) {
@@ -256,6 +244,23 @@
             filter->max = filter->max_normal;
         }
         temporal_filter_update_tolerance(filter);
+    }
+
+
+    // === Public API ===
+
+    temporal_filter_t
+    temporal_filter_initialize(const int64_t initial_window[TEMPORAL_WINDOW]) {
+        trace("Setting up a temporal outlier filter...");
+        temporal_filter_t result = {
+            .next_idx = 0
+        };
+        for (size_t i = 0; i < TEMPORAL_WINDOW; ++i) {
+            result.window[i] = initial_window[i];
+        }
+        temporal_filter_set_min(&result);
+        temporal_filter_init_maxima(&result);
+        return result;
     }
 
     UDIPE_NON_NULL_ARGS

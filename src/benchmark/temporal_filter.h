@@ -451,7 +451,8 @@
     /// \}
 
 
-    /// \name Public API \{
+    /// \name Public API
+    /// \{
 
     /// Set up a temporal outlier filter
     ///

@@ -517,6 +517,20 @@
         return above_pos;
     }
 
+    /// Mark a distribution as poisoned so it cannot be used anymore
+    ///
+    /// This is used when a distribution is either liberated or moved to a
+    /// different variable, in order to ensure that incorrect
+    /// user-after-free/move can be detected.
+    UDIPE_NON_NULL_ARGS
+    static inline void distribution_poison(distribution_t* dist) {
+        *dist = (distribution_t){
+            .allocation = NULL,
+            .num_bins = 0,
+            .capacity = 0
+        };
+    }
+
     /// \}
 
 
@@ -881,6 +895,12 @@
     /// \}
 
 
-    // TODO unit tests
+    #ifdef UDIPE_BUILD_TESTS
+        /// Unit tests
+        ///
+        /// This function runs all the unit tests for this module. It must be called
+        /// within the scope of with_logger().
+        void distribution_unit_tests();
+    #endif
 
 #endif  // UDIPE_BUILD_BENCHMARKS
