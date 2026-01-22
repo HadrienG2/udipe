@@ -55,7 +55,10 @@
     ///
     /// Currently the window width cannot be greater than 65535, but this
     /// limitation can easily be lifted if necessary.
-    #define TEMPORAL_WINDOW ((uint16_t)10)
+    //
+    // TODO: Hacked to disable temporal filter, restore to 10 if temporal_filter
+    //       is eventually kept
+    #define TEMPORAL_WINDOW ((uint16_t)1000)
     static_assert(TEMPORAL_WINDOW >= 3,
                   "Temporal outlier detection requires at very least 3 inputs");
 
@@ -72,7 +75,10 @@
     /// As this correction is meant to compensate a small input window, it
     /// should usually be tuned down when \ref TEMPORAL_WINDOW goes up and be
     /// tuned up when \ref TEMPORAL_WINDOW goes down.
-    #define TEMPORAL_TOLERANCE 0.1
+    //
+    // TODO: Hacked to disable temporal filter, restore to 0.1 if
+    //       temporal_filter is eventually kept
+    #define TEMPORAL_TOLERANCE 1000.1
     static_assert(TEMPORAL_TOLERANCE >= 0.0,
                   "TEMPORAL_TOLERANCE can only broaden the distribution");
 

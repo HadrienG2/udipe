@@ -128,6 +128,22 @@
     /// \name Implementation details
     /// \{
 
+    /// Allocate a \ref distribution_t that can hold `capacity` distinct values
+    ///
+    /// This is an implementation detail of other methods, you should use
+    /// distribution_initialize() instead of calling this method directly.
+    ///
+    /// \internal
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param capacity is the number of bins that the distribution should be
+    ///                 able to hold internally before reallocating.
+    ///
+    /// \returns a distribution that must later be liberated using
+    ///          distribution_finalize().
+    distribution_t distribution_allocate(size_t capacity);
+
     /// Memory layout of a \ref distribution_builder_t or \ref distribution_t
     ///
     /// This layout information is be computed using distribution_layout().
@@ -363,23 +379,7 @@
         exit_with_error("Control should never reach this point!");
     }
 
-    /// Allocate a \ref distribution_t that can hold `capacity` distinct values
-    ///
-    /// This is an implementation detail of other methods, you should use
-    /// distribution_initialize() instead of calling this method directly.
-    ///
-    /// \internal
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param capacity is the number of bins that the distribution should be
-    ///                 able to hold internally before reallocating.
-    ///
-    /// \returns a distribution that must later be liberated using
-    ///          distribution_finalize().
-    distribution_t distribution_allocate(size_t capacity);
-
-    /// Create a new histogram bin
+    /// Create a new histogram bin within a distribution builder
     ///
     /// This is an implementation detail of distribution_insert() that should
     /// not be used directly.
@@ -387,8 +387,9 @@
     /// \internal
     ///
     /// This creates a new histogram bin associated with value `value` at
-    /// position `pos`, with an occurence count of 1. It reallocates storage and
-    /// moves existing data around as needed to make room for this new bin.
+    /// position `pos`, with an occurence count of `count`. It reallocates
+    /// storage and moves existing data around as needed to make room for this
+    /// new bin.
     ///
     /// The caller of this function must honor the following preconditions:
     ///
@@ -399,6 +400,7 @@
     ///   existing histogram bin at position `pos - 1`, if any.
     /// - `value` must be strictly smaller than the value assocated with the
     ///   histogram bin that was formerly at position `pos`, if any.
+    /// - `count` must not be zero.
     ///
     /// This function must be called within the scope of with_logger().
     ///
@@ -411,10 +413,73 @@
     /// \param value is the value that will be inserted at this position. It
     ///              must match the constraints spelled out earlier in this
     ///              documentation.
+    /// \param count is the initial occurence count that `value` will have.
     UDIPE_NON_NULL_ARGS
     void distribution_create_bin(distribution_builder_t* builder,
                                  size_t pos,
-                                 int64_t value);
+                                 int64_t value,
+                                 size_t count);
+
+    /// Insert `count` copies of `value` into `builder`
+    ///
+    /// This is an implementation detail of other methods that should not be
+    /// used directly.
+    ///
+    /// \internal
+    ///
+    /// This has the same effect as calling distribution_insert() `count` times
+    /// but will be more efficient.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param dist must be a \ref distribution_builder_t that has previously
+    ///             been set up via distribution_initialize() and hasn't been
+    ///             turned into a \ref distribution_t or destroyed since.
+    /// \param value is the value to be inserted.
+    /// \param count is the number of times this value should be inserted.
+    UDIPE_NON_NULL_ARGS
+    static inline
+    void distribution_insert_copies(distribution_builder_t* builder,
+                                    int64_t value,
+                                    size_t count) {
+        distribution_t* dist = &builder->inner;
+        tracef("Asked to insert %zu copies of value %zd "
+               "into a distribution with %zu bins.",
+               count, value,
+               dist->num_bins);
+
+        // Find index of closest bin >= value, if any
+        const int64_t bin_pos = distribution_bin_by_value(&builder->inner,
+                                                          value,
+                                                          BIN_ABOVE);
+
+        // Handle past-the-end case
+        const distribution_layout_t layout = distribution_layout(dist);
+        if (bin_pos == PTRDIFF_MAX) {
+            const size_t end_pos = dist->num_bins;
+            const size_t last_pos = end_pos - 1;
+            const int64_t last_value = layout.sorted_values[last_pos];
+            tracef("Value is past the end of histogram %zd, "
+                   "will become new last bin #%zu.",
+                   last_value, end_pos);
+            distribution_create_bin(builder, end_pos, value, count);
+            return;
+        }
+        assert(bin_pos >= 0);
+        assert((size_t)bin_pos < dist->num_bins);
+
+        // Got a bin above or equal to the value, find out which
+        const int64_t bin_value = layout.sorted_values[bin_pos];
+        if (value == bin_value) {
+            tracef("Found matching bin #%zu, add value to it.", bin_pos);
+            assert(layout.counts[bin_pos] <= SIZE_MAX - count);
+            layout.counts[bin_pos] += count;
+        } else {
+            tracef("Found upper neighbour %zd in bin #%zu, insert bin here.",
+                   bin_value, bin_pos);
+            distribution_create_bin(builder, bin_pos, value, count);
+        }
+    }
 
     // Forward declaration of distribution_len()
     UDIPE_NON_NULL_ARGS
@@ -560,40 +625,7 @@
     UDIPE_NON_NULL_ARGS
     static inline void distribution_insert(distribution_builder_t* builder,
                                            int64_t value) {
-        distribution_t* dist = &builder->inner;
-        tracef("Asked to insert value %zd into a distribution with %zu bins.",
-               value, dist->num_bins);
-
-        // Find index of closest bin >= value, if any
-        const int64_t bin_pos = distribution_bin_by_value(&builder->inner,
-                                                          value,
-                                                          BIN_ABOVE);
-
-        // Handle past-the-end case
-        const distribution_layout_t layout = distribution_layout(dist);
-        if (bin_pos == PTRDIFF_MAX) {
-            const size_t end_pos = dist->num_bins;
-            const size_t last_pos = end_pos - 1;
-            const int64_t last_value = layout.sorted_values[last_pos];
-            tracef("Value is past the end of histogram %zd, "
-                   "will become new last bin #%zu.",
-                   last_value, end_pos);
-            distribution_create_bin(builder, end_pos, value);
-            return;
-        }
-        assert(bin_pos >= 0);
-        assert((size_t)bin_pos < dist->num_bins);
-
-        // Got a bin above or equal to the value, find out which
-        const int64_t bin_value = layout.sorted_values[bin_pos];
-        if (value == bin_value) {
-            tracef("Found matching bin #%zu, add value to it.", bin_pos);
-            ++(layout.counts[bin_pos]);
-        } else {
-            tracef("Found upper neighbour %zd in bin #%zu, insert bin here.",
-                   bin_value, bin_pos);
-            distribution_create_bin(builder, bin_pos, value);
-        }
+        distribution_insert_copies(builder, value, 1);
     }
 
     /// Turn a \ref distribution_builder_t into a \ref distribution_t

@@ -5,6 +5,7 @@
     #include <udipe/log.h>
     #include <udipe/pointer.h>
 
+    #include "benchmark/density_filter.h"
     #include "benchmark/distribution_log.h"
     #include "benchmark/temporal_filter.h"
     #include "error.h"
@@ -418,6 +419,15 @@
                              "Accepted durations");
         }
         ensure_eq(distribution_len(&result), num_normal_runs);
+
+        // TODO: Clean this up e.g. reuse allocation
+        distribution_builder_t density_builder = distribution_initialize();
+        distribution_t density =
+            distribution_compute_log2_density(&density_builder,
+                                              &result);
+        distribution_log(&density, UDIPE_DEBUG, "Scaled log2 of accepted densities");
+        distribution_finalize(&density);
+
         return result;
     }
 

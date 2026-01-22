@@ -42,12 +42,14 @@
     UDIPE_NON_NULL_ARGS
     void distribution_create_bin(distribution_builder_t* builder,
                                  size_t pos,
-                                 int64_t value) {
+                                 int64_t value,
+                                 size_t count) {
         distribution_t* dist = &builder->inner;
         assert(pos <= dist->num_bins);
         distribution_layout_t layout = distribution_layout(dist);
         if (pos > 0) assert(layout.sorted_values[pos - 1] < value);
         if (pos < dist->num_bins) assert(layout.sorted_values[pos] > value);
+        assert(count > (size_t)0);
 
         if (dist->num_bins < dist->capacity) {
             trace("There's enough room in the allocation for this new bin.");
@@ -55,7 +57,7 @@
             if (pos == end_pos) {
                 trace("New bin is at the end of the histogram, can append it directly.");
                 layout.sorted_values[end_pos] = value;
-                layout.counts[end_pos] = 1;
+                layout.counts[end_pos] = count;
                 ++(dist->num_bins);
                 return;
             }
@@ -66,7 +68,7 @@
 
             trace("Inserting new value...");
             layout.sorted_values[pos] = value;
-            layout.counts[pos] = 1;
+            layout.counts[pos] = count;
 
             trace("Shifting previous bins up...");
             for (size_t dst = pos + 1; dst < dist->num_bins; ++dst) {
@@ -96,7 +98,7 @@
 
             trace("Inserting new value...");
             new_layout.sorted_values[pos] = value;
-            new_layout.counts[pos] = 1;
+            new_layout.counts[pos] = count;
 
             trace("Transferring old values larger than the new one...");
             for (size_t src = pos; src < dist->num_bins; ++src) {
@@ -155,6 +157,7 @@
                                       const distribution_t* dist) {
         ensure_eq(empty_builder->inner.num_bins, (size_t)0);
         distribution_builder_t* builder = empty_builder;
+        empty_builder = NULL;
 
         if (factor == 0) {
             trace("Handling zero factor special case...");
@@ -208,6 +211,7 @@
                                     const distribution_t* right) {
         ensure_eq(empty_builder->inner.num_bins, (size_t)0);
         distribution_builder_t* builder = empty_builder;
+        empty_builder = NULL;
 
         // To avoid "amplifying" outliers by using multiple copies, we iterate
         // over the shortest distribution and sample from the longest one
@@ -256,6 +260,7 @@
                                            const distribution_t* denom) {
         ensure_eq(empty_builder->inner.num_bins, (size_t)0);
         distribution_builder_t* builder = empty_builder;
+        empty_builder = NULL;
 
         // To avoid "amplifying" outliers by using multiple copies, we iterate
         // over the shortest distribution and sample from the longest one
