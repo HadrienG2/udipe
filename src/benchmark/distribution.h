@@ -138,7 +138,8 @@
     /// This function must be called within the scope of with_logger().
     ///
     /// \param capacity is the number of bins that the distribution should be
-    ///                 able to hold internally before reallocating.
+    ///                 able to hold internally before reallocating. It cannot
+    ///                 be 0.
     ///
     /// \returns a distribution that must later be liberated using
     ///          distribution_finalize().

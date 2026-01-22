@@ -28,6 +28,7 @@
     // === Implementation details ===
 
     distribution_t distribution_allocate(size_t capacity) {
+        ensure_ne(capacity, (size_t)0);
         void* const allocation = malloc(capacity * DISTRIBUTION_BIN_SIZE);
         exit_on_null(allocation, "Failed to allocate distribution storage");
         debugf("Allocated storage for %zu bins at location %p.",
