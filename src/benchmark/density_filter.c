@@ -147,7 +147,7 @@
             tracef("- Integrating bin #%zu with value %zd and count %zu...",
                    bin, current_value, count);
 
-            assert(current_value > prev_value);
+            assert(current_value > previous_value);
             const uint64_t distance = current_value - previous_value;
             tracef("- Distance from previous bin is %zd.", distance);
             if (distance < min_distance) min_distance = distance;
