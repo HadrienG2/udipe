@@ -3,7 +3,7 @@
     #pragma once
 
     //! \file
-    //! \brief Distribution bin density
+    //! \brief Density-based data point filtering
     //!
     //! Duration datasets from software performance benchmarks typically contain
     //! high outliers, which come from CPU interrupts caused by the OS scheduler
@@ -13,31 +13,27 @@
     //!
     //! Further complicating the matter, benchmark duration probability laws
     //! frequently have multiple modes, which breaks many common
-    //! dispersion-based criteria for outlier detection and removal.
+    //! dispersion-based criteria for outlier detection and removal as a
+    //! unimodal distribution does not have a dispersion figure of merit that's
+    //! easy to compute.
     //!
     //! When visualizing the distribution of raw timing data, even when
     //! considering multi-modal laws, outliers have two important
     //! characteristics:
     //!
-    //! - When we have enough data samples and a timer with a coarse enough
-    //!   timing resolution that identical values start piling up, outliers
-    //!   stand out as values which occur much less often than normal values.
-    //! - An objective criterion for "having an unusually high value" that
-    //!   should not break for multimodal distributions is that outliers tend to
-    //!   be spaced apart from normal values and each other a lot more than
-    //!   normal values are spaced from each other.
+    //! - When measuring very short durations that fluctuate by an amount
+    //!   smaller than the timer resolution, identical durations tend to pile
+    //!   up, whereas non-identical durations do not do so.
+    //! - Non-outlier durations are further away from normal values and each
+    //!   other than normal values are from each other.
     //!
-    //! Taking both of these into account, a possible approach for quantifying
-    //! the "outlier-ness" of some distribution bin is to study the ratio of a
-    //! distribution bin's value count by its nearest neighbor distance. This
-    //! provides a metric, which we call the bin density, that grows higher and
-    //! higher as a value becomes less and less likely to be an outlier. And if
-    //! we normalize by the highest value of this metric on a particular
-    //! distribution, we get a number between 0 and 1 where 1 is least likely to
-    //! be an outlier and 0 is most likely to be one.
-    //!
-    //! This module provides utilities for computing this bin density and
-    //! eliminating low-density bins.
+    //! By giving each distribution bin a weight that is sensitive to these two
+    //! parameters of value count and neighbor proximity, we can get a metric
+    //! that is sensitive to the density of data points. The neighbor weighting
+    //! logic is similar to that of a kernel density estimator in statistics
+    //! (using a power decay law as a kernel and the shortest inter-bin distance
+    //! as a decay distance), therefore we call the resulting outlier filter a
+    //! density filter.
 
     #include <udipe/pointer.h>
 
@@ -45,6 +41,7 @@
 
     #include "../error.h"
 
+    #include <math.h>
     #include <stddef.h>
     #include <stdint.h>
 
@@ -68,49 +65,46 @@
         distribution_t distribution;
     } recyclable_distribution_t;
 
-    /// Density-based filter for \ref distribution_t values
+    /// Density filter for \ref distribution_t values
     ///
     /// This filter classifies values from \ref distribution_builder_t as
     /// outliers or non-outliers using a density-based criterion.
     typedef struct density_filter_s {
-        /// Relative density of each bin from the last `target`
+        /// Relative weight of each bin from the last `target`
         ///
-        /// This allocation contains enough storage for `capacity` bins. When
-        /// the density filter is applied to a new `target`...
+        /// This allocation contains enough storage for `bin_capacity` bins.
+        /// When the density filter is applied to a new `target`...
         ///
-        /// - `bin_density` is reallocated as necessary so that it has at least
+        /// - `bin_weights` is reallocated as necessary so that it has at least
         ///   as many bins as the `target`.
-        /// - A first algorithmic pass fills `bin_density` with absolute bin
-        ///   densities i.e. value count / nearest neighbor distance ratios from
-        ///   each bin of `target`, while tracking the maximum absolute density
-        ///   seen so far. This yields absolute density values > 0.0.
-        /// - A second algorithmic pass normalizes `bin_density` by the
-        ///   previously computed largest absolute density value (TODO: multiply
-        ///   by inverse), yielding relative density values between 0.0
-        ///   (exclusive) and 1.0 (inclusive).
+        /// - A first algorithmic pass fills `bin_weights` with absolute bin
+        ///   weights, while tracking the maximum absolute weight seen so far.
+        ///   This yields absolute weights > 0.0.
+        /// - A second algorithmic pass normalizes `bin_weights` by the
+        ///   previously computed largest absolute weight, yielding relative
+        ///   weights between 0.0 (exclusive) and 1.0 (inclusive).
         ///
-        /// It is these relative density values that are then used to build
+        /// It is these relative weights that are then used to build
         /// `last_scores` and eventually filter out bins of `target` according
-        /// to the resulting density distribution.
-        double* bin_density;
+        /// to the resulting weight distribution.
+        double* bin_weights;
 
-        /// Capacity of `bin_density` in bins
+        /// Capacity of `bin_weights` in bins
         ///
         /// If this density filter is attached to a distribution with more bins,
-        /// then `bin_density` must be reallocated accordingly.
-        size_t capacity;
+        /// then `bin_weights` must be reallocated accordingly.
+        size_t bin_capacity;
 
         /// Distribution of density scores from the last `target`, if any,
         /// before the filter was applied
         ///
         /// The density score is a fixed-point approximation of the base-2
-        /// logarithm of the `bin_density`.
+        /// logarithm of the `bin_weights`.
         ///
         /// To be more specific, it is said base-2 logarithm scaled by an
         /// internal `LOG2_SCALE` factor to improve mantissa resolution at the
         /// expense of exponent range and value readability, then saturated to a
-        /// value around `INT64_MIN` to allow double-to-int64_t conversion
-        /// (TODO: saturate to -0b1.1111111...2^62).
+        /// `INT64_MIN` to allow double-to-int64_t conversion.
         ///
         /// This member contains is the distribution of this score for each
         /// value (not each bin, although the computation is obviously bin-based
@@ -140,13 +134,10 @@
     /// \name Public API
     /// \{
 
-    // TODO docs + implementation
+    // TODO docs
     density_filter_t density_filter_initialize();
 
-    // TODO docs + implementation, beware that now target is a builder
-    // TODO hardcode max rejection fraction and and desired min relative density
-    // TODO: remove bins from target and put them in last_rejections after
-    //       resetting it. Remember to shift remaining bins left and adjust num_bins
+    // TODO docs
     UDIPE_NON_NULL_ARGS
     void density_filter_apply(density_filter_t* filter,
                               distribution_builder_t* target);
@@ -185,20 +176,78 @@
     /// \name Implementation details
     /// \{
 
-    // TODO docs
-    // TODO remove and adapt client code once new API is ready
+    /// Fill the `bin_weights` with data from `input`
+    ///
+    /// This function must be called within the scope of with_logger().
+    //
+    // TODO finish docs
     UDIPE_NON_NULL_ARGS
-    distribution_t
-    distribution_compute_log2_density(distribution_builder_t* empty_builder,
-                                      const distribution_t* input);
+    void compute_rel_weights(density_filter_t* filter,
+                             const distribution_builder_t* target);
 
-    // TODO docs
-    UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2)
-    void for_each_density(const distribution_t* input,
-                          void (*callback)(void* /* context */,
-                                           double /* density */,
-                                           size_t /* count */),
-                          void* context);
+    /// Scaling factor to apply to the log2 of relative densities before
+    /// truncating them to integers to produce a score
+    ///
+    /// Larger values improve the precision of internal computations at the
+    /// expense of reducing exponent range and making displays less readable.
+    #define LOG2_SCALE ((double)1000.0)
+
+    /// Convert a relative weight to an integral score
+    // TODO finish docs
+    static inline int64_t rel_weight_to_score(double rel_weight) {
+        assert(rel_weight >= 0.0 && rel_weight <= 1.0);
+        const double unbounded_score = round(LOG2_SCALE*log2(rel_weight));
+        assert(unbounded_score <= 0);
+        // The conversion from INT64_MIN to double is lossless because INT64_MIN
+        // is -2^63 and this power of two is losslessly convertible to double.
+        return (int64_t)fmax(unbounded_score, (double)INT64_MIN);
+    }
+
+    /// Convert an integral score back to a relative weight
+    // TODO finish docs
+    static inline double score_to_rel_weight(int64_t score) {
+        assert(score <= 0);
+        const double rel_weight = exp2((double)score / LOG2_SCALE);
+        assert(rel_weight >= 0.0 && rel_weight <= 1.0);
+        return rel_weight;
+    }
+
+    /// Fill the `last_scores` with data from `target` and `bin_weights`
+    ///
+    /// This function must be called after compute_rel_weights() has been called
+    /// on the same `target`.
+    ///
+    /// It must also be called within the scope of with_logger().
+    //
+    // TODO finish docs
+    UDIPE_NON_NULL_ARGS
+    void compute_scores(density_filter_t* filter,
+                        const distribution_builder_t* target);
+
+    /// Determine the relative weight cutoff of `filter` based on `last_scores`
+    /// and internal configuration
+    ///
+    /// This function must be called after compute_scores().
+    ///
+    /// It must also be called within the scope of with_logger().
+    //
+    // TODO finish docs
+    UDIPE_NON_NULL_ARGS
+    double compute_weight_threshold(const density_filter_t* filter);
+
+    /// Move bins of `target` below relative weight cutoff `threshold` to
+    /// `last_rejections`, then build the associated distribution
+    ///
+    /// This function must be called after compute_rel_weights() has been called
+    /// on the same `target`.
+    ///
+    /// It must also be called within the scope of with_logger().
+    //
+    // TODO finish docs
+    UDIPE_NON_NULL_ARGS
+    void reject_bins(density_filter_t* filter,
+                     distribution_builder_t* target,
+                     double threshold);
 
     /// \}
 

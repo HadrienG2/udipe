@@ -385,7 +385,6 @@
         }
 
         trace("Reporting results...");
-        distribution_t result = distribution_build(result_builder);
         if (log_enabled(UDIPE_DEBUG)) {
             if (num_initially_rejected > 0) {
                 distribution_t reject = distribution_build(&reject_builder);
@@ -414,19 +413,25 @@
                 debugf("Eventually rejected %zu/%zu durations.",
                        num_outliers, num_runs);
             }
-            distribution_log(&result,
-                             UDIPE_DEBUG,
-                             "Accepted durations");
         }
-        ensure_eq(distribution_len(&result), num_normal_runs);
 
         // TODO: Clean this up e.g. reuse allocation
-        distribution_builder_t density_builder = distribution_initialize();
-        distribution_t density =
-            distribution_compute_log2_density(&density_builder,
-                                              &result);
-        distribution_log(&density, UDIPE_DEBUG, "Scaled log2 of accepted densities");
-        distribution_finalize(&density);
+        density_filter_t density_filter = density_filter_initialize();
+        density_filter_apply(&density_filter, result_builder);
+        distribution_log(density_filter_last_scores(&density_filter),
+                         UDIPE_DEBUG,
+                         "Distribution of density scores");
+        distribution_log(density_filter_last_rejections(&density_filter),
+                         UDIPE_DEBUG,
+                         "Distribution of rejected values");
+        density_filter_finalize(&density_filter);
+
+        distribution_t result = distribution_build(result_builder);
+        //ensure_eq(distribution_len(&result), num_normal_runs);
+        distribution_log(&result,
+                         UDIPE_DEBUG,
+                         "Accepted durations");
+        // TODO: If this work, remove temporal filter
 
         return result;
     }
