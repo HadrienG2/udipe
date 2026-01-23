@@ -39,7 +39,7 @@
 
     /// Relative weight below which distribution bins should be suspected of
     /// containing outliers
-    static const double OUTLIER_THRESHOLD = 0.01;
+    static const double OUTLIER_THRESHOLD = 0.005;
 
     /// Maximum fraction of distribution values that can be rejected as outliers
     ///
@@ -155,13 +155,12 @@
         }
         const double count_norm = 1.0 / max_count;
         const double distance_norm = 1.0 / min_distance;
-        // TODO downgrade to trace
-        debugf("Distribution has max count %zu (count norm %.3g) "
+        tracef("Distribution has max count %zu (count norm %.3g) "
                "and min distance %zu (distance norm %g)",
                max_count, count_norm,
                min_distance, distance_norm);
 
-        debug("Weighting distribution bins...");
+        trace("Weighting distribution bins...");
         const double neighbor_share = NEIGHBOR_CONTRIBUTION / 2;
         const double self_share = 1.0 - NEIGHBOR_CONTRIBUTION;
         int64_t current_value = target_layout.sorted_values[0];
@@ -172,15 +171,13 @@
         double rel_prev_distance = distance_norm * distance_to_prev;
         double max_weight = -INFINITY;
         for (size_t bin = 1; bin < num_bins; ++bin) {
-            // TODO: downgrade to trace
-            debugf("- Processing bin #%zu with value %zd "
+            tracef("- Processing bin #%zu with value %zd "
                    "and count %zu (%.3g%%).",
                    bin - 1, current_value,
                    current_count, rel_current_count * 100.0);
 
-            // TODO: downgrade to trace
             if (rel_prev_count) {
-                debugf("  * Previous bin had value %zd (%.1fx min distance) "
+                tracef("  * Previous bin had value %zd (%.1fx min distance) "
                        "and relative count %.3g%%.",
                        current_value - distance_to_prev, rel_prev_distance,
                        rel_prev_count * 100.0);
@@ -192,8 +189,7 @@
             const double rel_next_distance = distance_norm * distance_to_next;
             const size_t next_count = target_layout.counts[bin];
             const double rel_next_count = count_norm * next_count;
-            // TODO: downgrade to trace
-            debugf("  * Next bin #%zu has value %zd (%.1fx min distance) "
+            tracef("  * Next bin #%zu has value %zd (%.1fx min distance) "
                    "and count %zu (%.3g%%).",
                    bin, next_value, rel_next_distance,
                    next_count, rel_next_count * 100.0);
@@ -206,13 +202,11 @@
                 neighbor_share * prev_weight
                 + self_share * rel_current_count
                 + neighbor_share * next_weight;
-            // TODO: Downgrad to trace
-            debugf("  * Current bin weight is therefore %.3g.", current_weight);
+            tracef("  * Current bin weight is therefore %.3g.", current_weight);
             filter->bin_weights[bin-1] = current_weight;
             if (current_weight > max_weight) max_weight = current_weight;
 
-            // TODO: downgrade to trace
-            debug("  * Preparing for next bin...");
+            trace("  * Preparing for next bin...");
             current_value = next_value;
             current_count = next_count;
             rel_prev_count = rel_current_count;
@@ -225,14 +219,12 @@
         const double last_weight =
             neighbor_share * prev_weight
             + self_share * rel_current_count;
-        // TODO: downgrade to trace
-        debugf("- No bin remaining: last bin weight is %.3g.", last_weight);
+        tracef("- No bin remaining: last bin weight is %.3g.", last_weight);
         filter->bin_weights[num_bins - 1] = last_weight;
         if (last_weight > max_weight) max_weight = last_weight;
 
         const double weight_norm = 1.0 / max_weight;
-        // TODO: downgrade to trace
-        debugf("Maximum weight is %.3g: "
+        tracef("Maximum weight is %.3g: "
                "will now apply norm %.3g to get relative weight...",
                max_weight, weight_norm);
         for (size_t bin = 0; bin < num_bins; ++bin) {
@@ -278,8 +270,7 @@
         ensure_gt(OUTLIER_THRESHOLD, 0.0);
         ensure_lt(OUTLIER_THRESHOLD, 1.0);
         const int64_t outlier_score = rel_weight_to_score(OUTLIER_THRESHOLD);
-        // TODO downgrade to trace
-        debugf("Looking for outlier bins with rel weight <= %.2g (score <= %zd).",
+        tracef("Looking for outlier bins with rel weight <= %.2g (score <= %zd).",
                OUTLIER_THRESHOLD, outlier_score);
 
         const distribution_t* scores = &filter->last_scores.distribution;
@@ -287,8 +278,7 @@
         const ptrdiff_t last_outlier_pos =
             distribution_bin_by_value(scores, outlier_score, BIN_BELOW);
         if (last_outlier_pos == PTRDIFF_MIN) {
-            // TODO downgrade to trace
-            debug("All bins are above score threshold: "
+            trace("All bins are above score threshold: "
                   "will not cut any data point.");
             return 0.0;
         }
@@ -298,8 +288,7 @@
         const size_t num_outliers = scores_layout.end_ranks[last_outlier_bin];
         const size_t num_inputs = distribution_len(scores);
         const double outlier_fraction = num_outliers / (double)num_inputs;
-        // TODO downgrade to trace
-        debugf("That's %zu/%zu outlier values (%.3g%%), "
+        tracef("That's %zu/%zu outlier values (%.3g%%), "
                "corresponding to score bins up to #%zu.",
                num_outliers, num_inputs, outlier_fraction * 100.0,
                last_outlier_bin);
@@ -310,8 +299,7 @@
         if (num_outliers <= max_outliers) {
             const int64_t max_score = scores_layout.sorted_values[last_outlier_bin];
             const double max_rel_weight = score_to_rel_weight(max_score);
-            // TODO downgrade to trace
-            debugf("Those values have rel weight <= %.2g (score <= %zd).",
+            tracef("Those values have rel weight <= %.2g (score <= %zd).",
                    max_rel_weight, max_score);
             return OUTLIER_THRESHOLD;
         }
@@ -324,8 +312,7 @@
         size_t max_bin = distribution_bin_by_rank(scores, max_outliers);
         if (scores_layout.end_ranks[max_bin] > max_outliers) {
             if (max_bin == 0) {
-                // TODO downgrade to trace
-                debug("Even the first score has too many associated values: "
+                trace("Even the first score has too many associated values: "
                       "won't cut any data point.");
                 return 0.0;
             }
@@ -360,8 +347,7 @@
 
         const size_t num_input_bins = target->inner.num_bins;
         ensure_le(num_input_bins, filter->bin_capacity);
-        // TODO: downgrade to trace
-        debugf("Rejecting bins with relative weight <= %.3g "
+        tracef("Rejecting bins with relative weight <= %.3g "
                "from our %zu-bins dataset.",
                threshold,
                num_input_bins);
@@ -375,8 +361,7 @@
             const int64_t value = sorted_values[input_bin];
             const size_t count = counts[input_bin];
             const double rel_weight = filter->bin_weights[input_bin];
-            // TODO: downgrade to trace
-            debugf("- Processing bin #%zu "
+            tracef("- Processing bin #%zu "
                    "containing %zu occurences of value %zd "
                    "with relative weight %.3g.",
                    input_bin, count, value, rel_weight);
@@ -384,17 +369,14 @@
             if (rel_weight > threshold) {
                 if (num_deleted_bins > 0) {
                     const size_t output_bin = input_bin - num_deleted_bins;
-                    // TODO downgrade to trace
-                    debugf("  * Packed to new bin position #%zu.", output_bin);
+                    tracef("  * Packed to new bin position #%zu.", output_bin);
                     sorted_values[output_bin] = value;
                     counts[output_bin] = count;
                 } else {
-                    // TODO downgrade to trace
-                    debug("  * Nothing to do.");
+                    trace("  * Nothing to do.");
                 }
             } else {
-                // TODO downgrade to trace
-                debug("  * Moving bin to rejected value distribution...");
+                trace("  * Moving bin to rejected value distribution...");
                 distribution_insert_copies(rejections_builder,
                                            value,
                                            count);
