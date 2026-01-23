@@ -420,10 +420,10 @@
         density_filter_apply(&density_filter, result_builder);
         distribution_log(density_filter_last_scores(&density_filter),
                          UDIPE_DEBUG,
-                         "Distribution of density scores");
+                         "Outlier filter scores");
         distribution_log(density_filter_last_rejections(&density_filter),
                          UDIPE_DEBUG,
-                         "Distribution of rejected values");
+                         "Rejected durations");
         density_filter_finalize(&density_filter);
 
         distribution_t result = distribution_build(result_builder);
