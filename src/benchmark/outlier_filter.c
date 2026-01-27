@@ -1,6 +1,6 @@
 #ifdef UDIPE_BUILD_BENCHMARKS
 
-    #include "density_filter.h"
+    #include "outlier_filter.h"
 
     #include <udipe/pointer.h>
 
@@ -62,7 +62,7 @@
 
     // === Public API ===
 
-    density_filter_t density_filter_initialize() {
+    outlier_filter_t outlier_filter_initialize() {
         const size_t bin_capacity = get_page_size() / sizeof(double);
         double* const bin_weights = malloc(bin_capacity * sizeof(double));
         debugf("Allocated bin weight storage @ %p...", bin_weights);
@@ -76,7 +76,7 @@
             .is_built = false
         };
 
-        return (density_filter_t) {
+        return (outlier_filter_t) {
             .bin_weights = bin_weights,
             .bin_capacity = bin_capacity,
             .last_scores = last_scores,
@@ -85,7 +85,7 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    void density_filter_apply(density_filter_t* filter,
+    void outlier_filter_apply(outlier_filter_t* filter,
                               distribution_builder_t* target) {
         ensure(!distribution_empty(target));
         compute_rel_weights(filter, target);
@@ -96,7 +96,7 @@
 
 
     UDIPE_NON_NULL_ARGS
-    void density_filter_finalize(density_filter_t* filter) {
+    void outlier_filter_finalize(outlier_filter_t* filter) {
         debugf("Liberating bin weight storage @ %p...", filter->bin_weights);
         free(filter->bin_weights);
         filter->bin_weights = NULL;
@@ -119,7 +119,7 @@
     // === Implementation details ===
 
     UDIPE_NON_NULL_ARGS
-    void compute_rel_weights(density_filter_t* filter,
+    void compute_rel_weights(outlier_filter_t* filter,
                              const distribution_builder_t* target) {
         const size_t num_bins = target->inner.num_bins;
         if (filter->bin_capacity < num_bins) {
@@ -230,7 +230,7 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    void compute_scores(density_filter_t* filter,
+    void compute_scores(outlier_filter_t* filter,
                         const distribution_builder_t* target) {
         if (filter->last_scores.is_built) {
             trace("Resetting last scores distribution...");
@@ -264,7 +264,7 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    double compute_weight_threshold(const density_filter_t* filter) {
+    double compute_weight_threshold(const outlier_filter_t* filter) {
         ensure_gt(OUTLIER_THRESHOLD, 0.0);
         ensure_lt(OUTLIER_THRESHOLD, 1.0);
         const int64_t outlier_score = rel_weight_to_score(OUTLIER_THRESHOLD);
@@ -333,7 +333,7 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    void reject_bins(density_filter_t* filter,
+    void reject_bins(outlier_filter_t* filter,
                      distribution_builder_t* target,
                      double threshold) {
         if (filter->last_rejections.is_built) {

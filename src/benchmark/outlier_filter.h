@@ -14,26 +14,24 @@
     //! Further complicating the matter, benchmark duration probability laws
     //! frequently have multiple modes, which breaks many common
     //! dispersion-based criteria for outlier detection and removal as a
-    //! unimodal distribution does not have a dispersion figure of merit that's
-    //! easy to compute.
+    //! multi-modal distribution does not have a single easy dispersion figure
+    //! of merit like standard deviation.
     //!
     //! When visualizing the distribution of raw timing data, even when
-    //! considering multi-modal laws, outliers have two important
-    //! characteristics:
+    //! considering multi-modal laws, outliers can be distinguished from normal
+    //! measurements in two ways:
     //!
-    //! - When measuring very short durations that fluctuate by an amount
-    //!   smaller than the timer resolution, identical durations tend to pile
-    //!   up, whereas non-identical durations do not do so.
+    //! - When measuring short durations that fluctuate by an amount smaller
+    //!   than the timer resolution, identical durations tend to pile up,
+    //!   whereas outlier durations tend to have a dispersion greater than the
+    //!   timer resolution and thus have a much smaller tendency to do so.
     //! - Non-outlier durations are further away from normal values and each
     //!   other than normal values are from each other.
     //!
     //! By giving each distribution bin a weight that is sensitive to these two
     //! parameters of value count and neighbor proximity, we can get a metric
-    //! that is sensitive to the density of data points. The neighbor weighting
-    //! logic is similar to that of a kernel density estimator in statistics
-    //! (using a power decay law as a kernel and the shortest inter-bin distance
-    //! as a decay distance), therefore we call the resulting outlier filter a
-    //! density filter.
+    //! that is sensitive to the density of data points, which can be used to
+    //! separate low-density outliers from high-density normal measurements.
 
     #include <udipe/pointer.h>
 
@@ -49,20 +47,20 @@
     /// \name Type definitions
     /// \{
 
-    /// Recyclable distribution from a \ref density_filter_t
+    /// Recyclable distribution from a \ref outlier_filter_t
     ///
     /// This union starts in the `empty_builder` state. As a result of applying
     /// the host filter to a user dataset, this union may transition to the
     /// `distribution` state. It will transition back to the `empty_builder`
-    /// state transiently during density_filter_apply() calls.
+    /// state during the processing of outlier_filter_apply() calls.
     typedef struct recyclable_distribution_s {
         union {
             /// Distribution builder that is guaranteed not to contain any data
-            /// and can be used to store a \ref density_filter_t output
+            /// and can be used to store a \ref outlier_filter_t output
             distribution_builder_t empty_builder;
 
             /// Distribution that describes some aspect of the latest `target`
-            /// that the surrounding \ref density_filter_t has been applied to.
+            /// that the surrounding \ref outlier_filter_t has been applied to.
             distribution_t distribution;
         };
 
@@ -70,15 +68,15 @@
         bool is_built;
     } recyclable_distribution_t;
 
-    /// Density filter for \ref distribution_t values
+    /// Outlier filter for \ref distribution_builder_t
     ///
     /// This filter classifies values from \ref distribution_builder_t as
     /// outliers or non-outliers using a density-based criterion.
-    typedef struct density_filter_s {
+    typedef struct outlier_filter_s {
         /// Relative weight of each bin from the last `target`
         ///
         /// This allocation contains enough storage for `bin_capacity` bins.
-        /// When the density filter is applied to a new `target`...
+        /// When the outlier filter is applied to a new `target`...
         ///
         /// - `bin_weights` is reallocated as necessary so that it has at least
         ///   as many bins as the `target`.
@@ -96,15 +94,15 @@
 
         /// Capacity of `bin_weights` in bins
         ///
-        /// If this density filter is attached to a distribution with more bins,
+        /// If this outlier filter is attached to a distribution with more bins,
         /// then `bin_weights` must be reallocated accordingly.
         size_t bin_capacity;
 
-        /// Distribution of density scores from the last `target`, if any,
-        /// before the filter was applied
+        /// Distribution of scores from the last `target`, if any, before the
+        /// filter was applied
         ///
-        /// The density score is a fixed-point approximation of the base-2
-        /// logarithm of the `bin_weights`.
+        /// The score is a fixed-point approximation of the base-2 logarithm of
+        /// the `bin_weights`.
         ///
         /// To be more specific, it is said base-2 logarithm scaled by an
         /// internal `LOG2_SCALE` factor to improve mantissa resolution at the
@@ -113,7 +111,7 @@
         ///
         /// This member contains is the distribution of this score for each
         /// value (not each bin, although the computation is obviously bin-based
-        /// for efficiency) that `target` used to contain before the density
+        /// for efficiency) that `target` used to contain before the outlier
         /// filter was applied to it.
         recyclable_distribution_t last_scores;
 
@@ -124,18 +122,20 @@
         /// removed, this distribution remains in the empty builder state (i.e.
         /// `is_built` is false).
         recyclable_distribution_t last_rejections;
-    } density_filter_t;
+    } outlier_filter_t;
+
+    /// \}
 
 
     /// \name Public API
     /// \{
 
     // TODO docs
-    density_filter_t density_filter_initialize();
+    outlier_filter_t outlier_filter_initialize();
 
     // TODO docs, target must not be empty
     UDIPE_NON_NULL_ARGS
-    void density_filter_apply(density_filter_t* filter,
+    void outlier_filter_apply(outlier_filter_t* filter,
                               distribution_builder_t* target);
 
     // TODO docs
@@ -145,7 +145,7 @@
     UDIPE_NON_NULL_RESULT
     static inline
     const distribution_t*
-    density_filter_last_scores(const density_filter_t* filter) {
+    outlier_filter_last_scores(const outlier_filter_t* filter) {
         ensure(filter->last_scores.is_built);
         return &filter->last_scores.distribution;
     }
@@ -157,7 +157,7 @@
     UDIPE_NON_NULL_ARGS
     static inline
     const distribution_t*
-    density_filter_last_rejections(const density_filter_t* filter) {
+    outlier_filter_last_rejections(const outlier_filter_t* filter) {
         if (filter->last_rejections.is_built) {
             return &filter->last_rejections.distribution;
         } else {
@@ -167,7 +167,7 @@
 
     // TODO docs + implementation
     UDIPE_NON_NULL_ARGS
-    void density_filter_finalize(density_filter_t* filter);
+    void outlier_filter_finalize(outlier_filter_t* filter);
 
     /// \}
 
@@ -181,7 +181,7 @@
     //
     // TODO finish docs, target must not be empty
     UDIPE_NON_NULL_ARGS
-    void compute_rel_weights(density_filter_t* filter,
+    void compute_rel_weights(outlier_filter_t* filter,
                              const distribution_builder_t* target);
 
     /// Scaling factor to apply to the log2 of relative densities before
@@ -220,7 +220,7 @@
     //
     // TODO finish docs
     UDIPE_NON_NULL_ARGS
-    void compute_scores(density_filter_t* filter,
+    void compute_scores(outlier_filter_t* filter,
                         const distribution_builder_t* target);
 
     /// Determine the relative weight cutoff of `filter` based on `last_scores`
@@ -232,7 +232,7 @@
     //
     // TODO finish docs
     UDIPE_NON_NULL_ARGS
-    double compute_weight_threshold(const density_filter_t* filter);
+    double compute_weight_threshold(const outlier_filter_t* filter);
 
     /// Move bins of `target` below relative weight cutoff `threshold` to
     /// `last_rejections`, then build the associated distribution if non-empty
@@ -244,7 +244,7 @@
     //
     // TODO finish docs
     UDIPE_NON_NULL_ARGS
-    void reject_bins(density_filter_t* filter,
+    void reject_bins(outlier_filter_t* filter,
                      distribution_builder_t* target,
                      double threshold);
 

@@ -5,7 +5,7 @@
     #include <udipe/log.h>
     #include <udipe/pointer.h>
 
-    #include "benchmark/density_filter.h"
+    #include "benchmark/outlier_filter.h"
     #include "benchmark/distribution_log.h"
     #include "benchmark/temporal_filter.h"
     #include "error.h"
@@ -416,13 +416,13 @@
         }
 
         // TODO: Clean this up e.g. reuse allocation
-        density_filter_t density_filter = density_filter_initialize();
-        density_filter_apply(&density_filter, result_builder);
-        distribution_log(density_filter_last_scores(&density_filter),
+        outlier_filter_t outlier_filter = outlier_filter_initialize();
+        outlier_filter_apply(&outlier_filter, result_builder);
+        distribution_log(outlier_filter_last_scores(&outlier_filter),
                          UDIPE_DEBUG,
                          "Outlier filter scores");
         const distribution_t* rejections =
-            density_filter_last_rejections(&density_filter);
+            outlier_filter_last_rejections(&outlier_filter);
         if (rejections) {
             distribution_log(rejections,
                              UDIPE_DEBUG,
@@ -430,7 +430,7 @@
         } else {
             debug("No duration was rejected!");
         }
-        density_filter_finalize(&density_filter);
+        outlier_filter_finalize(&outlier_filter);
 
         distribution_t result = distribution_build(result_builder);
         //ensure_eq(distribution_len(&result), num_normal_runs);
