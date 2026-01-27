@@ -25,8 +25,8 @@
     //!   than the timer resolution, identical durations tend to pile up,
     //!   whereas outlier durations tend to have a dispersion greater than the
     //!   timer resolution and thus have a much smaller tendency to do so.
-    //! - Non-outlier durations are further away from normal values and each
-    //!   other than normal values are from each other.
+    //! - Outlier durations are further away from normal durations and each
+    //!   other than normal durations are from each other.
     //!
     //! By giving each distribution bin a weight that is sensitive to these two
     //! parameters of value count and neighbor proximity, we can get a metric
@@ -71,7 +71,7 @@
     /// Outlier filter for \ref distribution_builder_t
     ///
     /// This filter classifies values from \ref distribution_builder_t as
-    /// outliers or non-outliers using a density-based criterion.
+    /// outlier or normal using a density-based criterion.
     typedef struct outlier_filter_s {
         /// Relative weight of each bin from the last `target`
         ///
@@ -101,13 +101,18 @@
         /// Distribution of scores from the last `target`, if any, before the
         /// filter was applied
         ///
-        /// The score is a fixed-point approximation of the base-2 logarithm of
-        /// the `bin_weights`.
+        /// The score is a fixed-point representation of the base-2 logarithm of
+        /// the `bin_weights`. To be more specific, it is said base-2 logarithm
+        /// scaled by an internal `LOG2_SCALE` factor to improve mantissa
+        /// resolution at the expense of exponent range and value readability,
+        /// then saturated to a `INT64_MIN` to allow double-to-int64_t
+        /// conversion.
         ///
-        /// To be more specific, it is said base-2 logarithm scaled by an
-        /// internal `LOG2_SCALE` factor to improve mantissa resolution at the
-        /// expense of exponent range and value readability, then saturated to a
-        /// `INT64_MIN` to allow double-to-int64_t conversion.
+        /// We use this fixed-point representation because...
+        ///
+        /// - Integers are easier to work with and reason about than floats.
+        /// - Supporting both would be a pain in C due to lack of generics.
+        /// - Integers are good enough for the purpose of outlier scoring.
         ///
         /// This member contains is the distribution of this score for each
         /// value (not each bin, although the computation is obviously bin-based
@@ -130,17 +135,56 @@
     /// \name Public API
     /// \{
 
-    // TODO docs
+    /// Set up an outlier filter
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \returns an \ref outlier_filter_t that can be applied to measurements
+    ///          using outlier_filter_apply().
     outlier_filter_t outlier_filter_initialize();
 
-    // TODO docs, target must not be empty
+    /// Apply an outlier filter to measurements
+    ///
+    /// This function classifies the measurements from `target` (which must not
+    /// be empty) into normal values and outliers. Normal values are kept, while
+    /// outliers are moved to an internal rejections distribution that can later
+    /// be queried via outlier_filter_last_rejections().
+    ///
+    /// All distribution pointers from `outlier_filter_last_` methods are
+    /// invalidated by this function and must not be used during and after the
+    /// call to this function. Instead, you should query the new distribution
+    /// using the corresponding accessort.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param filter must be an \ref outlier_filter_t that has been initialized
+    ///        with outlier_filter_initialize() and has not been destroyed with
+    ///        outlier_filter_finalize() yet.
+    /// \param target must be a non-empty \ref distribution_builder_t,
+    ///        containing data which must be classified as outlier or normal.
+    ///        Data which is classified as outliers will be removed from this
+    ///        distribution.
     UDIPE_NON_NULL_ARGS
     void outlier_filter_apply(outlier_filter_t* filter,
                               distribution_builder_t* target);
 
-    // TODO docs
-    // TODO output pointer is only valid until finalize() and should not
-    //      be manipulated by another thread concurrently with an apply() call
+    /// Distribution of value scores from the last `target` that was passed to
+    /// outlier_filter_apply()
+    ///
+    /// Scores are an internal metric which goes from 0 for the values which are
+    /// least likely to be an outlier, to negative values that grows lower as a
+    /// value is more and more likely to be an outlier. The exact definition of
+    /// this metric is purposely left underspecified as it may change without
+    /// warning in the future. But the score distribution is nonetheless
+    /// publicly exposed as it does little harm to do so and eyeballing it is
+    /// very useful when fine-tuning the outlier filter.
+    ///
+    /// \param filter must be an \ref outlier_filter_t that has been applied to
+    ///        at least one dataset via outlier_filter_apply() and has not been
+    ///        destroyed with outlier_filter_finalize() since.
+    ///
+    /// \returns a score distribution that can be used until the next call to
+    ///          outlier_filter_apply().
     UDIPE_NON_NULL_ARGS
     UDIPE_NON_NULL_RESULT
     static inline
@@ -150,10 +194,18 @@
         return &filter->last_scores.distribution;
     }
 
-    // TODO docs
-    // TODO output pointer is only valid until finalize() and should not
-    //      be manipulated by another thread concurrently with an apply() call
-    // TODO output pointer may be NULL if no value was rejected
+    /// Distribution of values that were classified as outliers and removed from
+    /// the last `target` that by outlier_filter_apply(), if any
+    ///
+    /// If no value from `target` was classified as an outlier, this function
+    /// will return `NULL`.
+    ///
+    /// \param filter must be an \ref outlier_filter_t that has been applied to
+    ///        at least one dataset via outlier_filter_apply() and has not been
+    ///        destroyed with outlier_filter_finalize() since.
+    ///
+    /// \returns the distribution of rejected value, or `NULL` if no value was
+    ///          rejected by the last call to outlier_filter_apply().
     UDIPE_NON_NULL_ARGS
     static inline
     const distribution_t*
@@ -165,7 +217,15 @@
         }
     }
 
-    // TODO docs + implementation
+    /// Destroy an outlier filter
+    ///
+    /// `filter` must not be used again after calling this function.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param filter must be an \ref outlier_filter_t that has been initialized
+    ///        with outlier_filter_initialize() and has not been destroyed with
+    ///        outlier_filter_finalize() yet.
     UDIPE_NON_NULL_ARGS
     void outlier_filter_finalize(outlier_filter_t* filter);
 
@@ -175,11 +235,22 @@
     /// \name Implementation details
     /// \{
 
-    /// Fill the `bin_weights` with data from `input`
+    /// Fill the `bin_weights` with data from `target`
+    ///
+    /// This function is a part of the implementation of outlier_filter_apply(),
+    /// which gives each bin from `target` a relative weight between 0.0 and 1.0
+    /// depending on its value count and distance to neighboring bins.
+    ///
+    /// Said weights, which are stored in `filter->bin_weights`, will later be
+    /// used to score bins and eventually classify them as outlier or normal.
     ///
     /// This function must be called within the scope of with_logger().
-    //
-    // TODO finish docs, target must not be empty
+    ///
+    /// \param filter must be an \ref outlier_filter_t that has been initialized
+    ///        with outlier_filter_initialize() and has not been destroyed with
+    ///        outlier_filter_finalize() yet.
+    /// \param target must be a non-empty \ref distribution_builder_t,
+    ///        containing data which must be classified as outlier or normal.
     UDIPE_NON_NULL_ARGS
     void compute_rel_weights(outlier_filter_t* filter,
                              const distribution_builder_t* target);
@@ -192,18 +263,26 @@
     #define LOG2_SCALE ((double)1000.0)
 
     /// Convert a relative weight to an integral score
-    // TODO finish docs
+    ///
+    /// \param rel_weight is the relative weight to be converted into a score,
+    ///        which should be in range [0.0; 1.0].
+    ///
+    /// \returns the integral score associated with `rel_weight`.
     static inline int64_t rel_weight_to_score(double rel_weight) {
         assert(rel_weight >= 0.0 && rel_weight <= 1.0);
         const double unbounded_score = round(LOG2_SCALE*log2(rel_weight));
-        assert(unbounded_score <= 0);
+        assert(unbounded_score <= 0.0);
         // The conversion from INT64_MIN to double is lossless because INT64_MIN
         // is -2^63 and this power of two is losslessly convertible to double.
         return (int64_t)fmax(unbounded_score, (double)INT64_MIN);
     }
 
     /// Convert an integral score back to a relative weight
-    // TODO finish docs
+    ///
+    /// \param score is the integral score to be converted into a relative
+    ///        weight, which should be negative or zero.
+    ///
+    /// \returns the relative weight associated with `score`.
     static inline double score_to_rel_weight(int64_t score) {
         assert(score <= 0);
         const double rel_weight = exp2((double)score / LOG2_SCALE);
@@ -213,12 +292,24 @@
 
     /// Fill the `last_scores` with data from `target` and `bin_weights`
     ///
-    /// This function must be called after compute_rel_weights() has been called
+    /// This function is a part of the implementation of outlier_filter_apply(),
+    /// which is meant to be called after compute_rel_weights() has been called
     /// on the same `target`.
     ///
-    /// It must also be called within the scope of with_logger().
-    //
-    // TODO finish docs
+    /// It converts the relative weights from `bin_weights` into integral
+    /// scores, whose distribution is collected into `last_scores`.
+    ///
+    /// Said distribution can later be analyzed with compute_weight_threshold()
+    /// to determine an appropriate outlier weight cutoff for the `target`
+    /// distribution.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param filter must be an \ref outlier_filter_t that has freshly computed
+    ///        weights for `target` via compute_rel_weights() and has not been
+    ///        destroyed or applied to different data since.
+    /// \param target must the same \ref distribution_builder_t that was passed
+    ///        to the preceding call to compute_rel_weights(), unmodified.
     UDIPE_NON_NULL_ARGS
     void compute_scores(outlier_filter_t* filter,
                         const distribution_builder_t* target);
@@ -226,23 +317,35 @@
     /// Determine the relative weight cutoff of `filter` based on `last_scores`
     /// and internal configuration
     ///
-    /// This function must be called after compute_scores().
+    /// This function is a part of the implementation of outlier_filter_apply(),
+    /// which is meant to be called after compute_scores().
     ///
-    /// It must also be called within the scope of with_logger().
-    //
-    // TODO finish docs
+    /// It analyzes the distribution of scores and the associated `bin_weights`
+    /// to determine a bin weight cutoff that is most likely to reject outliers,
+    /// without any risk of rejecting too many valid values.
+    ///
+    /// It must be called within the scope of with_logger().
+    ///
+    /// \param filter must be an \ref outlier_filter_t that has freshly computed
+    ///        scores for some `target` via compute_scores() and has not been
+    ///        destroyed or applied to different data since.
     UDIPE_NON_NULL_ARGS
     double compute_weight_threshold(const outlier_filter_t* filter);
 
     /// Move bins of `target` below relative weight cutoff `threshold` to
     /// `last_rejections`, then build the associated distribution if non-empty
     ///
-    /// This function must be called after compute_rel_weights() has been called
-    /// on the same `target`.
+    /// This function is a part of the implementation of outlier_filter_apply(),
+    /// which is meant to be called after compute_rel_weights() has been
+    /// called on the same `target`.
     ///
-    /// It must also be called within the scope of with_logger().
-    //
-    // TODO finish docs
+    /// It must be called within the scope of with_logger().
+    ///
+    /// \param filter must be an \ref outlier_filter_t that has freshly computed
+    ///        weights for `target` via compute_rel_weights() and has not been
+    ///        destroyed or applied to different data since.
+    /// \param target must the same \ref distribution_builder_t that was passed
+    ///        to the preceding call to compute_rel_weights(), unmodified.
     UDIPE_NON_NULL_ARGS
     void reject_bins(outlier_filter_t* filter,
                      distribution_builder_t* target,
