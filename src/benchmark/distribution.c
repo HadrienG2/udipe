@@ -153,6 +153,22 @@
     // === Building distributions from other distributions ===
 
     UDIPE_NON_NULL_ARGS
+    distribution_t distribution_resample(distribution_builder_t* empty_builder,
+                                         const distribution_t* dist) {
+        ensure(distribution_empty(empty_builder));
+        distribution_builder_t* builder = empty_builder;
+        empty_builder = NULL;
+
+        const size_t len = distribution_len(dist);
+        // TODO: Look for possible optimizations
+        for (size_t i = 0; i < len; ++i) {
+            const int64_t value = distribution_choose(dist);
+            distribution_insert(builder, value);
+        }
+        return distribution_build(builder);
+    }
+
+    UDIPE_NON_NULL_ARGS
     distribution_t distribution_scale(distribution_builder_t* empty_builder,
                                       int64_t factor,
                                       const distribution_t* dist) {

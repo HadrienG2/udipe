@@ -744,11 +744,42 @@
     /// \name Building distributions from other distributions
     /// \{
 
+    /// Resample a distribution into another distribution of identical length
+    ///
+    /// This produces the same result as producing `distribution_len()` data
+    /// points by calling `distribution_choose()`, but may be implemented more
+    /// efficiently.
+    ///
+    /// That strange operation is the foundation of a statistical analysis
+    /// technique called bootstrap resampling, which can estimate confidence
+    /// intervals around any statistic without making any assumptions about the
+    /// underlying probability law, other than assuming we have collected enough
+    /// data for the empirical sample distribution to have a shape that is very
+    /// close to that of the underlying probability distribution.
+    ///
+    /// See \ref statistics.h for more information about how and why we use
+    /// bootstrap resampling in our internal statistics.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param empty_builder must be a \ref distribution_builder_t that was
+    ///                      freshly built via distribution_initialize() or
+    ///                      distribution_reset() and hasn't been subjected to
+    ///                      any other operation since. It will be consumed by
+    ///                      this function and cannot be used again.
+    /// \param dist is the distribution from which data points are extracted.
+    ///
+    /// \returns a distribution that is resampled from `dist`.
+    UDIPE_NON_NULL_ARGS
+    distribution_t distribution_resample(distribution_builder_t* empty_builder,
+                                         const distribution_t* dist);
+
     /// Build the distribution of `factor * x` for each `x` from `dist`
     ///
-    /// This is conceptually equivalent to calling `distribution_insert(builder,
-    /// distribution_nth(i))` for each `0 <= i < distribution_len(dist)`, then
-    /// calling `distribution_build()`, but more efficient.
+    /// This should produce the same result as calling
+    /// `distribution_insert(builder, factor * distribution_nth(i))` for each `0
+    /// <= i < distribution_len(dist)`, then calling `distribution_build()`, but
+    /// with a much more efficient implementation.
     ///
     /// This function must be called within the scope of with_logger().
     ///

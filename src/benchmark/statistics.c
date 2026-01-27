@@ -1,0 +1,236 @@
+#ifdef UDIPE_BUILD_BENCHMARKS
+
+    #include "statistics.h"
+
+    #include <udipe/pointer.h>
+
+    #include "distribution.h"
+
+    #include "../error.h"
+    #include "../log.h"
+    #include "../memory.h"
+
+    #include <assert.h>
+    #include <stdlib.h>
+
+
+    // === Public API ===
+
+    analyzer_t analyzer_initialize() {
+        debug("Setting up a statistical analyzer...");
+        analyzer_t analyzer = { 0 };
+        analyzer.resample_builder = distribution_initialize();
+        analyzer.mean_capacity = get_page_size() / sizeof(double);
+        ensure_ne(analyzer.mean_capacity, (size_t)0);
+        analyzer.mean_accumulators = malloc(analyzer.mean_capacity * sizeof(double));
+        debugf("Allocated %zu mean accumulators @ %p",
+               analyzer.mean_capacity, analyzer.mean_accumulators);
+        return analyzer;
+    }
+
+    UDIPE_NON_NULL_ARGS
+    statistics_t analyzer_apply(analyzer_t* analyzer,
+                                const distribution_t* dist) {
+        trace("Performing bootstrap resampling...");
+        for (size_t run = 0; run < NUM_RESAMPLES; ++run) {
+            tracef("- At resample #%zu/%zu", run, NUM_RESAMPLES);
+            trace("  * Resampling input distribution...");
+            distribution_t resample =
+                distribution_resample(&analyzer->resample_builder, dist);
+            trace("  * Computing mean...");
+            analyzer->statistics[MEAN][run] =
+                analyze_mean(analyzer, &resample);
+            trace("  * Computing 5%% percentile...");
+            const int64_t p5 = distribution_quantile(&resample, 0.05);
+            analyzer->statistics[P5][run] = p5;
+            trace("  * Computing 95%% percentile...");
+            const int64_t p95 = distribution_quantile(&resample, 0.95);
+            analyzer->statistics[P95][run] = p95;
+            trace("  * Computing 95%%-5%% spread...");
+            analyzer->statistics[P5_TO_P95][run] = p95 - p5;
+            trace("  * Resetting resampling buffer...");
+            analyzer->resample_builder = distribution_reset(&resample);
+        }
+
+        trace("Estimating population statistics...");
+        estimate_t estimates[NUM_STATISTICS];
+        for (size_t stat = 0; stat < NUM_STATISTICS; ++stat) {
+            estimates[stat] = analyze_estimate(analyzer, (statistic_id_t)stat);
+        }
+        return (statistics_t){
+            .mean = estimates[MEAN],
+            .p5 = estimates[P5],
+            .p95 = estimates[P95],
+            .p5_to_p95 = estimates[P5_TO_P95]
+        };
+    }
+
+    UDIPE_NON_NULL_ARGS
+    void analyzer_finalize(analyzer_t* analyzer) {
+        debug("Destroying a statistical analyzer...");
+        distribution_discard(&analyzer->resample_builder);
+
+        debugf("Liberating %zu mean accumulators @ %p...",
+               analyzer->mean_capacity, analyzer->mean_accumulators);
+        analyzer->mean_capacity = 0;
+        free(analyzer->mean_accumulators);
+        analyzer->mean_accumulators = NULL;
+    }
+
+
+    // === Implementation details ===
+
+    /// Comparison function for applying qsort() to double[] where it is assumed
+    /// that all inner numbers are normal (not NAN)
+    UDIPE_NON_NULL_ARGS
+    static inline int compare_f64(const void* v1, const void* v2) {
+        const double* const d1 = (const double*)v1;
+        const double* const d2 = (const double*)v2;
+        if (*d1 < *d2) return -1;
+        if (*d1 > *d2) return 1;
+        return 0;
+    }
+
+    // TODO extract to header + docs
+    UDIPE_NON_NULL_ARGS
+    static inline size_t find_accumulator_position(const analyzer_t* analyzer,
+                                                   double accumulator,
+                                                   size_t contrib_bin,
+                                                   size_t num_bins) {
+        // TODO add logs
+        const double* mean_accumulators = analyzer->mean_accumulators;
+        const size_t first_bin = contrib_bin;
+        const double first_value = mean_accumulators[first_bin];
+        assert(first_value < accumulator);
+
+        const size_t last_bin = num_bins - 1;
+        const double last_value = mean_accumulators[last_bin];
+        if (last_value <= accumulator) {
+            return last_bin;
+        }
+
+        size_t bin_below = first_bin;
+        double value_below = first_value;
+        size_t bin_above = last_bin;
+        double value_above = last_value;
+        while (bin_above - bin_below > 1) {
+            assert(bin_below < bin_above);
+            assert(value_below <= value_above);
+            const size_t bin_center = bin_below + (bin_above - bin_below) / 2;
+            assert(bin_below <= bin_center);
+            assert(bin_above > bin_center);
+            const double value_center = mean_accumulators[bin_center];
+            if (value_center < accumulator) {
+                bin_below = bin_center;
+                value_below = value_center;
+                continue;
+            } else if (value_center > accumulator) {
+                bin_above = bin_center;
+                value_above = value_center;
+                continue;
+            } else {
+                assert(value_center == accumulator);
+                break;
+            }
+        }
+        assert(bin_below <= bin_above);
+        assert(bin_below == bin_above - 1 || value_below == accumulator);
+        return bin_below;
+    }
+
+    UDIPE_NON_NULL_ARGS
+    double analyze_mean(analyzer_t* analyzer,
+                        const distribution_t* dist) {
+        const size_t num_bins = dist->num_bins;
+        ensure_ne(num_bins, (size_t)0);
+        if (analyzer->mean_capacity < num_bins) {
+            debugf("Reallocating %zu mean accumulators @ %p...",
+                   analyzer->mean_capacity, analyzer->mean_accumulators);
+            free(analyzer->mean_accumulators);
+            analyzer->mean_accumulators = malloc(num_bins * sizeof(double));
+            analyzer->mean_capacity = num_bins;
+            debugf("...done, we now have %zu mean accumulators @ %p.",
+                   analyzer->mean_capacity, analyzer->mean_accumulators);
+        }
+
+        trace("Collecting mean contributions...");
+        const distribution_layout_t layout = distribution_layout(dist);
+        const size_t len = distribution_len(dist);
+        double* const mean_accumulators = analyzer->mean_accumulators;
+        double len_norm = 1.0 / (double)len;
+        size_t prev_end_rank = 0;
+        for (size_t bin = 0; bin < num_bins; ++bin) {
+            const size_t curr_end_rank = layout.end_ranks[bin];
+            const size_t count = curr_end_rank - prev_end_rank;
+            prev_end_rank = curr_end_rank;
+            mean_accumulators[bin] =
+                (double)layout.sorted_values[bin] * (double)count * len_norm;
+        }
+
+        trace("Sorting mean contributions...");
+        qsort(mean_accumulators,
+              num_bins,
+              sizeof(double),
+              compare_f64);
+
+        trace("Computing the mean...");
+        const size_t last_bin = num_bins - 1;
+        double accumulator = mean_accumulators[0];
+        for (size_t contrib_bin = 1; contrib_bin < num_bins; ++contrib_bin) {
+            tracef("- At bin %zu with accumulator %g.", contrib_bin, accumulator);
+            const double contribution = mean_accumulators[contrib_bin];
+            tracef("  * Time to integrate contribution %g.", contribution);
+
+            if (accumulator <= contribution) {
+                trace("  * Ok, accumulator still smaller than contribution.");
+                accumulator += contribution;
+                continue;
+            }
+            assert(accumulator > contribution);
+            trace("  * Accumulator has grown greater than contribution! "
+                  "Contribution will thus become the new accumulator...");
+
+            const size_t accumulator_bin =
+                find_accumulator_position(analyzer,
+                                          accumulator,
+                                          contrib_bin,
+                                          num_bins);
+            tracef("    - Migrating accumulator to position %zu...",
+                   accumulator_bin);
+            for (size_t src_bin = contrib_bin + 1; src_bin <= accumulator_bin; ++src_bin) {
+                const size_t dst_bin = src_bin - 1;
+                mean_accumulators[dst_bin] = mean_accumulators[src_bin];
+            }
+            mean_accumulators[accumulator_bin] = accumulator;
+
+            const double next_contribution = mean_accumulators[contrib_bin];
+            assert(contribution <= next_contribution);
+            tracef("    - Using former contribution %g as new accumulator "
+                   "to integrate new contribution %g...",
+                   contribution, next_contribution);
+            accumulator = contribution + next_contribution;
+        }
+        return accumulator;
+    }
+
+    UDIPE_NON_NULL_ARGS
+    estimate_t analyze_estimate(analyzer_t* analyzer,
+                                statistic_id_t stat) {
+        trace("Sorting statistic values...");
+        qsort(analyzer->statistics[stat],
+              NUM_RESAMPLES,
+              sizeof(double),
+              compare_f64);
+
+        trace("Deducing population statistic estimate...");
+        const size_t center_idx = NUM_RESAMPLES / 2;
+        const size_t low_idx = (1.0 - CONFIDENCE) / 2.0 * NUM_RESAMPLES;
+        const size_t high_idx = (1.0 + CONFIDENCE) / 2.0 * NUM_RESAMPLES;
+        return (estimate_t){
+            .center = analyzer->statistics[stat][center_idx],
+            .low = analyzer->statistics[stat][low_idx],
+            .high = analyzer->statistics[stat][high_idx]
+        };
+    }
+
+#endif   // UDIPE_BUILD_BENCHMARKS

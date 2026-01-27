@@ -116,12 +116,14 @@ target_sources(udipe
                        src/address_wait.h
                        src/benchmark.c
                        src/benchmark.h
-                       src/benchmark/outlier_filter.c
-                       src/benchmark/outlier_filter.h
                        src/benchmark/distribution.c
                        src/benchmark/distribution.h
                        src/benchmark/distribution_log.c
                        src/benchmark/distribution_log.h
+                       src/benchmark/outlier_filter.c
+                       src/benchmark/outlier_filter.h
+                       src/benchmark/statistics.c
+                       src/benchmark/statistics.h
                        src/bit_array.c
                        src/bit_array.h
                        src/bits.h

@@ -7,6 +7,7 @@
 
     #include "benchmark/outlier_filter.h"
     #include "benchmark/distribution_log.h"
+    #include "benchmark/statistics.h"
     #include "error.h"
     #include "log.h"
     #include "memory.h"
@@ -44,12 +45,6 @@
     #define NUM_MEDIAN_SAMPLES ((size_t)5)
     static_assert(NUM_MEDIAN_SAMPLES % 2 == 1,
                   "Medians are computed over an odd number of samples");
-
-    /// Confidence interval used for all statistics
-    ///
-    /// Picked because 95% is kinda the standard in statistics, so it is what
-    /// the end user will most likely be used to.
-    #define CONFIDENCE 95.0
 
     /// Desired number of measurements on either side of the confidence interval
     ///
@@ -265,7 +260,7 @@
                        (header),  \
                        udipe_duration.center,  \
                        (unit),  \
-                       CONFIDENCE,  \
+                       CONFIDENCE * 100.0,  \
                        udipe_duration.low,  \
                        udipe_duration.high);  \
         } while(false)
@@ -306,7 +301,7 @@
                        udipe_stats_decimals,  \
                        udipe_center,  \
                        (unit),  \
-                       CONFIDENCE,  \
+                       CONFIDENCE * 100.0,  \
                        udipe_stats_decimals,  \
                        udipe_low,  \
                        udipe_stats_decimals,  \
@@ -324,9 +319,11 @@
         outlier_filter_t* outlier_filter,
         distribution_builder_t* empty_builder
     ) {
-        trace("Computing durations...");
         ensure(distribution_empty(empty_builder));
         distribution_builder_t* builder = empty_builder;
+        empty_builder = NULL;
+
+        trace("Computing durations...");
         for (size_t run = 0; run < num_runs; ++run) {
             const int64_t duration = compute_duration(context, run);
             distribution_insert(builder, duration);
@@ -354,6 +351,20 @@
         distribution_log(&result,
                          UDIPE_DEBUG,
                          "Accepted durations");
+
+        // TODO: clean up e.g. reuse storage and deduplicate code
+        analyzer_t analyzer = analyzer_initialize();
+        const statistics_t stats = analyzer_apply(&analyzer, &result);
+        debugf("Mean is %g with %g%% CI [%g; %g]",
+               stats.mean.center, CONFIDENCE * 100.0, stats.mean.low, stats.mean.high);
+        debugf("P5 is %g with %g%% CI [%g; %g]",
+               stats.p5.center, CONFIDENCE * 100.0, stats.p5.low, stats.p5.high);
+        debugf("P95 is %g with %g%% CI [%g; %g]",
+               stats.p95.center, CONFIDENCE * 100.0, stats.p95.low, stats.p95.high);
+        debugf("P5->P95 spread is %g with %g%% CI [%g; %g]",
+               stats.p5_to_p95.center, CONFIDENCE * 100.0, stats.p5_to_p95.low, stats.p5_to_p95.high);
+        analyzer_finalize(&analyzer);
+
         return result;
     }
 
@@ -893,7 +904,7 @@
         clock.outlier_filter = outlier_filter_initialize();
 
         debug("Setting up statistical analysis...");
-        clock.analyzer = stats_analyzer_initialize(CONFIDENCE);
+        clock.analyzer = stats_analyzer_initialize(CONFIDENCE * 100.0);
 
         info("Setting up the OS clock...");
         clock.os = os_clock_initialize(&clock.outlier_filter,
