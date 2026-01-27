@@ -321,6 +321,7 @@
                                     size_t /* run */),
         void* context,
         size_t num_runs,
+        outlier_filter_t* outlier_filter,
         distribution_builder_t* empty_builder
     ) {
         trace("Computing durations...");
@@ -332,36 +333,34 @@
         }
 
         trace("Applying outlier filter...");
-        // TODO: Clean this up e.g. reuse allocation
-        outlier_filter_t outlier_filter = outlier_filter_initialize();
-        outlier_filter_apply(&outlier_filter, builder);
-        distribution_log(outlier_filter_last_scores(&outlier_filter),
-                         UDIPE_DEBUG,
-                         "Outlier filter scores");
-        const distribution_t* rejections =
-            outlier_filter_last_rejections(&outlier_filter);
-        if (rejections) {
-            distribution_log(rejections,
+        outlier_filter_apply(outlier_filter, builder);
+        if (log_enabled(UDIPE_DEBUG)) {
+            distribution_log(outlier_filter_last_scores(outlier_filter),
                              UDIPE_DEBUG,
-                             "Rejected durations");
-        } else {
-            debug("No duration was rejected!");
+                             "Outlier filter scores");
+            const distribution_t* rejections =
+                outlier_filter_last_rejections(outlier_filter);
+            if (rejections) {
+                distribution_log(rejections,
+                                 UDIPE_DEBUG,
+                                 "Rejected durations");
+            } else {
+                debug("No duration was rejected!");
+            }
         }
-        outlier_filter_finalize(&outlier_filter);
 
         trace("Finalizing accepted duration distribution");
         distribution_t result = distribution_build(builder);
-        //ensure_eq(distribution_len(&result), num_normal_runs);
         distribution_log(&result,
                          UDIPE_DEBUG,
                          "Accepted durations");
-
         return result;
     }
 
 
     UDIPE_NON_NULL_ARGS
-    os_clock_t os_clock_initialize(stats_analyzer_t* analyzer) {
+    os_clock_t os_clock_initialize(outlier_filter_t* outlier_filter,
+                                   stats_analyzer_t* analyzer) {
         // Zero out all clock fields initially
         //
         // This is a valid (if incorrect) value for some fields but not all of
@@ -395,6 +394,7 @@
             &num_iters,
             WARMUP_OFFSET_OS,
             NUM_RUNS_OFFSET_OS,
+            outlier_filter,
             &clock.builder
         );
         clock.builder = distribution_reset(&clock.offsets);
@@ -426,6 +426,7 @@
                 &num_iters,
                 WARMUP_SHORTEST_LOOP,
                 NUM_RUNS_SHORTEST_LOOP,
+                outlier_filter,
                 &clock.builder
             );
             loop_duration_stats = stats_analyze(analyzer, &loop_durations);
@@ -467,6 +468,7 @@
                 &num_iters,
                 WARMUP_BEST_LOOP,
                 NUM_RUNS_BEST_LOOP_OS,
+                outlier_filter,
                 &clock.builder
             );
             loop_duration_stats = stats_analyze(analyzer, &loop_durations);
@@ -541,6 +543,7 @@
         void* context,
         udipe_duration_ns_t warmup,
         size_t num_runs,
+        outlier_filter_t* outlier_filter,
         distribution_builder_t* empty_builder
     ) {
         if (num_runs > clock->num_durations) {
@@ -577,6 +580,7 @@
         return compute_duration_distribution(compute_os_duration,
                                              (void*)clock,
                                              num_runs,
+                                             outlier_filter,
                                              empty_builder);
     }
 
@@ -610,7 +614,8 @@
 
         UDIPE_NON_NULL_ARGS
         x86_clock_t
-        x86_clock_initialize(os_clock_t* os,
+        x86_clock_initialize(outlier_filter_t* outlier_filter,
+                             os_clock_t* os,
                              stats_analyzer_t* analyzer) {
             // Zero out all clock fields initially
             //
@@ -652,6 +657,7 @@
                 &best_empty_iters,
                 WARMUP_BEST_LOOP,
                 NUM_RUNS_BEST_LOOP_X86,
+                outlier_filter,
                 &builder
             );
             log_calibration_stats(UDIPE_INFO,
@@ -668,6 +674,7 @@
                 &empty_loop_iters,
                 WARMUP_OFFSET_X86,
                 NUM_RUNS_OFFSET_X86,
+                outlier_filter,
                 &builder
             );
             builder = distribution_reset(&clock.offsets);
@@ -770,6 +777,7 @@
             void* context,
             udipe_duration_ns_t warmup,
             size_t num_runs,
+            outlier_filter_t* outlier_filter,
             distribution_builder_t* empty_builder
         ) {
             if (num_runs > xclock->num_durations) {
@@ -832,6 +840,7 @@
             return compute_duration_distribution(compute_x86_duration,
                                                  (void*)&measure_context,
                                                  num_runs,
+                                                 outlier_filter,
                                                  empty_builder);
         }
 
@@ -880,15 +889,21 @@
         // them. We will take care of the missing fields later on.
         benchmark_clock_t clock = { 0 };
 
+        debug("Setting up outlier filtering...");
+        clock.outlier_filter = outlier_filter_initialize();
+
         debug("Setting up statistical analysis...");
         clock.analyzer = stats_analyzer_initialize(CONFIDENCE);
 
         info("Setting up the OS clock...");
-        clock.os = os_clock_initialize(&clock.analyzer);
+        clock.os = os_clock_initialize(&clock.outlier_filter,
+                                       &clock.analyzer);
 
         #ifdef X86_64
             info("Setting up the TSC clock...");
-            clock.x86 = x86_clock_initialize(&clock.os, &clock.analyzer);
+            clock.x86 = x86_clock_initialize(&clock.outlier_filter,
+                                             &clock.os,
+                                             &clock.analyzer);
         #endif
         return clock;
     }
@@ -905,16 +920,20 @@
 
     UDIPE_NON_NULL_ARGS
     void benchmark_clock_finalize(benchmark_clock_t* clock) {
-        debug("Liberating the statistical analyzer...");
-        stats_analyzer_finalize(&clock->analyzer);
 
         #ifdef X86_64
-            debug("Liberating the TSC clock...");
+            debug("Destroying the TSC clock...");
             x86_clock_finalize(&clock->x86);
         #endif
 
-        debug("Liberating the OS clock...");
+        debug("Destroying the OS clock...");
         os_clock_finalize(&clock->os);
+
+        debug("Destroying the statistical analyzer...");
+        stats_analyzer_finalize(&clock->analyzer);
+
+        debug("Destroying the outlier filter...");
+        outlier_filter_finalize(&clock->outlier_filter);
     }
 
 

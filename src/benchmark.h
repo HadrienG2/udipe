@@ -16,6 +16,7 @@
 
     #include "arch.h"
     #include "benchmark/distribution.h"
+    #include "benchmark/outlier_filter.h"
     #include "name_filter.h"
 
     #include <assert.h>
@@ -208,6 +209,9 @@
     ///                compute_duration callback.
     /// \param num_runs indicates how many duration measurements have been
     ///                 taken by the clock.
+    /// \param outlier_filter should have been initialized with
+    ///                       outlier_filter_initialize() and not have been
+    ///                       finalized yet
     /// \param empty_builder is a distribution builder with the same semantics
     ///                      as in os_clock_measure(): it should initially be
     ///                      empty and will be consumed in the process of
@@ -220,6 +224,7 @@
                                     size_t /* run */),
         void* context,
         size_t num_runs,
+        outlier_filter_t* outlier_filter,
         distribution_builder_t* empty_builder
     );
 
@@ -356,14 +361,18 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param analyzer should have been initialized with
-    ///                 stats_analyzer_initialize() and not have been finalized
-    ///                 yet
+    /// \param outlier_filter should have been initialized with
+    ///                       outlier_filter_initialize() and not have been
+    ///                       finalized yet
+    /// \param calibration_analyzer should have been initialized with
+    ///                             stats_analyzer_initialize() and not have
+    ///                             been finalized yet
     ///
     /// \returns a system clock context that must later be finalized using
     ///          os_clock_finalize()
     UDIPE_NON_NULL_ARGS
-    os_clock_t os_clock_initialize(stats_analyzer_t* calibration_analyzer);
+    os_clock_t os_clock_initialize(outlier_filter_t* outlier_filter,
+                                   stats_analyzer_t* calibration_analyzer);
 
     /// Read the system clock
     ///
@@ -476,6 +485,9 @@
     ///               the CPU some time to reach a steady performance state.
     /// \param num_runs indicates how many timed calls to `workload` should
     ///                 be performed. See above for tuning advice.
+    /// \param outlier_filter should have been initialized with
+    ///                       outlier_filter_initialize() and not have been
+    ///                       finalized yet
     /// \param empty_builder is a distribution builder within which output data
     ///                      will be inserted, which should initially be empty
     ///                      (either freshly built via distribution_initialize()
@@ -492,6 +504,7 @@
         void* context,
         udipe_duration_ns_t warmup,
         size_t num_runs,
+        outlier_filter_t* outlier_filter,
         distribution_builder_t* empty_builder
     );
 
@@ -585,6 +598,9 @@
         ///
         /// This function must be called within the scope of with_logger().
         ///
+        /// \param outlier_filter should have been initialized with
+        ///                       outlier_filter_initialize() and not have been
+        ///                       finalized yet
         /// \param os is a system clock context that was freshly initialized
         ///           with os_clock_initialize(), ideally right before calling
         ///           this function, and hasn't been used for any other purpose
@@ -597,7 +613,8 @@
         ///          x86_clock_finalize().
         UDIPE_NON_NULL_ARGS
         x86_clock_t
-        x86_clock_initialize(os_clock_t* os,
+        x86_clock_initialize(outlier_filter_t* outlier_filter,
+                             os_clock_t* os,
                              stats_analyzer_t* analyzer);
 
         /// Measure the execution duration of `workload` using the TSC clock
@@ -624,6 +641,7 @@
         /// \param context works as in os_clock_measure()
         /// \param warmup works as in os_clock_measure()
         /// \param num_runs works as in os_clock_measure()
+        /// \param outlier_filter works as in os_clock_measure()
         /// \param empty_builder works as in os_clock_measure()
         ///
         /// \returns the distribution of measured execution times in TSC ticks
@@ -634,6 +652,7 @@
             void* context,
             udipe_duration_ns_t warmup,
             size_t num_runs,
+            outlier_filter_t* outlier_filter,
             distribution_builder_t* empty_builder
         );
 
@@ -689,13 +708,14 @@
     /// which attempts to pick the best clock available on the target operating
     /// system and CPU architecture.
     typedef struct benchmark_clock_s {
-        #ifdef X86_64
-            /// TSC clock context
-            ///
-            /// This contains everything needed to recalibrate and use the x86
-            /// TimeStamp Counter clock.
-            x86_clock_t x86;
-        #endif
+        /// Outlier filter
+        ///
+        /// This is used to remove outliers from benchmark measurements, which
+        /// mostly come from interruptions by the OS scheduler and hardware.
+        /// Such outliers are undesirable because in addition to adding a lot of
+        /// variance and a fair amount of bias, they do so in a manner that is
+        /// specific to specific host system and its environmental conditions.
+        outlier_filter_t outlier_filter;
 
         /// Statistical analyzer for benchmark measurements
         ///
@@ -707,6 +727,14 @@
         /// This contains everything needed to recalibrate and use the operating
         /// system clock.
         os_clock_t os;
+
+        #ifdef X86_64
+            /// TSC clock context
+            ///
+            /// This contains everything needed to recalibrate and use the x86
+            /// TimeStamp Counter clock.
+            x86_clock_t x86;
+        #endif
     } benchmark_clock_t;
 
     /// Set up the benchmark clock
