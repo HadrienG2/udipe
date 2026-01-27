@@ -122,8 +122,6 @@ target_sources(udipe
                        src/benchmark/distribution.h
                        src/benchmark/distribution_log.c
                        src/benchmark/distribution_log.h
-                       src/benchmark/temporal_filter.c
-                       src/benchmark/temporal_filter.h
                        src/bit_array.c
                        src/bit_array.h
                        src/bits.h

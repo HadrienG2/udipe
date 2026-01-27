@@ -208,10 +208,10 @@
     ///                compute_duration callback.
     /// \param num_runs indicates how many duration measurements have been
     ///                 taken by the clock.
-    /// \param result_builder is a distribution builder with the same semantics
-    ///                       as in os_clock_measure(): it should initially be
-    ///                       empty and will be consumed in the process of
-    ///                       producing a result.
+    /// \param empty_builder is a distribution builder with the same semantics
+    ///                      as in os_clock_measure(): it should initially be
+    ///                      empty and will be consumed in the process of
+    ///                      producing a result.
     ///
     /// \returns a distribution of timings with outliers filtered out
     UDIPE_NON_NULL_ARGS
@@ -220,7 +220,7 @@
                                     size_t /* run */),
         void* context,
         size_t num_runs,
-        distribution_builder_t* result_builder
+        distribution_builder_t* empty_builder
     );
 
     /// \}
@@ -451,8 +451,7 @@
     ///   counter to preserve the number of loop iterations.
     ///
     /// `num_runs` controls how many timed calls to `workload` will occur. It
-    /// must be greater than \ref TEMPORAL_WINDOW and should be tuned such
-    /// that...
+    /// should be tuned such that...
     ///
     /// - Results are reproducible enough across benchmark executions (what
     ///   constitutes "reproducible enough" is context dependent, a parameter
@@ -476,14 +475,14 @@
     ///               executed before duration measurements are taken, giving
     ///               the CPU some time to reach a steady performance state.
     /// \param num_runs indicates how many timed calls to `workload` should
-    ///                 be performed. It must be strictly greater than \ref
-    ///                 TEMPORAL_WINDOW, see above for tuning advice.
-    /// \param builder is a distribution builder within which output data will
-    ///                be inserted, which should initially be empty (either
-    ///                freshly built via distribution_initialize() or freshly
-    ///                recycled via distribution_reset()). It will be turned
-    ///                into the output distribution returned by this function,
-    ///                and therefore cannot be used after calling this function.
+    ///                 be performed. See above for tuning advice.
+    /// \param empty_builder is a distribution builder within which output data
+    ///                      will be inserted, which should initially be empty
+    ///                      (either freshly built via distribution_initialize()
+    ///                      or freshly recycled via distribution_reset()). It
+    ///                      will be turned into the output distribution
+    ///                      returned by this function, and therefore cannot be
+    ///                      used after calling this function.
     ///
     /// \returns the distribution of measured execution times in nanoseconds
     UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
@@ -493,7 +492,7 @@
         void* context,
         udipe_duration_ns_t warmup,
         size_t num_runs,
-        distribution_builder_t* result_builder
+        distribution_builder_t* empty_builder
     );
 
     /// Destroy the system clock
@@ -625,7 +624,7 @@
         /// \param context works as in os_clock_measure()
         /// \param warmup works as in os_clock_measure()
         /// \param num_runs works as in os_clock_measure()
-        /// \param result_builder works as in os_clock_measure()
+        /// \param empty_builder works as in os_clock_measure()
         ///
         /// \returns the distribution of measured execution times in TSC ticks
         UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
@@ -635,7 +634,7 @@
             void* context,
             udipe_duration_ns_t warmup,
             size_t num_runs,
-            distribution_builder_t* result_builder
+            distribution_builder_t* empty_builder
         );
 
         /// Estimate real time duration statistics from a TSC clock ticks

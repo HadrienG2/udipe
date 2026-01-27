@@ -7,7 +7,6 @@
 
     #include "benchmark/outlier_filter.h"
     #include "benchmark/distribution_log.h"
-    #include "benchmark/temporal_filter.h"
     #include "error.h"
     #include "log.h"
     #include "memory.h"
@@ -322,102 +321,20 @@
                                     size_t /* run */),
         void* context,
         size_t num_runs,
-        distribution_builder_t* result_builder
+        distribution_builder_t* empty_builder
     ) {
-        ensure_ge(num_runs, TEMPORAL_WINDOW);
-
-        trace("Setting up statistics...");
-        size_t num_normal_runs = 0;
-        size_t num_initially_rejected = 0;
-        size_t num_reclassified = 0;
-        distribution_builder_t reject_builder;
-        distribution_builder_t reclassify_builder;
-        if (log_enabled(UDIPE_DEBUG)) {
-            reject_builder = distribution_initialize();
-            reclassify_builder = distribution_initialize();
-        }
-
-        trace("Seeding temporal outlier filter...");
-        int64_t initial_window[TEMPORAL_WINDOW];
-        for (size_t run = 0; run < TEMPORAL_WINDOW; ++run) {
-            initial_window[run] = compute_duration(context, run);
-        }
-        temporal_filter_t filter = temporal_filter_initialize(initial_window);
-
-        trace("Collecting temporally filtered durations...");
-        TEMPORAL_FILTER_FOREACH_NORMAL(&filter, duration, {
-            distribution_insert(result_builder, duration);
-            ++num_normal_runs;
-        });
-        // There can be at most one outlier per input window
-        ensure_le(TEMPORAL_WINDOW - num_normal_runs, (uint16_t)1);
-        //
-        for (size_t run = TEMPORAL_WINDOW; run < num_runs; ++run) {
+        trace("Computing durations...");
+        ensure(distribution_empty(empty_builder));
+        distribution_builder_t* builder = empty_builder;
+        for (size_t run = 0; run < num_runs; ++run) {
             const int64_t duration = compute_duration(context, run);
-            const temporal_filter_result_t result =
-                temporal_filter_apply(&filter, duration);
-            if (result.previous_not_outlier) {
-                tracef("- Reclassified previous outlier duration %zd as non-outlier",
-                       result.previous_input);
-                for (size_t pos = 0; pos < TEMPORAL_WINDOW; ++pos) {
-                    const size_t idx = (filter.next_idx + pos) % TEMPORAL_WINDOW;
-                    const size_t age = TEMPORAL_WINDOW - 1 - pos;
-                    tracef("  * duration[%zu aka -%zu] is %zd",
-                           run - age,
-                           age,
-                           filter.window[idx]);
-                }
-                distribution_insert(result_builder, result.previous_input);
-                ++num_normal_runs;
-                if (log_enabled(UDIPE_DEBUG)) {
-                    distribution_insert(&reclassify_builder, result.previous_input);
-                    ++num_reclassified;
-                }
-            }
-            if (!result.current_is_outlier) {
-                distribution_insert(result_builder, duration);
-                ++num_normal_runs;
-            } else if (log_enabled(UDIPE_DEBUG)) {
-                distribution_insert(&reject_builder, duration);
-                ++num_initially_rejected;
-            }
-            ensure_le(num_normal_runs, run + 1);
+            distribution_insert(builder, duration);
         }
 
-        trace("Reporting results...");
-        if (log_enabled(UDIPE_DEBUG)) {
-            if (num_initially_rejected > 0) {
-                distribution_t reject = distribution_build(&reject_builder);
-                distribution_log(&reject,
-                                 UDIPE_DEBUG,
-                                 "Durations initially rejected as outliers");
-                distribution_finalize(&reject);
-            } else {
-                distribution_discard(&reject_builder);
-            }
-            //
-            if (num_reclassified > 0) {
-                distribution_t reclassify = distribution_build(&reclassify_builder);
-                distribution_log(&reclassify,
-                                 UDIPE_DEBUG,
-                                 "Durations later reclassified to non-outlier");
-                debugf("Reclassified %zu/%zu durations from outlier to normal.",
-                       num_reclassified, num_runs);
-                distribution_finalize(&reclassify);
-            } else {
-                distribution_discard(&reclassify_builder);
-            }
-            //
-            if (num_normal_runs < num_runs) {
-                const size_t num_outliers = num_runs - num_normal_runs;
-                debugf("Eventually rejected %zu/%zu durations.",
-                       num_outliers, num_runs);
-            }
-        }
-
+        trace("Applying outlier filter...");
         // TODO: Clean this up e.g. reuse allocation
         outlier_filter_t outlier_filter = outlier_filter_initialize();
-        outlier_filter_apply(&outlier_filter, result_builder);
+        outlier_filter_apply(&outlier_filter, builder);
         distribution_log(outlier_filter_last_scores(&outlier_filter),
                          UDIPE_DEBUG,
                          "Outlier filter scores");
@@ -432,12 +349,12 @@
         }
         outlier_filter_finalize(&outlier_filter);
 
-        distribution_t result = distribution_build(result_builder);
+        trace("Finalizing accepted duration distribution");
+        distribution_t result = distribution_build(builder);
         //ensure_eq(distribution_len(&result), num_normal_runs);
         distribution_log(&result,
                          UDIPE_DEBUG,
                          "Accepted durations");
-        // TODO: If this work, remove temporal filter
 
         return result;
     }
@@ -624,7 +541,7 @@
         void* context,
         udipe_duration_ns_t warmup,
         size_t num_runs,
-        distribution_builder_t* result_builder
+        distribution_builder_t* empty_builder
     ) {
         if (num_runs > clock->num_durations) {
             trace("Reallocating storage from %zu to %zu durations...");
@@ -660,7 +577,7 @@
         return compute_duration_distribution(compute_os_duration,
                                              (void*)clock,
                                              num_runs,
-                                             result_builder);
+                                             empty_builder);
     }
 
     UDIPE_NON_NULL_ARGS
@@ -853,7 +770,7 @@
             void* context,
             udipe_duration_ns_t warmup,
             size_t num_runs,
-            distribution_builder_t* result_builder
+            distribution_builder_t* empty_builder
         ) {
             if (num_runs > xclock->num_durations) {
                 trace("Reallocating storage from %zu to %zu durations...");
@@ -915,7 +832,7 @@
             return compute_duration_distribution(compute_x86_duration,
                                                  (void*)&measure_context,
                                                  num_runs,
-                                                 result_builder);
+                                                 empty_builder);
         }
 
         UDIPE_NON_NULL_ARGS
