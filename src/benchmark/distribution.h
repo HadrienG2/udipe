@@ -675,6 +675,20 @@
     ///          distribution_t via distribution_build().
     distribution_builder_t distribution_initialize();
 
+    /// Truth that no value has been inserted into a \ref distribution_builder_t
+    ///
+    /// \param dist must be a \ref distribution_builder_t that has previously
+    ///             been set up via distribution_initialize() and hasn't been
+    ///             turned into a \ref distribution_t or destroyed since.
+    ///
+    /// \returns the truth that no value has been inserted into this builder
+    ///          since it was last initialized or reset.
+    UDIPE_NON_NULL_ARGS
+    static inline
+    bool distribution_empty(const distribution_builder_t* builder) {
+        return builder->inner.num_bins == 0;
+    }
+
     /// Insert a value into a distribution
     ///
     /// This inserts a new occurence of `value` into the distribution histogram,

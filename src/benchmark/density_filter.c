@@ -68,10 +68,12 @@
         debugf("Allocated bin weight storage @ %p...", bin_weights);
 
         const recyclable_distribution_t last_scores = (recyclable_distribution_t){
-            .empty_builder = distribution_initialize()
+            .empty_builder = distribution_initialize(),
+            .is_built = false
         };
         const recyclable_distribution_t last_rejections = (recyclable_distribution_t){
-            .empty_builder = distribution_initialize()
+            .empty_builder = distribution_initialize(),
+            .is_built = false
         };
 
         return (density_filter_t) {
@@ -79,18 +81,17 @@
             .bin_capacity = bin_capacity,
             .last_scores = last_scores,
             .last_rejections = last_rejections,
-            .applied = false
         };
     }
 
     UDIPE_NON_NULL_ARGS
     void density_filter_apply(density_filter_t* filter,
                               distribution_builder_t* target) {
+        ensure(!distribution_empty(target));
         compute_rel_weights(filter, target);
         compute_scores(filter, target);
         const double threshold = compute_weight_threshold(filter);
         reject_bins(filter, target, threshold);
-        filter->applied = true;
     }
 
 
@@ -102,16 +103,16 @@
         filter->bin_capacity = 0;
 
         trace("Liberating inner distributions...");
-        if (filter->applied) {
+        if (filter->last_scores.is_built) {
             distribution_finalize(&filter->last_scores.distribution);
-            distribution_finalize(&filter->last_rejections.distribution);
         } else {
             distribution_discard(&filter->last_scores.empty_builder);
+        }
+        if (filter->last_rejections.is_built) {
+            distribution_finalize(&filter->last_rejections.distribution);
+        } else {
             distribution_discard(&filter->last_rejections.empty_builder);
         }
-
-        trace("Poisoning the rest of the density filter...");
-        filter->applied = false;
     }
 
 
@@ -231,7 +232,7 @@
     UDIPE_NON_NULL_ARGS
     void compute_scores(density_filter_t* filter,
                         const distribution_builder_t* target) {
-        if (filter->applied) {
+        if (filter->last_scores.is_built) {
             trace("Resetting last scores distribution...");
             filter->last_scores.empty_builder =
                 distribution_reset(&filter->last_scores.distribution);
@@ -259,6 +260,7 @@
                                        count);
         }
         filter->last_scores.distribution = distribution_build(score_builder);
+        filter->last_scores.is_built = true;
     }
 
     UDIPE_NON_NULL_ARGS
@@ -269,6 +271,7 @@
         tracef("Looking for outlier bins with rel weight <= %.2g (score <= %zd).",
                OUTLIER_THRESHOLD, outlier_score);
 
+        ensure(filter->last_scores.is_built);
         const distribution_t* scores = &filter->last_scores.distribution;
         const distribution_layout_t scores_layout = distribution_layout(scores);
         const ptrdiff_t last_outlier_pos =
@@ -333,7 +336,7 @@
     void reject_bins(density_filter_t* filter,
                      distribution_builder_t* target,
                      double threshold) {
-        if (filter->applied) {
+        if (filter->last_rejections.is_built) {
             trace("Resetting rejections distribution...");
             filter->last_rejections.empty_builder =
                 distribution_reset(&filter->last_rejections.distribution);
@@ -381,9 +384,14 @@
         }
         target->inner.num_bins -= num_deleted_bins;
 
-        trace("Finalizing rejected value distribution...");
-        filter->last_rejections.distribution =
-            distribution_build(rejections_builder);
+        if (num_deleted_bins > 0) {
+            trace("Finalizing rejected value distribution...");
+            filter->last_rejections.distribution =
+                distribution_build(rejections_builder);
+            filter->last_rejections.is_built = true;
+        } else {
+            trace("No value was rejected: last_rejections will remain unbuilt.");
+        }
     }
 
 #endif  // UDIPE_BUILD_BENCHMARKS

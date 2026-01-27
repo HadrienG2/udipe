@@ -51,18 +51,23 @@
 
     /// Recyclable distribution from a \ref density_filter_t
     ///
-    /// This union starts in the `empty_builder` state. After the filter has
-    /// been applied to at least one user dataset, this union defaults to the
-    /// `distribution` state and only switches back to the `empty_builder` state
-    /// transiently during density_filter_apply() calls.
-    typedef union recyclable_distribution_u {
-        /// Distribution builder that is guaranteed not to contain any data and
-        /// can be used to store a \ref density_filter_t output
-        distribution_builder_t empty_builder;
+    /// This union starts in the `empty_builder` state. As a result of applying
+    /// the host filter to a user dataset, this union may transition to the
+    /// `distribution` state. It will transition back to the `empty_builder`
+    /// state transiently during density_filter_apply() calls.
+    typedef struct recyclable_distribution_s {
+        union {
+            /// Distribution builder that is guaranteed not to contain any data
+            /// and can be used to store a \ref density_filter_t output
+            distribution_builder_t empty_builder;
 
-        /// Distribution that describes some aspect of the latest `target` that
-        /// the surrounding \ref density_filter_t has been applied to.
-        distribution_t distribution;
+            /// Distribution that describes some aspect of the latest `target`
+            /// that the surrounding \ref density_filter_t has been applied to.
+            distribution_t distribution;
+        };
+
+        /// Truth that the above union is in the `distribution` state
+        bool is_built;
     } recyclable_distribution_t;
 
     /// Density filter for \ref distribution_t values
@@ -115,19 +120,10 @@
         /// Rejected values from the last `target`, if any
         ///
         /// This is the distribution of the values that were removed from the
-        /// last `target` that this filter has been applied to.
+        /// last `target` that this filter has been applied to. If no value was
+        /// removed, this distribution remains in the empty builder state (i.e.
+        /// `is_built` is false).
         recyclable_distribution_t last_rejections;
-
-        /// Truth that this filter has been applied to at least one `target`
-        ///
-        /// If this is true, then each inner \ref recyclable_distribution_t is
-        /// guaranteed be in the `distribution` state between two calls to
-        /// user-facing methods.
-        ///
-        /// If this is false then these will be in the `empty_builder` state
-        /// until the first call to density_filter_apply(), which will
-        /// transition them to the `distribution` state and set this to true.
-        bool applied;
     } density_filter_t;
 
 
@@ -137,7 +133,7 @@
     // TODO docs
     density_filter_t density_filter_initialize();
 
-    // TODO docs
+    // TODO docs, target must not be empty
     UDIPE_NON_NULL_ARGS
     void density_filter_apply(density_filter_t* filter,
                               distribution_builder_t* target);
@@ -150,20 +146,23 @@
     static inline
     const distribution_t*
     density_filter_last_scores(const density_filter_t* filter) {
-        ensure(filter->applied);
+        ensure(filter->last_scores.is_built);
         return &filter->last_scores.distribution;
     }
 
     // TODO docs
     // TODO output pointer is only valid until finalize() and should not
     //      be manipulated by another thread concurrently with an apply() call
+    // TODO output pointer may be NULL if no value was rejected
     UDIPE_NON_NULL_ARGS
-    UDIPE_NON_NULL_RESULT
     static inline
     const distribution_t*
     density_filter_last_rejections(const density_filter_t* filter) {
-        ensure(filter->applied);
-        return &filter->last_rejections.distribution;
+        if (filter->last_rejections.is_built) {
+            return &filter->last_rejections.distribution;
+        } else {
+            return NULL;
+        }
     }
 
     // TODO docs + implementation
@@ -180,7 +179,7 @@
     ///
     /// This function must be called within the scope of with_logger().
     //
-    // TODO finish docs
+    // TODO finish docs, target must not be empty
     UDIPE_NON_NULL_ARGS
     void compute_rel_weights(density_filter_t* filter,
                              const distribution_builder_t* target);
@@ -236,7 +235,7 @@
     double compute_weight_threshold(const density_filter_t* filter);
 
     /// Move bins of `target` below relative weight cutoff `threshold` to
-    /// `last_rejections`, then build the associated distribution
+    /// `last_rejections`, then build the associated distribution if non-empty
     ///
     /// This function must be called after compute_rel_weights() has been called
     /// on the same `target`.

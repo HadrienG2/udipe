@@ -421,9 +421,15 @@
         distribution_log(density_filter_last_scores(&density_filter),
                          UDIPE_DEBUG,
                          "Outlier filter scores");
-        distribution_log(density_filter_last_rejections(&density_filter),
-                         UDIPE_DEBUG,
-                         "Rejected durations");
+        const distribution_t* rejections =
+            density_filter_last_rejections(&density_filter);
+        if (rejections) {
+            distribution_log(rejections,
+                             UDIPE_DEBUG,
+                             "Rejected durations");
+        } else {
+            debug("No duration was rejected!");
+        }
         density_filter_finalize(&density_filter);
 
         distribution_t result = distribution_build(result_builder);

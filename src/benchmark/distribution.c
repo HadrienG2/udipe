@@ -127,12 +127,12 @@
 
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_build(distribution_builder_t* non_empty_builder) {
+        trace("Ensuring the distribution is not empty...");
+        ensure(!distribution_empty(non_empty_builder));
+
         trace("Extracting the distribution from the builder...");
         distribution_t dist = non_empty_builder->inner;
         distribution_poison(&non_empty_builder->inner);
-
-        trace("Ensuring the distribution is not empty...");
-        ensure_ge(dist.num_bins, (size_t)1);
 
         trace("Turning value counts into end ranks...");
         distribution_layout_t layout = distribution_layout(&dist);
@@ -156,7 +156,7 @@
     distribution_t distribution_scale(distribution_builder_t* empty_builder,
                                       int64_t factor,
                                       const distribution_t* dist) {
-        ensure_eq(empty_builder->inner.num_bins, (size_t)0);
+        ensure(distribution_empty(empty_builder));
         distribution_builder_t* builder = empty_builder;
         empty_builder = NULL;
 
@@ -210,7 +210,7 @@
     distribution_t distribution_sub(distribution_builder_t* empty_builder,
                                     const distribution_t* left,
                                     const distribution_t* right) {
-        ensure_eq(empty_builder->inner.num_bins, (size_t)0);
+        ensure(distribution_empty(empty_builder));
         distribution_builder_t* builder = empty_builder;
         empty_builder = NULL;
 
@@ -259,7 +259,7 @@
                                            const distribution_t* num,
                                            int64_t factor,
                                            const distribution_t* denom) {
-        ensure_eq(empty_builder->inner.num_bins, (size_t)0);
+        ensure(distribution_empty(empty_builder));
         distribution_builder_t* builder = empty_builder;
         empty_builder = NULL;
 
@@ -353,7 +353,7 @@
             const void* const initial_allocation = builder.inner.allocation;
             const size_t initial_capacity = builder.inner.capacity;
             ensure_ne(initial_allocation, NULL);
-            ensure_eq(builder.inner.num_bins, (size_t)0);
+            ensure(distribution_empty(&builder));
             ensure_ge(initial_capacity, (size_t)5);
 
             trace("Checking initial layout");
@@ -370,6 +370,7 @@
             const int64_t value3 = rand() - RAND_MAX / 2;
             tracef("Inserting value3 = %zd for the first time...", value3);
             distribution_insert(&builder, value3);
+            ensure(!distribution_empty(&builder));
             ensure_eq(builder.inner.allocation, initial_allocation);
             ensure_eq(builder.inner.num_bins, (size_t)1);
             ensure_eq(builder.inner.capacity, initial_capacity);
@@ -815,6 +816,7 @@
             trace("Resetting the distribution...");
             prev_dist = dist;
             builder = distribution_reset(&dist);
+            ensure(distribution_empty(&builder));
             ensure_eq(dist.allocation, NULL);
             ensure_eq(dist.num_bins, (size_t)0);
             ensure_eq(dist.capacity, (size_t)0);
