@@ -125,8 +125,10 @@
     } distribution_builder_t;
 
 
-    /// \name Implementation details
+    /// \name Internal utilities
     /// \{
+
+    // === Common tooling for distribution_t and distribution_builder_t ===
 
     /// Allocate a \ref distribution_t that can hold `capacity` distinct values
     ///
@@ -380,6 +382,41 @@
         exit_with_error("Control should never reach this point!");
     }
 
+    /// Smallest difference between two values of `dist`, if any, else
+    /// `UINT64_MAX`
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param dist is a \ref distribution_t, which can be the `inner`
+    ///             distribution of a \ref distribution_builder_t.
+    ///
+    /// \returns the smallest difference between two values of `dist`. If all
+    ///          inner values are equal or there is no inner value (which is in
+    ///          some sense a special case of the former), `UINT64_MAX` is
+    ///          returned.
+    UDIPE_NON_NULL_ARGS
+    static inline
+    uint64_t distribution_min_difference(const distribution_t* dist) {
+        const size_t num_bins = dist->num_bins;
+        if (num_bins == 0) {
+            trace("No value, will return UINT64_MAX");
+            return UINT64_MAX;
+        }
+
+        const distribution_layout_t layout = distribution_layout(dist);
+        uint64_t min_difference = UINT64_MAX;
+        int64_t prev_value = layout.sorted_values[0];
+        for (size_t bin = 1; bin < num_bins; ++bin) {
+            const int64_t curr_value = layout.sorted_values[bin];
+            assert(curr_value > prev_value);
+            const uint64_t difference = curr_value - prev_value;
+            if (difference < min_difference) min_difference = difference;
+        }
+        return min_difference;
+    }
+
+    // === Specific to distribution_builder_t ===
+
     /// Create a new histogram bin within a distribution builder
     ///
     /// This is an implementation detail of distribution_insert() that should
@@ -481,6 +518,32 @@
             distribution_create_bin(builder, bin_pos, value, count);
         }
     }
+
+    /// Largest amount of values in any \ref distribution_builder_t bin
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param builder must be a \ref distribution_builder_t that has previously
+    ///                been set up via distribution_initialize() and hasn't been
+    ///                turned into a \ref distribution_t or destroyed since.
+    ///
+    /// \returns the largest amount of values in any bin of the distribution
+    ///          builder, or 0 if no value has been inserted yet.
+    UDIPE_NON_NULL_ARGS
+    static inline
+    size_t distribution_max_count(const distribution_builder_t* builder) {
+        const distribution_layout_t layout = distribution_layout(&builder->inner);
+        const size_t num_bins = builder->inner.num_bins;
+        size_t max_count = 0;
+        for (size_t bin = 0; bin < num_bins; ++bin) {
+            const size_t count = layout.counts[bin];
+            assert(count > 0);
+            if (count > max_count) max_count = count;
+        }
+        return max_count;
+    }
+
+    // === Specific to distribution_t ===
 
     // Forward declaration of distribution_len()
     UDIPE_NON_NULL_ARGS
@@ -882,7 +945,7 @@
     ///
     /// \returns the smallest value that was previously inserted into `dist`.
     UDIPE_NON_NULL_ARGS
-    static inline int64_t distribution_min(const distribution_t* dist) {
+    static inline int64_t distribution_min_value(const distribution_t* dist) {
         assert(dist->num_bins >= 1);
         const distribution_layout_t layout = distribution_layout(dist);
         return layout.sorted_values[0];
@@ -899,7 +962,7 @@
     ///
     /// \returns the largest value that was previously inserted into `dist`.
     UDIPE_NON_NULL_ARGS
-    static inline int64_t distribution_max(const distribution_t* dist) {
+    static inline int64_t distribution_max_value(const distribution_t* dist) {
         assert(dist->num_bins >= 1);
         const distribution_layout_t layout = distribution_layout(dist);
         return layout.sorted_values[dist->num_bins - 1];

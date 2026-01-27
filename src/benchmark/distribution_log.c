@@ -146,8 +146,8 @@
         switch (type) {
         case HISTOGRAM:
             return (range_t){
-                .first = (coord_t){ .value = distribution_min(dist) },
-                .last = (coord_t){ .value = distribution_max(dist) }
+                .first = (coord_t){ .value = distribution_min_value(dist) },
+                .last = (coord_t){ .value = distribution_max_value(dist) }
             };
         case QUANTILE_FUNCTION:
             return (range_t){

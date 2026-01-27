@@ -28,6 +28,17 @@
     /// current distribution bin is not taken into account. This is also
     /// unadvisable as value occurence counts are a very useful indicator of
     /// outlier-ness when operating in the right experimental conditions.
+    //
+    // TODO: This compromise logic was only tuned on clean distributions with
+    //       noise below the timer quantization noise, where bin counts vary a
+    //       lot and are a good selection criterion. It is not known yet how the
+    //       logic will generalize to the opposite situation where noise is much
+    //       higher than timer quantization noise. If it does not generalize
+    //       well and we can't find a compromise that works for both, we may
+    //       need to switch to a mixture of models where one outlier filter
+    //       configuration is used for highly quantized clean distributions and
+    //       another configuration is used for unquantized dirty distribution,
+    //       with a cutoff point between the two behaviors.
     static const double NEIGHBOR_CONTRIBUTION = 1.0 / 4.0;
 
     /// Rate of distance-driven neighbour contribution decay
@@ -135,24 +146,9 @@
         const distribution_layout_t target_layout =
             distribution_layout(&target->inner);
         trace("Calibrating score metric...");
-        uint64_t min_distance = UINT64_MAX;
-        size_t max_count = target_layout.counts[0];
-        int64_t previous_value = target_layout.sorted_values[0];
-        tracef("- Initialized from bin #0 with value %zd and count %zu.",
-               previous_value, max_count);
-        for (size_t bin = 1; bin < num_bins; ++bin) {
-            const int64_t current_value = target_layout.sorted_values[bin];
-            const size_t count = target_layout.counts[bin];
-            if (count > max_count) max_count = count;
-            tracef("- Integrating bin #%zu with value %zd and count %zu...",
-                   bin, current_value, count);
-
-            assert(current_value > previous_value);
-            const uint64_t distance = current_value - previous_value;
-            tracef("- Distance from previous bin is %zd.", distance);
-            if (distance < min_distance) min_distance = distance;
-            previous_value = current_value;
-        }
+        const uint64_t min_distance =
+            distribution_min_difference(&target->inner);
+        const size_t max_count = distribution_max_count(target);
         const double count_norm = 1.0 / max_count;
         const double distance_norm = 1.0 / min_distance;
         tracef("Distribution has max count %zu (count norm %.3g) "
