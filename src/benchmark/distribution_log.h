@@ -148,13 +148,13 @@
         size_t ordinate;  ///< Number of ordinate points
     } axis_len_t;
 
-    /// Compute the \ref axis_len_t of a certain type of plot
+    /// Compute the maximum \ref axis_len_t of a certain type of plot
     ///
     /// \param type is the kind of plot that as being drawn
     ///
-    /// \returns the number of abscissa and ordinate data points that the plot
-    ///          will be composed of.
-    axis_len_t plot_axis_len(plot_type_t type);
+    /// \returns the maximal number of abscissa and ordinate data points that
+    ///          the plot will be composed of.
+    axis_len_t max_plot_axis_len(plot_type_t type);
 
     /// Horizontal or vertical plot coordinate
     ///
@@ -196,12 +196,15 @@
     range_t plot_autoscale_abscissa(const distribution_t* dist,
                                     plot_type_t type);
 
-    /// Tabulate the abscissa of a plot
+    /// Tabulate the abscissa of a plot, updating the axis
     ///
     /// From an abscissa `range` which can be computed via
     /// plot_autoscale_abscissa(), and an axis length `len` which can be
-    /// computed via plot_axis_len(), this function generates a linearly spaced
-    /// set of abscissa coordinates inside of buffer `abscissa`.
+    /// initialized via max_plot_axis_len(), this function generates a linearly
+    /// spaced set of abscissa coordinates inside of buffer `abscissa`.
+    ///
+    /// If the selected range could lead an abscissa value to appear multiple
+    /// times, the axis length will be adjusted to prevent this.
     ///
     /// \param type is the kind of plot that is being drawn, which must be
     ///             consistent with the inputs previously given to
@@ -213,13 +216,14 @@
     ///              automatically inferred from data using
     ///              plot_autoscale_abscissa(), and should not be wider than the
     ///              actual data range.
-    /// \param len is the length of the plot's axes, which can be generated
-    ///            using plot_axis_len().
+    /// \param len is the length of the plot's axes, which can be initialized
+    ///            using max_plot_axis_len(). It may be shrunk by this function
+    ///            to avoid having duplicates in the abscissa set.
     UDIPE_NON_NULL_ARGS
     void plot_compute_abscissa(plot_type_t type,
                                coord_t abscissa[],
                                range_t range,
-                               axis_len_t len);
+                               axis_len_t* len);
 
     /// Compute the ordinates from a plot
     ///
@@ -241,8 +245,9 @@
     /// \param ordinate is a buffer that will receive a number of ordinate
     ///                 coordinates dictated by `len::ordinate` and should be
     ///                 dimensioned as such.
-    /// \param len is the length of the plot's axes, which can be generated
-    ///            using plot_axis_len().
+    /// \param len is the length of the plot's axes, which can be initialized
+    ///            using plot_axis_len() and may be shrunk by
+    ///            plot_compute_abscissa().
     UDIPE_NON_NULL_ARGS
     void plot_compute_ordinate(const distribution_t* dist,
                                plot_type_t type,
@@ -263,7 +268,8 @@
     /// \param ordinate is the set of ordinates that were previously computed
     ///                 via plots_compute_ordinate().
     /// \param len is the length of the plot's axes, which can be generated
-    ///            using plot_axis_len().
+    ///            using plot_axis_len() and may be shrunk by
+    ///            plot_compute_abscissa().
     ///
     /// \returns the full-scale ordinate range for the plot of interest.
     UDIPE_NON_NULL_ARGS
@@ -328,8 +334,9 @@
     ///                 sorted in increasing order, but are allowed to repeat.
     /// \param ordinate is the set of ordinate values evaluated at each position
     ///                 or interval from `abscissa`.
-    /// \param len is the length of the plot's axes, which can be generated
-    ///            using plot_axis_len().
+    /// \param len is the length of the plot's axes, which can be initialized
+    ///            using max_plot_axis_len() and may be shrunk by
+    ///            plot_compute_abscissa().
     UDIPE_NON_NULL_ARGS
     plot_layout_t plot_layout(plot_type_t type,
                               const coord_t abscissa[],

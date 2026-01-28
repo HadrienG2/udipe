@@ -118,7 +118,7 @@
         write_horizontal_line(right_buffer + 1, line_segment, right_width);
     }
 
-    axis_len_t plot_axis_len(plot_type_t type) {
+    axis_len_t max_plot_axis_len(plot_type_t type) {
         // -1 because there is no data on the title line
         const size_t ordinate_len = DISTRIBUTION_HEIGHT - 1;
         switch (type) {
@@ -162,14 +162,20 @@
     void plot_compute_abscissa(plot_type_t type,
                                coord_t abscissa[],
                                range_t range,
-                               axis_len_t len) {
-        ensure_ge(len.abscissa, (size_t)2);
+                               axis_len_t* len) {
+        ensure_ge(len->abscissa, (size_t)2);
         switch (type) {
         case HISTOGRAM: {
             const int64_t first = range.first.value;
             const int64_t last = range.last.value;
-            for (size_t a = 0; a < len.abscissa; ++a) {
-                const int64_t value = first + (last - first) * a / (len.abscissa - 1);
+            const size_t num_abscissa = last - first + 1;
+            if (len->abscissa > num_abscissa) {
+                const size_t excess_len = len->abscissa - num_abscissa;
+                len->abscissa -= excess_len;
+                len->ordinate -= excess_len;
+            }
+            for (size_t a = 0; a < len->abscissa; ++a) {
+                const int64_t value = first + (last - first) * a / (len->abscissa - 1);
                 abscissa[a] = (coord_t){ .value = value };
             }
             break;
@@ -177,8 +183,8 @@
         case QUANTILE_FUNCTION: {
             const double first = range.first.percentile;
             const double last = range.last.percentile;
-            for (size_t a = 0; a < len.abscissa; ++a) {
-                const double percentile = first + (last - first) * a / (len.abscissa - 1);
+            for (size_t a = 0; a < len->abscissa; ++a) {
+                const double percentile = first + (last - first) * a / (len->abscissa - 1);
                 abscissa[a] = (coord_t){ .percentile = percentile };
             }
             break;
@@ -371,11 +377,11 @@
                   const char title[],
                   const distribution_t* dist,
                   plot_type_t type) {
-        const axis_len_t len = plot_axis_len(type);
+        axis_len_t len = max_plot_axis_len(type);
 
         coord_t* const abscissa = alloca(len.abscissa * sizeof(coord_t));
         const range_t abscissa_range = plot_autoscale_abscissa(dist, type);
-        plot_compute_abscissa(type, abscissa, abscissa_range, len);
+        plot_compute_abscissa(type, abscissa, abscissa_range, &len);
 
         coord_t* const ordinate = alloca(len.ordinate * sizeof(coord_t));
         plot_compute_ordinate(dist, type, abscissa, ordinate, len);
