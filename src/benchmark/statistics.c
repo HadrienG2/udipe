@@ -33,8 +33,7 @@
                                 const distribution_t* dist) {
         trace("Performing bootstrap resampling...");
         for (size_t run = 0; run < NUM_RESAMPLES; ++run) {
-            tracef("- At resample #%zu/%zu", run, NUM_RESAMPLES);
-            trace("  * Resampling input distribution...");
+            tracef("- Performing resample #%zu/%zu", run, NUM_RESAMPLES);
             distribution_t resample =
                 distribution_resample(&analyzer->resample_builder, dist);
             trace("  * Computing mean...");
@@ -52,7 +51,8 @@
             analyzer->resample_builder = distribution_reset(&resample);
         }
 
-        trace("Estimating population statistics...");
+        // TODO downgrade to trace
+                debug("Estimating population statistics...");
         estimate_t estimates[NUM_STATISTICS];
         for (size_t stat = 0; stat < NUM_STATISTICS; ++stat) {
             estimates[stat] = analyze_estimate(analyzer, (statistic_id_t)stat);
@@ -80,14 +80,13 @@
 
     // === Implementation details ===
 
-    /// Comparison function for applying qsort() to double[] where it is assumed
-    /// that all inner numbers are normal (not NAN)
+    /// Like compare_f64() but based on magnitude rather than raw value
     UDIPE_NON_NULL_ARGS
-    static inline int compare_f64(const void* v1, const void* v2) {
-        const double* const d1 = (const double*)v1;
-        const double* const d2 = (const double*)v2;
-        if (*d1 < *d2) return -1;
-        if (*d1 > *d2) return 1;
+    static inline int compare_f64_abs(const void* v1, const void* v2) {
+        const double abs1 = fabs(*((const double*)v1));
+        const double abs2 = fabs(*((const double*)v2));
+        if (abs1 < abs2) return -1;
+        if (abs1 > abs2) return 1;
         return 0;
     }
 
@@ -138,6 +137,16 @@
         return bin_below;
     }
 
+    /// Like compare_f64() but based on magnitude rather than raw value
+    UDIPE_NON_NULL_ARGS
+    static inline int compare_f64_abs(const void* v1, const void* v2) {
+        const double abs1 = fabs(*((const double*)v1));
+        const double abs2 = fabs(*((const double*)v2));
+        if (abs1 < abs2) return -1;
+        if (abs1 > abs2) return 1;
+        return 0;
+    }
+
     UDIPE_NON_NULL_ARGS
     double analyze_mean(analyzer_t* analyzer,
                         const distribution_t* dist) {
@@ -153,59 +162,178 @@
                    analyzer->mean_capacity, analyzer->mean_accumulators);
         }
 
-        trace("Collecting mean contributions...");
+        // TODO downgrade to trace
+        debug("Collecting mean contributions...");
         const distribution_layout_t layout = distribution_layout(dist);
         const size_t len = distribution_len(dist);
+        const double len_norm = 1.0 / (double)len;
+        // TODO downgrade to trace
+                debugf("- Distribution contains %zu values, corresponding to norm %g.",
+               len, len_norm);
         double* const mean_accumulators = analyzer->mean_accumulators;
-        double len_norm = 1.0 / (double)len;
         size_t prev_end_rank = 0;
         for (size_t bin = 0; bin < num_bins; ++bin) {
+            const int64_t value = layout.sorted_values[bin];
+
             const size_t curr_end_rank = layout.end_ranks[bin];
             const size_t count = curr_end_rank - prev_end_rank;
             prev_end_rank = curr_end_rank;
-            mean_accumulators[bin] =
-                (double)layout.sorted_values[bin] * (double)count * len_norm;
+            const double rel_count = (double)count * len_norm;
+
+            mean_accumulators[bin] = rel_count * (double)value;
+            // TODO downgrade to trace
+                    debugf("- Bin #%zu: value %zd with end_rank %zd (prev+%zu, %.3g%% max count) => contribution %g.", bin, value, curr_end_rank, count, rel_count * 100.0, mean_accumulators[bin]);
         }
+
+        /*
+            TODO: Try this new algorithmic approach:
+
+            - There is an outer loop, which runs until only 1 accumulator is left
+            - On each iteration, we want to sum some accumulators with other
+              accumulators, under the following constraints:
+              * Prefer summing accumulators of comparable magnitude. This is
+                where floating point summation is most accurate.
+              * Prefer summing positive and negative accumulators as early as
+                possible. Cancelation essentially discards the upper mantissa
+                bits, so the lower mantissa bits better be as accurate as
+                possible, and this is achieved by summing terms which have went
+                through as few sums as possible.
+            - We achieve this in the following way:
+              1. Initially sort numbers by exponent then by sign then by
+                 mantissa (increasing exponent, within each exponent negative
+                 sign then positive sign, and within each sign increasing
+                 mantissa).
+              2. Iterate or bsearch over the first values to get...
+                 - The position of the negative/positive cutoff point
+                   first_positive_bin.
+                 - The boundary between the first and second exponent
+                   next_exponent_bin and the value of the exponent on each side
+                   (first_exponent and next_exponent).
+              3. Deduce the number of negative values num_negatives =
+                 first_positive_bin and the number of positive values
+                 num_positives = next_exponent_bin - first_positive_bin.
+              4. If there is at least one negative and one positive value,
+                 priorize early cancelation to reduce precision hit.
+                 - Check which of num_negatives and num_positives is larger
+                   * If num_positives is larger, sum values 0..num_negatives
+                     into values
+                     first_positive_bin..first_positive_bin+num_negatives.
+                   * If num_negatives is larger, sum values
+                     first_positive_bin..next_exponent_bin into values
+                     0..num_positives then shift values 0..num_negatives to
+                     positions next_negative_bin-num_positives..next_negative_bin.
+                 - At the end, values min(num_negatives,
+                   num_positives)..2*min(num_negatives, num_positives) will have
+                   decreased to some lower exponent and values whereas values
+                   2*min(num_negatives, num_positives)..next_exponent_bin have
+                   not changed and should therefore have a higher magnitude.
+                 - Perform sort by exponent -> sign -> mantissa of the new
+                   values at position min(num_negatives,
+                   num_positives)..2*min(num_negatives, num_positives), shift
+                   array start by +min(num_negatives, num_positives), decrease
+                   array length by -min(num_negatives, num_positives), and
+                   repeat from step 2.
+              5. If there are >= 2 values with the same sign, pick the midpoint
+                 rounded down (midpoint = next_exponent_bin/2), sum values
+                 0..midpoint into values
+                 next_exponent_bin-midpoint..next_exponent_bin, shift array
+                 start by +midpoint and array length by -midpoint, and repeat
+                 from step 2.
+              6. Otherwise, there is only 1 remaining value with this magnitude.
+                 In that case...
+                  - Start over from 2. but with a starting bin of 1 and a last
+                    bin of len-1.
+                  - Once we know what the first positive and negative values of
+                    the next exponent (if any) are, figure out if one of them
+                    has a sign that's opposite from our leftover value.
+                     * If our leftover value is positive and there is a negative
+                       value with the next exponent, sum it into the first
+                       negative value (which is the one with the smallest
+                       mantissa/magnitude). This will reduce the mantissa of
+                       what is already the lowest-mantissa negative number, so
+                       the array deprived of its first value has the expected
+                       ordering, we are done processing the previous exponent
+                       magnitude, and we can resume processing the new exponent
+                       magnitude as in step 3+.
+                     * If our leftover value is negative and there is a positive
+                       value with the next exponent, then sum it into that. This
+                       works for the same reason as the opposite case.
+                     * If our leftover value has the same sign as the other
+                       values, then we...
+                        - Sum it into the value with the smallest mantissa,
+                          which is the one at next_exponent_bin.
+                        - bsearch the point where the resulting value with
+                          higher mantissa and possibly higher exponent should be
+                          inserted within range 1..length.
+                        - Insert the value at this position.
+                        - ...and at this point we're back with an array of
+                          values with the same exponent and sign (which may or
+                          may not include the current value depending on if the
+                          summation made it switch to the next exponent. So we
+                          can resume as in step 5/6.
+        */
 
         trace("Sorting mean contributions...");
         qsort(mean_accumulators,
               num_bins,
               sizeof(double),
-              compare_f64);
+              compare_f64_abs);
 
-        trace("Computing the mean...");
+        debug("Computing the mean...");
         const size_t last_bin = num_bins - 1;
         double accumulator = mean_accumulators[0];
         for (size_t contrib_bin = 1; contrib_bin < num_bins; ++contrib_bin) {
-            tracef("- At bin %zu with accumulator %g.", contrib_bin, accumulator);
             const double contribution = mean_accumulators[contrib_bin];
-            tracef("  * Time to integrate contribution %g.", contribution);
+            // TODO: downgrade to trace
+            debugf("- At bin #%zu: accumulator %g += contribution %g...",
+                   contrib_bin, accumulator, contribution);
 
-            if (accumulator <= contribution) {
-                trace("  * Ok, accumulator still smaller than contribution.");
+            if (fabs(accumulator) <= fabs(2.0 * contribution)) {
+                trace("  * That's precise enough as accumulator is still <= contribution.");
                 accumulator += contribution;
                 continue;
             }
-            assert(accumulator > contribution);
-            trace("  * Accumulator has grown greater than contribution! "
-                  "Contribution will thus become the new accumulator...");
+            assert(fabs(accumulator) > fabs(2.0 * contribution));
+
+            // TODO downgrade to trace, remove numbers.
+            debug("  * Accumulator > 2x contribution, this may be bad for precision. "
+                  "Do we have better acccumulation options?");
+            if (contrib_bin + 1 == num_bins) {
+                // TODO downgrade to trace
+                debug("    - No other option as it's the last contribution.");
+                accumulator += contribution;
+                break;
+            }
+            assert(contrib_bin + 1 < num_bins);
+
+            const double next_contribution = mean_accumulators[contrib_bin+1];
+            if (next_contribution/contribution > accumulator/contribution) {
+                // TODO downgrade to trace
+                debug("    - Next contribution would be a worse peer than the accumulator.");
+                accumulator += contribution;
+                continue;
+            }
+
+            // TODO Downgrade to trace
+            debug("    - Ok, contribution will thus become the new accumulator...");
 
             const size_t accumulator_bin =
                 find_accumulator_position(analyzer,
                                           accumulator,
                                           contrib_bin,
                                           num_bins);
-            tracef("    - Migrating accumulator to position %zu...",
+            // TODO downgrade to trace
+                    debugf("    - Migrating accumulator to position %zu...",
                    accumulator_bin);
-            for (size_t src_bin = contrib_bin + 1; src_bin <= accumulator_bin; ++src_bin) {
+            for (size_t src_bin = contrib_bin + 2; src_bin <= accumulator_bin; ++src_bin) {
                 const size_t dst_bin = src_bin - 1;
                 mean_accumulators[dst_bin] = mean_accumulators[src_bin];
             }
             mean_accumulators[accumulator_bin] = accumulator;
 
-            const double next_contribution = mean_accumulators[contrib_bin];
             assert(contribution <= next_contribution);
-            tracef("    - Using former contribution %g as new accumulator "
+            // TODO downgrade to trace
+                    debugf("    - Using former contribution %g as new accumulator "
                    "to integrate new contribution %g...",
                    contribution, next_contribution);
             accumulator = contribution + next_contribution;
@@ -213,19 +341,33 @@
         return accumulator;
     }
 
+    /// Comparison function for applying qsort() to double[] where it is assumed
+    /// that all inner numbers are normal (not NAN)
+    UDIPE_NON_NULL_ARGS
+    static inline int compare_f64(const void* v1, const void* v2) {
+        const double d1 = *((const double*)v1);
+        const double d2 = *((const double*)v2);
+        if (d1 < d2) return -1;
+        if (d1 > d2) return 1;
+        return 0;
+    }
+
     UDIPE_NON_NULL_ARGS
     estimate_t analyze_estimate(analyzer_t* analyzer,
                                 statistic_id_t stat) {
-        trace("Sorting statistic values...");
+        // TODO downgrade to trace
+                debug("Sorting statistic values...");
         qsort(analyzer->statistics[stat],
               NUM_RESAMPLES,
               sizeof(double),
               compare_f64);
 
-        trace("Deducing population statistic estimate...");
-        const size_t center_idx = NUM_RESAMPLES / 2;
-        const size_t low_idx = (1.0 - CONFIDENCE) / 2.0 * NUM_RESAMPLES;
-        const size_t high_idx = (1.0 + CONFIDENCE) / 2.0 * NUM_RESAMPLES;
+        // TODO downgrade to trace
+                debug("Deducing population statistic estimate...");
+        const size_t last_idx = NUM_RESAMPLES - 1;
+        const size_t center_idx = last_idx / 2;
+        const size_t low_idx = round((1.0 - CONFIDENCE) / 2.0 * last_idx);
+        const size_t high_idx = round((1.0 + CONFIDENCE) / 2.0 * last_idx);
         return (estimate_t){
             .center = analyzer->statistics[stat][center_idx],
             .low = analyzer->statistics[stat][low_idx],
