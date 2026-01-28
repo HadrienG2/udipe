@@ -80,16 +80,6 @@
 
     // === Implementation details ===
 
-    /// Like compare_f64() but based on magnitude rather than raw value
-    UDIPE_NON_NULL_ARGS
-    static inline int compare_f64_abs(const void* v1, const void* v2) {
-        const double abs1 = fabs(*((const double*)v1));
-        const double abs2 = fabs(*((const double*)v2));
-        if (abs1 < abs2) return -1;
-        if (abs1 > abs2) return 1;
-        return 0;
-    }
-
     // TODO extract to header + docs
     UDIPE_NON_NULL_ARGS
     static inline size_t find_accumulator_position(const analyzer_t* analyzer,
@@ -271,6 +261,9 @@
                           may not include the current value depending on if the
                           summation made it switch to the next exponent. So we
                           can resume as in step 5/6.
+
+            If this works well, delete find_accumulator_position() and
+            compare_f64_abs().
         */
 
         trace("Sorting mean contributions...");
