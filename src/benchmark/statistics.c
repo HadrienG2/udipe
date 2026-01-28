@@ -205,8 +205,8 @@
               4. If there is at least one negative and one positive value,
                  priorize early cancelation to reduce precision hit.
                  - Check which of num_negatives and num_positives is larger
-                   * If num_positives is larger, sum values 0..num_negatives
-                     into values
+                   * If num_positives is larger (most likely), sum values
+                     0..num_negatives into values
                      first_positive_bin..first_positive_bin+num_negatives.
                    * If num_negatives is larger, sum values
                      first_positive_bin..next_exponent_bin into values
