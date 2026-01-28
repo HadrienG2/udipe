@@ -184,7 +184,8 @@
               * Prefer summing accumulators of comparable magnitude. This is
                 where floating point summation is most accurate.
               * Prefer summing positive and negative accumulators as early as
-                possible. Cancelation essentially discards the upper mantissa
+                possible (once they reach comparable magnitude to avoid rounding
+                error). Cancelation essentially discards the upper mantissa
                 bits, so the lower mantissa bits better be as accurate as
                 possible, and this is achieved by summing terms which have went
                 through as few sums as possible.
