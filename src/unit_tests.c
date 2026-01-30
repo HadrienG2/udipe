@@ -6,6 +6,7 @@
 
     #include "address_wait.h"
     #include "benchmark/distribution.h"
+    #include "benchmark/numeric.h"
     #include "bit_array.h"
     #include "buffer.h"
     #include "command.h"
@@ -57,6 +58,7 @@
             NAME_FILTERED_CALL(filter, memory_unit_tests);
             NAME_FILTERED_CALL(filter, bit_array_unit_tests);
             NAME_FILTERED_CALL(filter, buffer_unit_tests);
+            NAME_FILTERED_CALL(filter, numeric_unit_tests);
             NAME_FILTERED_CALL(filter, distribution_unit_tests);
             NAME_FILTERED_CALL(filter, command_unit_tests);
 
