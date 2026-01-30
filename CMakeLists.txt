@@ -120,6 +120,8 @@ target_sources(udipe
                        src/benchmark/distribution.h
                        src/benchmark/distribution_log.c
                        src/benchmark/distribution_log.h
+                       src/benchmark/numeric.c
+                       src/benchmark/numeric.h
                        src/benchmark/outlier_filter.c
                        src/benchmark/outlier_filter.h
                        src/benchmark/statistics.c
