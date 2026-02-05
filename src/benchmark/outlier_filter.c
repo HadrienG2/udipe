@@ -50,7 +50,7 @@
 
     /// Relative weight below which distribution bins should be suspected of
     /// containing outliers
-    static const double OUTLIER_THRESHOLD = 0.015;
+    static const double OUTLIER_THRESHOLD = 0.012;
 
     /// Maximum fraction of distribution values that can be rejected as outliers
     ///
