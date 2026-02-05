@@ -85,7 +85,8 @@ jobs:
 
   build_windows:
     name: Build for Windows
-    runs-on: windows-latest
+    # TODO: Go back to windows-latest after VS2026 reaches GA in early May
+    runs-on: windows-2025-vs2026
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -96,13 +97,13 @@ jobs:
           manifest-dir: ${{ github.workspace }}
           triplet: x64-windows-release
           token: ${{ github.token }}
-      # TODO: Resume effort here once VS2026 is available on windows-latest
-      # - name: Build with vcpkg deps
-      #   uses: ./.github/actions/build
-      #   with:
-      #     artifact-name: build-windows
-      #     # TODO: Add build-type, see above
-      #     extra-cmake-opts: ${{ steps.vcpkg.outputs.vcpkg-cmake-config }}
+      - name: Build with vcpkg deps
+        uses: ./.github/actions/build
+        with:
+          artifact-name: build-windows
+          # TODO: Add build-type matrix, see above
+          build-type: RelWithDebInfo
+          extra-cmake-opts: ${{ steps.vcpkg.outputs.vcpkg-cmake-config }}
       # TODO: Once it builds, add a test_windows job that tests it
 
   test_linux:
