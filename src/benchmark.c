@@ -73,7 +73,7 @@
     /// Warmup duration used for shortest loop calibration
     //
     // TODO: Tune on more systems
-    #define WARMUP_SHORTEST_LOOP (3000*UDIPE_MILLISECOND)
+    #define WARMUP_SHORTEST_LOOP (2000*UDIPE_MILLISECOND)
 
     /// Number of benchmark runs used for shortest loop calibration
     ///
@@ -86,7 +86,7 @@
     /// Warmup duration used for best loop calibration
     //
     // TODO: Tune on more systems
-    #define WARMUP_BEST_LOOP (3000*UDIPE_MILLISECOND)
+    #define WARMUP_BEST_LOOP (2000*UDIPE_MILLISECOND)
 
     /// Number of benchmark run used for optimal loop calibration, when using
     /// the system clock to perform said calibration
