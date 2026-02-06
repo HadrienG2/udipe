@@ -32,7 +32,7 @@
     /// unnormalized values when length is "small enough".
     ///
     /// \param array must point to an array of at least `length` numbers, which
-    ///              will be modified during the summation process.
+    ///              may be modified during the summation process.
     /// \param length indicates how many elements of `array` must be summed.
     ///
     /// \returns the sum of the elements of `array`.
