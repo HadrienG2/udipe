@@ -10,6 +10,8 @@
 //! information at compile time or it is not allowed to perform the optimization
 //! per C language rules).
 
+#include <udipe/pointer.h>
+
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -164,3 +166,58 @@ static inline uint32_t pow2_decode(pow2_t encoded) {
 }
 
 /// \}
+
+
+/// \name Chainable integer operations
+/// \{
+
+/// Compute the sum of two numbers, propagating carries in the process
+///
+/// \param carry is the carry flag from the previous operation, or
+///              `false` is there was no previous operation.
+/// \param augend is the first term of the addition.
+/// \param addend is the second term of the addition.
+/// \param out is the location where the result will be stored.
+///
+/// \returns the carry flag to be used for the next operation (if any)
+UDIPE_NON_NULL_ARGS
+static inline
+bool add_with_carry_u64(bool carry,
+                        uint64_t augend,
+                        uint64_t addend,
+                        uint64_t* out) {
+    const uint64_t new_addend = addend + carry;
+    const bool inc_carry = (new_addend < addend);
+    const uint64_t sum = augend + new_addend;
+    const bool add_carry = (sum < augend);
+    *out = sum;
+    return inc_carry || add_carry;
+}
+
+/// Compute the difference of two numbers, propagating carries in the process
+///
+/// \param carry is the carry flag from the previous operation, or
+///              `false` is there was no previous operation.
+/// \param x is the first addend.
+/// \param y is the second addend.
+/// \param out is the location where the result will be stored.
+///
+/// \returns the carry flag to be used for the next operation (if any)
+UDIPE_NON_NULL_ARGS
+static inline
+bool subtract_with_carry_u64(bool carry,
+                             uint64_t minuend,
+                             uint64_t subtrahend,
+                             uint64_t* out) {
+    const uint64_t new_subtrahend = subtrahend + carry;
+    const bool inc_carry = (new_subtrahend < subtrahend);
+    const uint64_t difference = minuend - new_subtrahend;
+    const bool sub_carry = (difference > minuend);
+    *out = difference;
+    return inc_carry || sub_carry;
+}
+
+/// \}
+
+
+// TODO: Unit tests
