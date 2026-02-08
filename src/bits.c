@@ -13,7 +13,7 @@
 
 UDIPE_NON_NULL_ARGS
 void generate_entropy(uint64_t output[], size_t length) {
-    ensure_eq(count_trailing_zeros(RAND_MAX), 0);
+    ensure_eq(count_trailing_zeros(RAND_MAX), (word_t)0);
     const size_t bits_per_rand = population_count(RAND_MAX);
     const size_t bits_per_word = 64;
     memset(output, 0, length * sizeof(uint64_t));
