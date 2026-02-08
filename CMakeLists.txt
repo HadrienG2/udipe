@@ -128,6 +128,7 @@ target_sources(udipe
                        src/benchmark/statistics.h
                        src/bit_array.c
                        src/bit_array.h
+                       src/bits.c
                        src/bits.h
                        src/buffer.c
                        src/buffer.h

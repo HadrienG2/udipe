@@ -220,4 +220,59 @@ bool subtract_with_carry_u64(bool carry,
 /// \}
 
 
+/// \name Efficient random binary data generation
+/// \{
+
+/// Generate a bunch of random bits
+///
+/// \param output is the array where the output bits will be stored
+/// \param length is the number of words in the `output` array
+UDIPE_NON_NULL_ARGS
+void generate_entropy(uint64_t output[], size_t length);
+
+/// Extract a certain amount of bits from an entropy pool, tell what index
+/// should be queried next
+///
+/// \param words is the array from which bits will be extracted
+/// \param length is the number of words in `array`
+/// \param next_bit_idx should be initialized to zero, and will be updated on
+///                     each call to point to the next entropy bit.
+/// \param num_requested_bits indicates how many bits of entropy are desired. At
+///                           most 64 bits of entropy may be extracted by each
+///                           query.
+///
+/// \returns an integer word where `num_requested_bits` low-order bits are set
+///          randomly and the higher-order bits are zero.
+//
+// TODO: Rework to generate a bunch of words with expected number of set bits
+//       to get efficiency without relying on agressive inlining?
+UDIPE_NON_NULL_ARGS
+static inline
+uint64_t extract_entropy(uint64_t words[],
+                         size_t length,
+                         size_t* next_bit_idx,
+                         uint8_t num_requested_bits) {
+    assert(num_requested_bits <= 64);
+    const size_t bit_idx = *next_bit_idx;
+    const size_t word_idx = bit_idx / 64;
+    assert(word_idx < length);
+    const size_t bit_offset = bit_idx % 64;
+
+    uint64_t result = words[word_idx] >> bit_offset;
+    const size_t bits_so_far = 64 - bit_offset;
+    if (bits_so_far < num_requested_bits) {
+        assert(word_idx + 1 < length);
+        result |= words[word_idx+1] << bits_so_far;
+    }
+    if (num_requested_bits < 64) {
+        result &= ((uint64_t)1 << num_requested_bits) - 1;
+    }
+
+    *next_bit_idx += num_requested_bits;
+    return result;
+}
+
+/// \}
+
+
 // TODO: Unit tests
