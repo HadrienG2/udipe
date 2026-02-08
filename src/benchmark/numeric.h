@@ -68,6 +68,10 @@
     /// added as appropriate.
     #define SIGNIFICAND_MASK_F64  (((uint64_t)1 << SIGNIFICAND_BITS_F64) - 1)
 
+    /// Bitshift that must be applied to binary64 exponent bits in order to
+    /// position them in the right place of the 64-bit representation
+    #define EXPONENT_SHIFT_F64  FRACTION_BITS_F64
+
     /// Number of exponent bits stored within a binary64 number
     ///
     #define EXPONENT_BITS_F64  ((size_t)11)
@@ -77,7 +81,7 @@
     /// By biased we mean that after shifting back the exponent into its normal
     /// position, a bias value must be subtracted from it to get the true
     /// signed exponent of the floating-point number.
-    #define EXPONENT_MASK_F64  ((((uint64_t)1 << EXPONENT_BITS_F64) - 1) << FRACTION_BITS_F64)
+    #define EXPONENT_MASK_F64  ((((uint64_t)1 << EXPONENT_BITS_F64) - 1) << EXPONENT_SHIFT_F64)
 
     /// Special biased exponent bits for subnormal numbers
     ///
@@ -119,7 +123,7 @@
     /// Sign bit of a binary64 number
     ///
     /// Finite numbers are negative when this bit is set and positive otherwise.
-    #define SIGN_BIT_F64  ((uint64_t)1 << (FRACTION_BITS_F64 + EXPONENT_BITS_F64))
+    #define SIGN_BIT_F64  ((uint64_t)1 << (EXPONENT_SHIFT_F64 + EXPONENT_BITS_F64))
 
     /// \}
 
@@ -226,9 +230,6 @@
         /// significand will straddle a bigint word boundary. Following \ref
         /// accumulator_t's internal word layout, the first word is the
         /// low-order word and the second word is the high-order word.
-        ///
-        /// The high-order word can be zero for nonzero addends, but the
-        /// low-order word can only be zero if the addend is zero.
         uint64_t words[2];
 
         /// Index of the word of the target \ref accumulator_t that `word[0]`
@@ -491,7 +492,7 @@
         if (acc->highest_word_idx > subtrahend_high_word_idx) {
             return false;
         } else if (acc->highest_word_idx < subtrahend.low_word_idx) {
-            assert(subtrahend_low_word != 0);
+            assert((subtrahend_low_word | subtrahend_high_word) != 0);
             return true;
         }
         assert(acc->highest_word_idx == subtrahend.low_word_idx
@@ -600,7 +601,7 @@
             // for the implicit exponent shift that occurs as one shifts from
             // subnormal to normal numbers.
             const uint64_t significand = fraction | ((uint64_t)1 << FRACTION_BITS_F64);
-            const size_t zero_based_exponent = (raw_exponent >> EXPONENT_BITS_F64) - 1;
+            const size_t zero_based_exponent = (raw_exponent >> EXPONENT_SHIFT_F64) - 1;
             accumulate_decoded_f64(acc,
                                    significand,
                                    zero_based_exponent,

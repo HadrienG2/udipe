@@ -30,7 +30,7 @@
     void accumulator_subtract_with_underflow(accumulator_t* acc,
                                              unsigned_addend_t subtrahend) {
         // Check preconditions
-        assert(subtrahend.words[0] != 0);
+        assert((subtrahend.words[0] | subtrahend.words[1]) != 0);
         assert(accumulator_lt_nonzero_subtrahend(acc, subtrahend));
 
         // As the accumulator magnitude will get subtracted from the subtrahend
@@ -168,16 +168,7 @@
 
     #ifdef UDIPE_BUILD_TESTS
 
-        // TODO: Salvage useful bits from the previous tests then start over
-        //       with the following new tests:
-        //
-        //       - Round-trip conversion from float to accumulator and back.
-        //       - Sum of pairs of floats, compared to the IEEE-754 result
-        //         (which for pairs should be as good as accumulator_t).
-        //       - Sum of long enough (at least 2 * NUM_FINITE_EXPONENT)
-        //         sequences of positive and negative powers of two, compared to
-        //         result with a simplified implementation based on bitarrays.
-        //         Check both accumulator state and final result.
+        // TODO: Decide what to do with previous test code
 
         /* /// Number of random trials per tests
         ///
@@ -186,31 +177,6 @@
         /// Size of the random dataset used in each trial
         ///
         #define TRIAL_LENGTH ((size_t)1000)
-
-        /// Generate a bunch of random bits
-        ///
-        /// \param words is the array where the output bits will be stored
-        /// \param length is the number of words in the `words` array
-        static void generate_entropy(uint64_t words[], size_t length) {
-            const size_t bits_per_rand = population_count(RAND_MAX);
-            const size_t bits_per_word = 64;
-            memset(words, 0, length * sizeof(uint64_t));
-            size_t bits_so_far = 0;
-            while (bits_so_far < length * bits_per_word) {
-                const size_t word = bits_so_far / bits_per_word;
-                const size_t offset = bits_so_far % bits_per_word;
-                tracef("- At global bit #%zu (word #%zu, local bit #%zu)",
-                       bits_so_far, word, offset);
-                const size_t local_bits = bits_per_word - offset;
-                const uint64_t entropy = rand();
-                words[word] |= entropy << offset;
-                if (local_bits < bits_per_rand && word + 1 < length) {
-                    const size_t remaining_bits = bits_per_rand - local_bits;
-                    words[word + 1] = entropy >> local_bits;
-                }
-                bits_so_far += bits_per_rand;
-            }
-        }
 
         // Double precision number information
         #define NUM_FRACTION_BITS ((size_t)52)
@@ -465,9 +431,81 @@
         //       bits), then casting/truncating back to f64 at the end and
         //       checking by how many ULPs we deviate from this exact result. */
 
+        // TODO === wip new tests ===
+
+        /// Test the number of set bits within an accumulator's inner words
+        ///
+        static size_t accumulator_popcount(const accumulator_t* acc) {
+            ensure_ge(BITS_PER_WORD, (size_t)64);
+            size_t popcount = 0;
+            for (size_t word_idx = 0; word_idx < NUM_ACCUMULATOR_WORDS; ++word_idx) {
+                popcount += population_count(acc->words[word_idx]);
+            }
+            return popcount;
+        }
+
+        /// Test basic numbers
+        static void test_basic_numbers() {
+            // Check that the zero accumulator is indeed zero
+            ensure_eq(accumulator_to_f64(&ACCUMULATOR_ZERO), 0.0);
+
+            // Check effect of adding basic powers of two in both directions
+            //
+            // Popcount test allow us to detect the presence of improperly set
+            // low-order significant bits below the precision threshold of the
+            // conversion back to f64.
+            accumulator_t acc = ACCUMULATOR_ZERO;
+            accumulator_add_f64(&acc, 1.0);
+            ensure_eq(accumulator_popcount(&acc), (size_t)1);
+            ensure_eq(accumulator_to_f64(&acc), 1.0);
+            //
+            accumulator_add_f64(&acc, -1.0);
+            ensure_eq(accumulator_popcount(&acc), (size_t)0);
+            ensure_eq(accumulator_to_f64(&acc), 0.0);
+            //
+            accumulator_add_f64(&acc, -0.5);
+            ensure_eq(accumulator_popcount(&acc), (size_t)1);
+            ensure_eq(accumulator_to_f64(&acc), -0.5);
+            //
+            accumulator_add_f64(&acc, 2.0);
+            ensure_eq(accumulator_popcount(&acc), (size_t)2);
+            ensure_eq(accumulator_to_f64(&acc), 1.5);
+            //
+            accumulator_add_f64(&acc, 0.5);
+            ensure_eq(accumulator_popcount(&acc), (size_t)1);
+            ensure_eq(accumulator_to_f64(&acc), 2.0);
+            //
+            accumulator_add_f64(&acc, -2.0);
+            ensure_eq(accumulator_popcount(&acc), (size_t)0);
+            ensure_eq(accumulator_to_f64(&acc), 0.0);
+        }
+
         void numeric_unit_tests() {
             info("Testing numerical operations...");
             configure_rand();
+
+            test_basic_numbers();
+
+            // TODO: Use generate_entropy() and extract_entropy() to generate
+            //       a bunch of floats with a bias towards high and low
+            //       exponents (1/5 subnormals, 1/5 max-normal, 3/5 rest) and
+            //       check round-trip conversion.
+
+            // TODO: Missing tests
+            //
+            //       - Round-trip conversion from float to accumulator and back,
+            //         with some minimal checks of the full accumulator repr
+            //         like the above popcount test.
+            //       - Sum of pairs of floats, compared to the IEEE-754 result
+            //         (which for pairs should be as good as accumulator_t).
+            //       - Sum of long enough (at least 2 * NUM_FINITE_EXPONENT)
+            //         sequences of positive and negative powers of two,
+            //         compared to result with a simplified implementation based
+            //         on bitarrays. Check both accumulator state and final
+            //         result.
+
+            // TODO decide what to do with old test code
+
 
             /* debug("Exercizing comparison...");
             with_log_level(UDIPE_TRACE, {
