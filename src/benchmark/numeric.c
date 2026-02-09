@@ -295,8 +295,8 @@
 
         /// Test pairwise sums of f64 via accumulators
         ///
-        /// This should produce the same result as the native f64 sum down
-        /// except for the last bit which may be rounded differently.
+        /// This should produce the same result as the native f64 sum except for
+        /// the last bit which may be rounded differently.
         static void test_pair_sum(const double test_set[]) {
             const size_t half_test_set = TEST_SET_SIZE / 2;
             for (size_t i = 0; i < half_test_set; ++i) {
@@ -323,6 +323,99 @@
             }
         }
 
+        /// Test sums of powers of two via accumulators
+        ///
+        /// The result is compared to what one would expect using a simplified,
+        /// lower-performance implementation.
+        static void test_sum_pow2(const double test_set[]) {
+            accumulator_t acc = ACCUMULATOR_ZERO;
+            bool expected[NUM_ACCUMULATOR_WORDS * BITS_PER_ACC_WORD] = { 0 };
+            bool expected_sign = false;
+            const size_t num_bits = sizeof(expected)/sizeof(bool);
+            for (size_t i = 0; i < TEST_SET_SIZE; ++i) {
+                // Compute an addend that is a power or two or zero
+                const double value = test_set[i];
+                int exp;
+                double addend;
+                if (value != 0.0) {
+                    const double sign = copysign(1.0, value);
+                    exp = ilogb(value);
+                    addend = scalbn(sign, exp);
+                } else {
+                    addend = copysign(0.0, value);
+                }
+                tracef("- Adding pow2 #%zu: %a", i, addend);
+
+                // Predict the effect of adding this addend using a highly
+                // simplified/specialized implementation of the accumulator
+                if (addend != 0) {
+                    int zero_based_exp = exp + SUBNORMAL_EXPONENT_BIAS_F64 + FRACTION_BITS_F64;
+                    ensure_ge(zero_based_exp, 0);
+                    size_t addend_exp = zero_based_exp;
+                    if (signbit(addend) == expected_sign) {
+                        // Increase accumulator magnitude by addend, propagating
+                        // carries as needed.
+                        while (expected[addend_exp]) {
+                            expected[addend_exp] = false;
+                            ++addend_exp;
+                            if (addend_exp == num_bits) {
+                                warn("Accumulator overflown, this should be very unlikely with a good RNG!");
+                                acc = ACCUMULATOR_ZERO;
+                                continue;
+                            }
+                        }
+                        expected[addend_exp] = true;
+                    } else {
+                        // Determine how big the accumulator is
+                        size_t expected_high_bit = num_bits - 1;
+                        for (; expected_high_bit > 0; --expected_high_bit) {
+                            if (expected[expected_high_bit]) break;
+                        }
+
+                        // Deduce who should be subtracted from whom
+                        if (expected_high_bit >= addend_exp) {
+                            // Subtract addend from accumulator
+                            while (!expected[addend_exp]) {
+                                expected[addend_exp] = true;
+                                ++addend_exp;
+                                ensure_lt(addend_exp, num_bits);
+                            }
+                            expected[addend_exp] = false;
+                        } else {
+                            // Subtract accumulator from addend
+                            bool carry = false;
+                            for (size_t bit = 0; bit < addend_exp; ++bit) {
+                                const bool subtrahend = expected[bit];
+                                expected[bit] = subtrahend ^ carry;
+                                carry = subtrahend | carry;
+                            }
+                            ensure(carry && !expected[addend_exp]);
+                            expected[addend_exp] = false;
+                            for (size_t bit = addend_exp + 1; bit < num_bits; ++bit) {
+                                ensure(!expected[addend_exp]);
+                            }
+                            expected_sign = signbit(addend);
+                        }
+                    }
+                }
+
+                // Add this addend into the accumulator
+                accumulator_add_f64(&acc, addend);
+
+                // Check accumulator inner words vs expected bits
+                size_t highest_word_idx = 0;
+                for (size_t bit = 0; bit < num_bits; ++bit) {
+                    const size_t word = bit / BITS_PER_ACC_WORD;
+                    const size_t offset = bit % BITS_PER_ACC_WORD;
+                    const bool acc_bit = (acc.words[word] >> offset) & 1;
+                    ensure_eq(acc_bit, expected[bit]);
+                    if (acc_bit) highest_word_idx = word;
+                }
+                ensure_eq(acc.highest_word_idx, highest_word_idx);
+                ensure_eq(acc.negative, expected_sign);
+            }
+        }
+
         void numeric_unit_tests() {
             info("Testing numerical operations...");
             configure_rand();
@@ -345,13 +438,10 @@
                 test_pair_sum(test_set);
             });
 
-
-            // TODO: Missing tests
-            //       - Sum of long enough (at least 2 * NUM_FINITE_EXPONENT)
-            //         sequences of positive and negative powers of two,
-            //         compared to result with a simplified implementation based
-            //         on an array of booleans. Check both accumulator state and
-            //         final result.
+            debug("Testing sum of powers of 2...");
+            with_log_level(UDIPE_TRACE, {
+                test_sum_pow2(test_set);
+            });
         }
 
     #endif  // UDIPE_BUILD_TESTS

@@ -166,7 +166,7 @@
     /// This means that in order to be able to handle all significant bits of a
     /// normal binary64 number in all exponent-shifted configurations, we need
     /// the following amount of bits.
-    #define ACCUMULATOR_BITS  (SIGNIFICAND_BITS_F64 + NUM_FINITE_EXPONENTS_F64 - 1)
+    #define MIN_ACCUMULATOR_BITS  (SIGNIFICAND_BITS_F64 + NUM_FINITE_EXPONENTS_F64 - 1)
 
     /// Size of an accumulator word in bits
     ///
@@ -191,7 +191,7 @@
     /// of unnormalized input data, which is a nice property to have even though
     /// proper normalization should obviously be the rule in floating-point
     /// summation.
-    #define NUM_ACCUMULATOR_WORDS  (DIV_CEIL(ACCUMULATOR_BITS, BITS_PER_ACC_WORD))
+    #define NUM_ACCUMULATOR_WORDS  (DIV_CEIL(MIN_ACCUMULATOR_BITS, BITS_PER_ACC_WORD))
 
     /// Fixed-point accumulator for binary64 data
     ///
