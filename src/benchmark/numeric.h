@@ -15,6 +15,7 @@
     #include "bits.h"
 
     #include "../error.h"
+    #include "../log.h"
 
     #include <stddef.h>
 
@@ -124,6 +125,29 @@
     ///
     /// Finite numbers are negative when this bit is set and positive otherwise.
     #define SIGN_BIT_F64  ((uint64_t)1 << (EXPONENT_SHIFT_F64 + EXPONENT_BITS_F64))
+
+    /// Helper for bitcasting between binary64 numbers and their representation
+    ///
+    typedef union u64_f64_bitcast_u {
+        double f64;
+        uint64_t u64;
+    } u64_f64_bitcast_t;
+
+    /// Bitcast a binary64 number into its representation
+    ///
+    static inline
+    uint64_t bitcast_f64_to_u64(double f) {
+        u64_f64_bitcast_t bitcast = { .f64 = f };
+        return bitcast.u64;
+    }
+
+    /// Bitcast a binary64 representation into the matching number
+    ///
+    static inline
+    double bitcast_u64_to_f64(uint64_t u) {
+        u64_f64_bitcast_t bitcast = { .u64 = u };
+        return bitcast.f64;
+    }
 
     /// \}
 
@@ -266,15 +290,11 @@
         assert(low_word_idx < NUM_ACCUMULATOR_WORDS);
         const size_t low_bit_idx = zero_based_exponent % BITS_PER_ACC_WORD;
 
-        // Generate the low-order word addend
+        // Generate the word-aligned addend
         const uint64_t low_addend = significand << low_bit_idx;
-        // Determine how many low-order significand bits are part of low_addend
-        const size_t low_addend_bits = BITS_PER_ACC_WORD - low_bit_idx;
-
-        // Generate the high-order word addend
         const uint64_t high_addend =
-            (low_addend_bits != BITS_PER_ACC_WORD) ? significand >> low_addend_bits
-                                                   : 0;
+            (low_bit_idx != 0) ? significand >> (BITS_PER_ACC_WORD - low_bit_idx)
+                               : 0;
 
         // Return the final word-based addend
         return (unsigned_addend_t){
@@ -320,9 +340,13 @@
         // Integrate the low-order word of the addend/subtrahend
         const size_t low_word_idx = magnitude.low_word_idx;
         assert(low_word_idx < NUM_ACCUMULATOR_WORDS);
-        const uint64_t low_word = acc->words[low_word_idx];
+        const uint64_t low_word = magnitude.words[0];
+        tracef("Accumulating magnitude[0] = %#018zx into accumulator[%zu] = %#018zx...",
+               low_word, low_word_idx, acc->words[low_word_idx]);
         bool carry = accumulate_return_carry(&acc->words[low_word_idx],
                                              low_word);
+        tracef("...yields new accumulator[%zu] = %#018zx and carry %d.",
+               low_word_idx, acc->words[low_word_idx], carry);
 
         // Track the highest-order accumulator word that was modified
         size_t highest_modified_idx = low_word_idx;
@@ -333,6 +357,10 @@
         // high-order bit in high_word.
         uint64_t high_word = magnitude.words[1];
         high_word += (uint64_t)carry;
+        if (carry) {
+            tracef("Propagated carry %d into high_word -> %#018zx.",
+                   carry, high_word);
+        }
         carry = false;
         assert(high_word >= magnitude.words[1]);
 
@@ -348,8 +376,12 @@
                 exit_with_error("Encountered an accumulator_t add overflow. "
                                 "You can avoid this by normalizing inputs.");
             }
+            tracef("Accumulating high_word = %#018zx into accumulator[%zu] = %#018zx...",
+                   high_word, high_word_idx, acc->words[high_word_idx]);
             carry = accumulate_return_carry(&acc->words[high_word_idx],
                                             high_word);
+            tracef("...yields new accumulator[%zu] = %#018zx and carry %d.",
+                   high_word_idx, acc->words[high_word_idx], carry);
             highest_modified_idx = high_word_idx;
         }
 
@@ -363,12 +395,18 @@
                     "You can avoid this by normalizing inputs."
                 );
             }
+            tracef("Propagating carry to accumulator[%zu] = %#018zx...",
+                   carry_idx, acc->words[carry_idx]);
             carry = accumulate_return_carry(&acc->words[carry_idx],
                                             1);
+            tracef("...yields new accumulator[%zu] = %#018zx and carry %d.",
+                   carry_idx, acc->words[carry_idx], carry);
             highest_modified_idx = carry_idx++;
         }
 
         // Update the accumulator's highest_word_idx
+        tracef("Updating highest accumulator idx knowing we modified words up to #%zu...",
+               highest_modified_idx);
         update_highest_idx(acc, highest_modified_idx);
     }
 
@@ -490,8 +528,10 @@
         const uint64_t subtrahend_high_word = subtrahend.words[1];
         const size_t subtrahend_high_word_idx = subtrahend.low_word_idx + 1;
         if (acc->highest_word_idx > subtrahend_high_word_idx) {
+            trace("acc has higher magnitude because its highest set word is higher.");
             return false;
         } else if (acc->highest_word_idx < subtrahend.low_word_idx) {
+            trace("acc has lower magnitude because its highest set word is lower.");
             assert((subtrahend_low_word | subtrahend_high_word) != 0);
             return true;
         }
@@ -501,23 +541,40 @@
         // Handle easy case where the subtrahend's low-order word is aligned
         // with the highest-order word of the accumulator, which means that any
         // nonzero subtrahend high-order word implies accumulator < subtrahend.
+        const uint64_t acc_high_word = acc->words[acc->highest_word_idx];
         if (acc->highest_word_idx == subtrahend.low_word_idx) {
-            if (subtrahend_high_word != 0) return true;
-            return (subtrahend_low_word < acc->words[acc->highest_word_idx]);
+            if (subtrahend_high_word != 0) {
+                trace("acc has lower magnitude because the addend high word is "
+                      "nonzero and located higher than the acc high word.");
+                return true;
+            }
+            tracef("Magnitude comparison is fully determined by comparison of "
+                   "acc->words[%zu] = %#zx and subtrahend->words[0] = %#zx",
+                   acc->highest_word_idx, acc_high_word, subtrahend_low_word);
+            return (acc_high_word < subtrahend_low_word);
         }
         assert(acc->highest_word_idx == subtrahend_high_word_idx);
         // Must be true by definition of subtrahend_high_word_idx
         assert(acc->highest_word_idx > 0);
 
         // Handle full subtract-with-carry logic
-        const uint64_t acc_high_word = acc->words[acc->highest_word_idx];
         const uint64_t acc_low_word = acc->words[acc->highest_word_idx - 1];
         // This is true even in the presence of a carry from the low word
         // subtraction because the carry can reduce the high word by at most one,
         // which is enough to take it to zero but not to take it below zero
-        if (acc_high_word > subtrahend_high_word) return false;
-        if (acc_high_word < subtrahend_high_word) return true;
+        if (acc_high_word > subtrahend_high_word) {
+            trace("acc has higher magnitude because same-index "
+                  "subtrahend high word is lower.");
+            return false;
+        }
+        if (acc_high_word < subtrahend_high_word) {
+            trace("acc has lower magnitude because same-index "
+                  "subtrahend high word is higher.");
+            return true;
+        }
         assert(acc_high_word == subtrahend_high_word);
+        trace("acc has the same high word as subtrahend, "
+              "magnitude comparison is determined by comparison of low words.");
         return (acc_low_word < subtrahend_low_word);
     }
 
@@ -576,13 +633,18 @@
     static inline
     void accumulator_add_f64(accumulator_t* acc, double value) {
         // Decompose input value into fraction/exponent/sign
-        union {
-            double f64;
-            uint64_t u64;
-        } bitcast = { .f64 = value };
-        const uint64_t fraction = bitcast.u64 & FRACTION_MASK_F64;
-        const uint64_t raw_exponent = bitcast.u64 & EXPONENT_MASK_F64;
-        const bool negative = (bitcast.u64 & SIGN_BIT_F64) != 0;
+        const uint64_t value_bits = bitcast_f64_to_u64(value);
+        const uint64_t fraction = value_bits & FRACTION_MASK_F64;
+        const uint64_t raw_exponent = value_bits & EXPONENT_MASK_F64;
+        const bool negative = (value_bits & SIGN_BIT_F64) != 0;
+        tracef("Processing value %g (%a) with "
+               "fraction %#015zx, biased exponent %#05zx (%zu), sign %d",
+               value,
+               value,
+               fraction,
+               raw_exponent >> EXPONENT_SHIFT_F64,
+               raw_exponent >> EXPONENT_SHIFT_F64,
+               negative);
 
         // Handle exponent special cases
         switch (raw_exponent) {
