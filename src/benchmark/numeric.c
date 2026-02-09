@@ -389,8 +389,8 @@
                                 expected[bit] = subtrahend ^ carry;
                                 carry = subtrahend | carry;
                             }
-                            ensure(carry && !expected[addend_exp]);
-                            expected[addend_exp] = false;
+                            ensure(!expected[addend_exp]);
+                            expected[addend_exp] = !carry;
                             for (size_t bit = addend_exp + 1; bit < num_bits; ++bit) {
                                 ensure(!expected[addend_exp]);
                             }
