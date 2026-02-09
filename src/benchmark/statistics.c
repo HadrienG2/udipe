@@ -5,6 +5,7 @@
     #include <udipe/pointer.h>
 
     #include "distribution.h"
+    #include "numeric.h"
 
     #include "../error.h"
     #include "../log.h"
@@ -39,20 +40,19 @@
             trace("  * Computing mean...");
             analyzer->statistics[MEAN][run] =
                 analyze_mean(analyzer, &resample);
-            trace("  * Computing 5%% percentile...");
+            trace("  * Computing 5% percentile...");
             const int64_t p5 = distribution_quantile(&resample, 0.05);
             analyzer->statistics[P5][run] = p5;
-            trace("  * Computing 95%% percentile...");
+            trace("  * Computing 95% percentile...");
             const int64_t p95 = distribution_quantile(&resample, 0.95);
             analyzer->statistics[P95][run] = p95;
-            trace("  * Computing 95%%-5%% spread...");
+            trace("  * Computing 5%->95% spread...");
             analyzer->statistics[P5_TO_P95][run] = p95 - p5;
             trace("  * Resetting resampling buffer...");
             analyzer->resample_builder = distribution_reset(&resample);
         }
 
-        // TODO downgrade to trace
-                debug("Estimating population statistics...");
+        trace("Estimating population statistics...");
         estimate_t estimates[NUM_STATISTICS];
         for (size_t stat = 0; stat < NUM_STATISTICS; ++stat) {
             estimates[stat] = analyze_estimate(analyzer, (statistic_id_t)stat);
@@ -80,63 +80,6 @@
 
     // === Implementation details ===
 
-    // TODO extract to header + docs
-    UDIPE_NON_NULL_ARGS
-    static inline size_t find_accumulator_position(const analyzer_t* analyzer,
-                                                   double accumulator,
-                                                   size_t contrib_bin,
-                                                   size_t num_bins) {
-        // TODO add logs
-        const double* mean_accumulators = analyzer->mean_accumulators;
-        const size_t first_bin = contrib_bin;
-        const double first_value = mean_accumulators[first_bin];
-        assert(first_value < accumulator);
-
-        const size_t last_bin = num_bins - 1;
-        const double last_value = mean_accumulators[last_bin];
-        if (last_value <= accumulator) {
-            return last_bin;
-        }
-
-        size_t bin_below = first_bin;
-        double value_below = first_value;
-        size_t bin_above = last_bin;
-        double value_above = last_value;
-        while (bin_above - bin_below > 1) {
-            assert(bin_below < bin_above);
-            assert(value_below <= value_above);
-            const size_t bin_center = bin_below + (bin_above - bin_below) / 2;
-            assert(bin_below <= bin_center);
-            assert(bin_above > bin_center);
-            const double value_center = mean_accumulators[bin_center];
-            if (value_center < accumulator) {
-                bin_below = bin_center;
-                value_below = value_center;
-                continue;
-            } else if (value_center > accumulator) {
-                bin_above = bin_center;
-                value_above = value_center;
-                continue;
-            } else {
-                assert(value_center == accumulator);
-                break;
-            }
-        }
-        assert(bin_below <= bin_above);
-        assert(bin_below == bin_above - 1 || value_below == accumulator);
-        return bin_below;
-    }
-
-    /// Like compare_f64() but based on magnitude rather than raw value
-    UDIPE_NON_NULL_ARGS
-    static inline int compare_f64_abs(const void* v1, const void* v2) {
-        const double abs1 = fabs(*((const double*)v1));
-        const double abs2 = fabs(*((const double*)v2));
-        if (abs1 < abs2) return -1;
-        if (abs1 > abs2) return 1;
-        return 0;
-    }
-
     UDIPE_NON_NULL_ARGS
     double analyze_mean(analyzer_t* analyzer,
                         const distribution_t* dist) {
@@ -152,13 +95,11 @@
                    analyzer->mean_capacity, analyzer->mean_accumulators);
         }
 
-        // TODO downgrade to trace
-        debug("Collecting mean contributions...");
+        trace("Collecting mean contributions...");
         const distribution_layout_t layout = distribution_layout(dist);
         const size_t len = distribution_len(dist);
         const double len_norm = 1.0 / (double)len;
-        // TODO downgrade to trace
-                debugf("- Distribution contains %zu values, corresponding to norm %g.",
+        tracef("- Distribution contains %zu values, corresponding to norm %g.",
                len, len_norm);
         double* const mean_accumulators = analyzer->mean_accumulators;
         size_t prev_end_rank = 0;
@@ -171,79 +112,11 @@
             const double rel_count = (double)count * len_norm;
 
             mean_accumulators[bin] = rel_count * (double)value;
-            // TODO downgrade to trace
-                    debugf("- Bin #%zu: value %zd with end_rank %zd (prev+%zu, %.3g%% max count) => contribution %g.", bin, value, curr_end_rank, count, rel_count * 100.0, mean_accumulators[bin]);
+            tracef("- Bin #%zu: value %zd with end_rank %zd (prev+%zu, %.3g%% max count) => contribution %g.", bin, value, curr_end_rank, count, rel_count * 100.0, mean_accumulators[bin]);
         }
 
-        // TODO: Replace all of the following + compare_f64_abs() with sum_f64()
-        //       as soon as we're done testing it.
-
-        trace("Sorting mean contributions...");
-        qsort(mean_accumulators,
-              num_bins,
-              sizeof(double),
-              compare_f64_abs);
-
-        debug("Computing the mean...");
-        const size_t last_bin = num_bins - 1;
-        double accumulator = mean_accumulators[0];
-        for (size_t contrib_bin = 1; contrib_bin < num_bins; ++contrib_bin) {
-            const double contribution = mean_accumulators[contrib_bin];
-            // TODO: downgrade to trace
-            debugf("- At bin #%zu: accumulator %g += contribution %g...",
-                   contrib_bin, accumulator, contribution);
-
-            if (fabs(accumulator) <= fabs(2.0 * contribution)) {
-                trace("  * That's precise enough as accumulator is still <= contribution.");
-                accumulator += contribution;
-                continue;
-            }
-            assert(fabs(accumulator) > fabs(2.0 * contribution));
-
-            // TODO downgrade to trace, remove numbers.
-            debug("  * Accumulator > 2x contribution, this may be bad for precision. "
-                  "Do we have better acccumulation options?");
-            if (contrib_bin + 1 == num_bins) {
-                // TODO downgrade to trace
-                debug("    - No other option as it's the last contribution.");
-                accumulator += contribution;
-                break;
-            }
-            assert(contrib_bin + 1 < num_bins);
-
-            const double next_contribution = mean_accumulators[contrib_bin+1];
-            if (next_contribution/contribution > accumulator/contribution) {
-                // TODO downgrade to trace
-                debug("    - Next contribution would be a worse peer than the accumulator.");
-                accumulator += contribution;
-                continue;
-            }
-
-            // TODO Downgrade to trace
-            debug("    - Ok, contribution will thus become the new accumulator...");
-
-            const size_t accumulator_bin =
-                find_accumulator_position(analyzer,
-                                          accumulator,
-                                          contrib_bin,
-                                          num_bins);
-            // TODO downgrade to trace
-                    debugf("    - Migrating accumulator to position %zu...",
-                   accumulator_bin);
-            for (size_t src_bin = contrib_bin + 2; src_bin <= accumulator_bin; ++src_bin) {
-                const size_t dst_bin = src_bin - 1;
-                mean_accumulators[dst_bin] = mean_accumulators[src_bin];
-            }
-            mean_accumulators[accumulator_bin] = accumulator;
-
-            assert(contribution <= next_contribution);
-            // TODO downgrade to trace
-                    debugf("    - Using former contribution %g as new accumulator "
-                   "to integrate new contribution %g...",
-                   contribution, next_contribution);
-            accumulator = contribution + next_contribution;
-        }
-        return accumulator;
+        trace("Computing the mean...");
+        return sum_f64(mean_accumulators, num_bins);
     }
 
     /// Comparison function for applying qsort() to double[] where it is assumed
@@ -260,15 +133,13 @@
     UDIPE_NON_NULL_ARGS
     estimate_t analyze_estimate(analyzer_t* analyzer,
                                 statistic_id_t stat) {
-        // TODO downgrade to trace
-                debug("Sorting statistic values...");
+        trace("Sorting statistic values...");
         qsort(analyzer->statistics[stat],
               NUM_RESAMPLES,
               sizeof(double),
               compare_f64);
 
-        // TODO downgrade to trace
-                debug("Deducing population statistic estimate...");
+        trace("Deducing population statistic estimate...");
         const size_t last_idx = NUM_RESAMPLES - 1;
         const size_t center_idx = last_idx / 2;
         const size_t low_idx = round((1.0 - CONFIDENCE) / 2.0 * last_idx);
