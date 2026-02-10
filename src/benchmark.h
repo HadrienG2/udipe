@@ -17,6 +17,7 @@
     #include "arch.h"
     #include "benchmark/distribution.h"
     #include "benchmark/outlier_filter.h"
+    #include "benchmark/statistics.h"
     #include "name_filter.h"
 
     #include <assert.h>
@@ -36,110 +37,6 @@
     // TODO: Finish splitting this module into a directory of more specialized
     //       benchmarking modules like benchmark/distribution.h,
     //       benchmark/stats.h, benchmark/clock.h...
-
-
-    /// \name Statistical analysis of duration-based data
-    /// \{
-
-    /// Result of the statistical analysis of a duration-based dataset
-    ///
-    /// This provides the most likely value and x% confidence interval of some
-    /// quantity that originates from benchmark clock measurements. We use
-    /// bootstrap resampling techniques to avoid assuming that duration
-    /// measurements are normally distributed (which is totally false).
-    ///
-    /// To maximize statistical analysis code sharing between the code paths
-    /// associated with different clocks and different stages of the benchmark
-    /// harness setup and usage process, the quantity that is being measured
-    /// (nanoseconds, clock ticks, TSC frequency...) and the width of the
-    /// confidence interval are purposely left unspecified.
-    typedef struct stats_s {
-        /// Most likely value of the duration-based measurement
-        ///
-        /// This value is determined by repeatedly drawing a small amount of
-        /// duration samples from the duration dataset, taking their median
-        /// value (which eliminates outliers), and then taking the median of a
-        /// large number of these median values (which determines the most
-        /// likely small-window median duration value).
-        int64_t center;
-
-        /// Lower bound of the confidence interval
-        ///
-        /// This value is determined by taking the specified lower quantile of
-        /// the bootstrap median timing distribution discussed above:
-        ///
-        /// - For 95% confidence intervals, this is the 2.5% quantile of the
-        ///   median timing distribution.
-        /// - For 99% confidence intervals, this is the 0.5% quantile of the
-        ///   median timing distribution.
-        ///
-        /// Bear in mind that larger confidence intervals require more
-        /// measurements and median value computations to converge reasonably
-        /// close to their true statistical asymptote.
-        int64_t low;
-
-        /// Higher bound of the confidence interval
-        ///
-        /// This provides the higher bound of the confidence interval using the
-        /// same conventions as `low`:
-        ///
-        /// - For 95% confidence intervals, this is the 97.5% quantile of the
-        ///   median timing distribution.
-        /// - For 99% confidence intervals, this is the 99.5% quantile of the
-        ///   median timing distribution.
-        int64_t high;
-    } stats_t;
-
-    /// Statistical analyzer for duration-based data
-    ///
-    /// We will typically end up analyzing many timing datasets with the same
-    /// confidence interval, which means that it is beneficial to keep around
-    /// the associated memory allocation and layout information.
-    typedef struct stats_analyzer_s {
-        int64_t* medians;  ///< Storage for median duration samples
-        size_t num_medians;  ///< Number of samples within `medians`
-        size_t low_idx;  ///< Confidence interval start location
-        size_t center_idx;  ///< Median location
-        size_t high_idx;  ///< Confidence interval end location
-    } stats_analyzer_t;
-
-    /// Set up a statistical analyzer
-    ///
-    /// Given a confidence interval, get ready to analyze duration-based data
-    /// with this confidence interval.
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param confidence is the desired width of confidence intervals in
-    ///                   percentage points (i.e. between 0.0 and 100.0,
-    ///                   excluding both bounds)
-    stats_analyzer_t stats_analyzer_initialize(float confidence);
-
-    /// Statistically analyze duration-based data data
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param analyzer is a statistical analyzer that has been previously set
-    ///                 up via stats_analyzer_initialize() and hasn't been
-    ///                 destroyed via stats_analyzer_finalize() yet
-    /// \param dist is the distribution that you want to analyze
-    ///
-    /// \returns statistics associated with the data from `dist`
-    UDIPE_NON_NULL_ARGS
-    stats_t stats_analyze(stats_analyzer_t* analyzer,
-                          const distribution_t* dist);
-
-    /// Destroy a statistical analyzer
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param analyzer is a duration analyzer that has been previously set up
-    ///                 via stats_analyzer_initialize() and hasn't been
-    ///                 destroyed via stats_analyzer_finalize() yet
-    UDIPE_NON_NULL_ARGS
-    void stats_analyzer_finalize(stats_analyzer_t* analyzer);
-
-    /// \}
 
 
     /// \name Basic workloads used for clock calibration
@@ -333,7 +230,7 @@
         ///
         /// This is used when calibrating the duration of a benchmark run
         /// towards the region where the system clock is most precise.
-        stats_t best_empty_stats;
+        statistics_t best_empty_stats;
 
         /// Unused \ref distribution_builder_t
         ///
@@ -364,15 +261,14 @@
     /// \param outlier_filter should have been initialized with
     ///                       outlier_filter_initialize() and not have been
     ///                       finalized yet
-    /// \param calibration_analyzer should have been initialized with
-    ///                             stats_analyzer_initialize() and not have
-    ///                             been finalized yet
+    /// \param analyzer should have been initialized with analyzer_initialize()
+    ///                 and not have been finalized yet
     ///
     /// \returns a system clock context that must later be finalized using
     ///          os_clock_finalize()
     UDIPE_NON_NULL_ARGS
     os_clock_t os_clock_initialize(outlier_filter_t* outlier_filter,
-                                   stats_analyzer_t* calibration_analyzer);
+                                   analyzer_t* analyzer);
 
     /// Read the system clock
     ///
@@ -547,7 +443,7 @@
             /// defined in \ref os_clock_t). It is used when calibrating the
             /// duration of a benchmark run towards the region where the TSC
             /// clock exhibits best relative precision.
-            stats_t best_empty_stats;
+            statistics_t best_empty_stats;
 
             /// TSC clock frequency distribution in ticks/second
             ///
@@ -606,8 +502,8 @@
         ///           this function, and hasn't been used for any other purpose
         ///           or finalized with os_clock_finalize() yet.
         /// \param analyzer should have been initialized with
-        ///                 stats_analyzer_initialize() and not have been
-        ///                 finalized yet
+        ///                 analyzer_initialize() and not have been finalized
+        ///                 yet
         ///
         /// \returns a TSC clock context that must later be finalized using
         ///          x86_clock_finalize().
@@ -615,7 +511,7 @@
         x86_clock_t
         x86_clock_initialize(outlier_filter_t* outlier_filter,
                              os_clock_t* os,
-                             stats_analyzer_t* analyzer);
+                             analyzer_t* analyzer);
 
         /// Measure the execution duration of `workload` using the TSC clock
         ///
@@ -680,10 +576,10 @@
         ///          `ticks` corresponds to, in nanoseconds, with a confidence
         ///          interval given by `analyzer`.
         UDIPE_NON_NULL_ARGS
-        stats_t x86_duration(x86_clock_t* clock,
-                             distribution_builder_t* tmp_builder,
-                             const distribution_t* ticks,
-                             stats_analyzer_t* analyzer);
+        statistics_t x86_duration(x86_clock_t* clock,
+                                  distribution_builder_t* tmp_builder,
+                                  const distribution_t* ticks,
+                                  analyzer_t* analyzer);
 
         /// Destroy the TSC clock
         ///
@@ -719,8 +615,7 @@
 
         /// Statistical analyzer for benchmark measurements
         ///
-        /// This represents a confidence interval of CONFIDENCE.
-        stats_analyzer_t analyzer;
+        analyzer_t analyzer;
 
         /// System clock context
         ///

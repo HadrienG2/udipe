@@ -22,41 +22,6 @@
     #include <string.h>
 
 
-    /// Number of samples used for median duration computations
-    ///
-    /// To reduce the impact of outliers, we don't directly handle raw
-    /// durations, we handle medians of a small number of duration samples. This
-    /// parameter controls the number of samples that are used.
-    ///
-    /// Tuning this parameter has many consequences:
-    ///
-    /// - It can only take odd values. No pseudo-median allowed.
-    /// - Tuning it higher allows you to tolerate more OS interrupts, and thus
-    ///   work with benchmark run durations that are closer to the
-    ///   inter-interrupt spacing. Given a fixed run timing precision, these
-    ///   longer benchmark runs let you achieve lower uncertainty on the
-    ///   benchmark iteration duration.
-    /// - Tuning it higher makes statistics more sensitive to the difference
-    ///   between the empirical duration distribution and the true duration
-    ///   distribution, therefore you need to collect more benchmark run
-    ///   duration data points for the statistics to converge. When combined
-    ///   with the use of longer benchmark runs, this means that benchmarks will
-    ///   take longer to execute before stable results are achieved.
-    #define NUM_MEDIAN_SAMPLES ((size_t)5)
-    static_assert(NUM_MEDIAN_SAMPLES % 2 == 1,
-                  "Medians are computed over an odd number of samples");
-
-    /// Desired number of measurements on either side of the confidence interval
-    ///
-    /// Tune this up if you observe unstable duration statistics even though the
-    /// underlying duration distributions are stable.
-    ///
-    /// Tuning it too high will increase the overhead of the statistical
-    /// analysis process for no good reason.
-    //
-    // TODO: Tune on more system
-    #define NUM_EDGE_MEASUREMENTS ((size_t)512)
-
     /// Warmup duration used for OS clock offset calibration
     //
     // TODO: Tune on more systems
@@ -129,103 +94,7 @@
     #endif  // X86_64
 
 
-    /// Comparison function for applying qsort() to int64_t[]
-    static inline int compare_i64(const void* v1, const void* v2) {
-        const int64_t* const d1 = (const int64_t*)v1;
-        const int64_t* const d2 = (const int64_t*)v2;
-        if (*d1 < *d2) return -1;
-        if (*d1 > *d2) return 1;
-        return 0;
-    }
-
-
     // TODO: Move to other files
-
-    stats_analyzer_t stats_analyzer_initialize(float confidence_f) {
-        debug("Checking analysis parameters...");
-        double confidence = (double)confidence_f;
-        ensure_gt(confidence, 0.0);
-        ensure_lt(confidence, 100.0);
-
-        debug("Determining storage needs...");
-        size_t num_medians = ceil((double)(2*NUM_EDGE_MEASUREMENTS)
-                                  / (1.0-0.01*confidence));
-        if ((num_medians % 2) == 0) num_medians += 1;
-
-        debug("Allocating storage...");
-        size_t medians_size = num_medians * sizeof(int64_t);
-        int64_t* medians = realtime_allocate(medians_size);
-
-        debug("Finishing setup...");
-        double low_quantile = (1.0 - 0.01*confidence) / 2.0;
-        double high_quantile = 1.0 - low_quantile;
-        return (stats_analyzer_t){
-            .medians = medians,
-            .num_medians = num_medians,
-            .low_idx = (size_t)(low_quantile * num_medians),
-            .center_idx = num_medians / 2,
-            .high_idx = (size_t)(high_quantile * num_medians)
-        };
-    }
-
-    UDIPE_NON_NULL_ARGS
-    stats_t stats_analyze(stats_analyzer_t* analyzer,
-                          const distribution_t* dist) {
-        trace("Computing medians...");
-        int64_t median_samples[NUM_MEDIAN_SAMPLES];
-        for (size_t median = 0; median < analyzer->num_medians; ++median) {
-            tracef("- Computing medians[%zu]...", median);
-            for (size_t sample = 0; sample < NUM_MEDIAN_SAMPLES; ++sample) {
-                const int64_t value = distribution_choose(dist);
-                tracef("  * Inserting sample %zd...", value);
-                ptrdiff_t prev;
-                for (prev = sample - 1; prev >= 0; --prev) {
-                    int64_t pivot = median_samples[prev];
-                    tracef("    - Checking median_samples[%zd] = %zd...",
-                           prev, pivot);
-                    if (pivot > value) {
-                        trace("    - Too high, shift that up to make room.");
-                        median_samples[prev + 1] = median_samples[prev];
-                        continue;
-                    } else {
-                        trace("    - Small enough, value goes after that.");
-                        break;
-                    }
-                }
-                tracef("  * Sample inserted at median_samples[%zd].", prev + 1);
-                median_samples[prev + 1] = value;
-            }
-            analyzer->medians[median] = median_samples[NUM_MEDIAN_SAMPLES / 2];
-            tracef("  * medians[%zu] is therefore %zd.",
-                   median, analyzer->medians[median]);
-        }
-
-        trace("Computing result...");
-        qsort(analyzer->medians,
-              analyzer->num_medians,
-              sizeof(int64_t),
-              compare_i64);
-        return (stats_t){
-            .center = analyzer->medians[analyzer->center_idx],
-            .low = analyzer->medians[analyzer->low_idx],
-            .high = analyzer->medians[analyzer->high_idx]
-        };
-    }
-
-    UDIPE_NON_NULL_ARGS
-    void stats_analyzer_finalize(stats_analyzer_t* analyzer) {
-        debug("Liberating storage...");
-        realtime_liberate(analyzer->medians,
-                          analyzer->num_medians * sizeof(int64_t));
-
-        debug("Poisoining analyzer state...");
-        analyzer->medians = NULL;
-        analyzer->num_medians = 0;
-        analyzer->center_idx = SIZE_MAX;
-        analyzer->low_idx = SIZE_MAX;
-        analyzer->high_idx = SIZE_MAX;
-    }
-
 
     UDIPE_NON_NULL_ARGS
     void empty_loop(void* context) {
@@ -242,73 +111,134 @@
     }
 
 
-    /// Log statistics from the calibration process
+    /// Log a statistical estimate, possibly as part of a bullet list
     ///
     /// This function must be called within the scope of with_logger().
     ///
     /// \param level is the verbosity level at which this log will be emitted
-    /// \param header is a string that will be prepended to the log
-    /// \param stats is \ref stats_t from the calibration process that will
-    ///              be printed out
+    /// \param bullet is a string that will be prepended to the log. This is
+    ///               used for bullet lists of estimates. If you are not
+    ///               displaying a bullet list you can set this to NULL, or
+    ///               better yet use the simple log_estimate() function.
+    /// \param name identifies the estimate that is being displayed
+    /// \param estimate is the \ref estimate_t to be displayed
     /// \param unit is a string that spells out the measurement unit of
-    ///             `stats`
-    #define log_calibration_stats(level, header, stats, unit)  \
-        do {  \
-            stats_t udipe_duration = (stats);  \
-            udipe_logf((level),  \
-                       "%s: %zd %s with %g%% CI [%zd; %zd].",  \
-                       (header),  \
-                       udipe_duration.center,  \
-                       (unit),  \
-                       CONFIDENCE * 100.0,  \
-                       udipe_duration.low,  \
-                       udipe_duration.high);  \
-        } while(false)
+    ///             `estimate`
+    UDIPE_NON_NULL_SPECIFIC_ARGS(3, 5)
+    static void log_estimate_impl(udipe_log_level_t level,
+                                  const char bullet[],
+                                  const char name[],
+                                  estimate_t estimate,
+                                  const char unit[]) {
+        // Find the smallest fluctuation around the mean
+        assert(estimate.low <= estimate.center);
+        double min_spread = estimate.center - estimate.low;
+        assert(estimate.high >= estimate.center);
+        if (min_spread > estimate.high - estimate.center) {
+            min_spread = estimate.high - estimate.center;
+        }
 
-    /// Compute the relative uncertainty from some \ref stats_t
-    ///
-    /// \param stats is \ref stats_t that directly or indirectly derive from
-    ///              some measurements.
-    /// \returns the associated statistical uncertainty in percentage points
-    static inline double relative_uncertainty(stats_t stats) {
-        return (double)(stats.high - stats.low) / stats.center * 100.0;
+        // Deduce how many significant digits should be displayed
+        int precision = 1;
+        if (fabs(estimate.center) != 0.0) {
+            precision += floor(log10(fabs(estimate.center)));
+        }
+        assert(min_spread >= 0.0);
+        if (min_spread > 0.0) {
+            precision += 1 - floor(log10(min_spread));
+        }
+
+        // Display the estimate
+        const char* space_after_bullet = " ";
+        if (!bullet) {
+            bullet = "";
+            space_after_bullet = "";
+        }
+        udipe_logf(level,
+                   "%s%s%s: %.*g %s with %g%% CI [%.*g; %.*g].",
+                   bullet,
+                   space_after_bullet,
+                   name,
+                   precision,
+                   estimate.center,
+                   unit,
+                   CONFIDENCE * 100.0,
+                   precision,
+                   estimate.low,
+                   precision,
+                   estimate.high);
     }
 
-    /// Log per-iteration statistics from the calibration process
+    /// Log a statistical estimate outside of a bullet list context
+    ///
+    /// Parameters work as in log_estimate_impl()
+    UDIPE_NON_NULL_ARGS
+    static void log_estimate(udipe_log_level_t level,
+                             const char name[],
+                             estimate_t estimate,
+                             const char unit[]) {
+        log_estimate_impl(level, NULL, name, estimate, unit);
+    }
+
+
+    /// Log measurement statistics
     ///
     /// This function must be called within the scope of with_logger().
     ///
     /// \param level is the verbosity level at which this log will be emitted
-    /// \param stats is \ref stats_t from the calibration process that will
-    ///              be printed out
+    /// \param title serves as a headed to the overall display
+    /// \param bullet will be prepended to each stat's display
+    /// \param stats are the \ref statistics_t to be displayed
     /// \param unit is a string that spells out the measurement unit of
     ///             `stats`
-    #define log_iteration_stats(level, bullet, stats, num_iters, unit)  \
-        do {  \
-            const stats_t udipe_stats = (stats);  \
-            const size_t udipe_num_iters = (num_iters);  \
-            const double udipe_center = (double)udipe_stats.center / udipe_num_iters;  \
-            const double udipe_low = (double)udipe_stats.low / udipe_num_iters;  \
-            const double udipe_high = (double)udipe_stats.high / udipe_num_iters;  \
-            const double udipe_spread = udipe_high - udipe_low;  \
-            const int udipe_stats_decimals = ceil(-log10(udipe_spread));  \
-            const double udipe_uncertainty = relative_uncertainty(udipe_stats);  \
-            int udipe_uncertainty_decimals = ceil(-log10(udipe_uncertainty)) + 1;  \
-            if (udipe_uncertainty_decimals < 0) udipe_uncertainty_decimals = 0;  \
-            udipe_logf((level),  \
-                       "%s That's %.*f %s/iter with %g%% CI [%.*f; %.*f] (%.*f%% uncertainty).",  \
-                       (bullet),  \
-                       udipe_stats_decimals,  \
-                       udipe_center,  \
-                       (unit),  \
-                       CONFIDENCE * 100.0,  \
-                       udipe_stats_decimals,  \
-                       udipe_low,  \
-                       udipe_stats_decimals,  \
-                       udipe_high,  \
-                       udipe_uncertainty_decimals,  \
-                       udipe_uncertainty);  \
-        } while(false)
+    UDIPE_NON_NULL_ARGS
+    static void log_statistics(udipe_log_level_t level,
+                               const char title[],
+                               const char bullet[],
+                               statistics_t stats,
+                               const char unit[]) {
+        udipe_logf(level, "%s:", title);
+        log_estimate_impl(level,
+                          bullet,
+                          "Sym. dispersion start",
+                          stats.sym_dispersion_start,
+                          unit);
+        log_estimate_impl(level,
+                          bullet,
+                          "Low dispersion bound",
+                          stats.low_dispersion_bound,
+                          unit);
+        log_estimate_impl(level,
+                          bullet,
+                          "Mean",
+                          stats.mean,
+                          unit);
+        log_estimate_impl(level,
+                          bullet,
+                          "High dispersion bound",
+                          stats.high_dispersion_bound,
+                          unit);
+        log_estimate_impl(level,
+                          bullet,
+                          "Sym. dispersion end",
+                          stats.sym_dispersion_end,
+                          unit);
+        log_estimate_impl(level,
+                          bullet,
+                          "Sym. dispersion width",
+                          stats.sym_dispersion_width,
+                          unit);
+    }
+
+    /// Compute the relative dispersion from some \ref estimate_t
+    ///
+    /// \param estimate is an \ref estimate_t that directly or indirectly derive
+    ///                 from some measurements.
+    /// \returns the relative magnitude of its dispersion in percentage points
+    ///          of the central tendency.
+    static inline double relative_dispersion(estimate_t estimate) {
+        return (double)(estimate.high - estimate.low) / estimate.center * 100.0;
+    }
 
     UDIPE_NON_NULL_ARGS
     distribution_t compute_duration_distribution(
@@ -352,48 +282,13 @@
                          UDIPE_DEBUG,
                          "Accepted durations");
 
-        // TODO: clean up e.g. reuse storage and deduplicate code
-        analyzer_t analyzer = analyzer_initialize();
-        const statistics_t stats = analyzer_apply(&analyzer, &result);
-        debugf("Symmetric dispersion start is %g with %g%% CI [%g; %g]",
-               stats.sym_dispersion_start.center,
-               CONFIDENCE * 100.0,
-               stats.sym_dispersion_start.low,
-               stats.sym_dispersion_start.high);
-        debugf("Low dispersion bound is %g with %g%% CI [%g; %g]",
-               stats.low_dispersion_bound.center,
-               CONFIDENCE * 100.0,
-               stats.low_dispersion_bound.low,
-               stats.low_dispersion_bound.high);
-        debugf("Mean is %g with %g%% CI [%g; %g]",
-               stats.mean.center,
-               CONFIDENCE * 100.0,
-               stats.mean.low,
-               stats.mean.high);
-        debugf("High dispersion bound is %g with %g%% CI [%g; %g]",
-               stats.high_dispersion_bound.center,
-               CONFIDENCE * 100.0,
-               stats.high_dispersion_bound.low,
-               stats.high_dispersion_bound.high);
-        debugf("Symmetric dispersion end is %g with %g%% CI [%g; %g]",
-               stats.sym_dispersion_end.center,
-               CONFIDENCE * 100.0,
-               stats.sym_dispersion_end.low,
-               stats.sym_dispersion_end.high);
-        debugf("Symmetric dispersion width is %g with %g%% CI [%g; %g]",
-               stats.sym_dispersion_width.center,
-               CONFIDENCE * 100.0,
-               stats.sym_dispersion_width.low,
-               stats.sym_dispersion_width.high);
-        analyzer_finalize(&analyzer);
-
         return result;
     }
 
 
     UDIPE_NON_NULL_ARGS
     os_clock_t os_clock_initialize(outlier_filter_t* outlier_filter,
-                                   stats_analyzer_t* analyzer) {
+                                   analyzer_t* analyzer) {
         // Zero out all clock fields initially
         //
         // This is a valid (if incorrect) value for some fields but not all of
@@ -433,23 +328,29 @@
         clock.builder = distribution_reset(&clock.offsets);
         clock.offsets = tmp_offsets;
         distribution_poison(&tmp_offsets);
-        const stats_t offset_stats = stats_analyze(analyzer, &clock.offsets);
-        log_calibration_stats(UDIPE_INFO, "- Clock offset", offset_stats, "ns");
+        const statistics_t offset_stats =
+            analyzer_apply(analyzer, &clock.offsets);
+        log_statistics(UDIPE_DEBUG,
+                       "- Clock offset",
+                       "  *",
+                       offset_stats,
+                       "ns");
 
         info("Deducing clock baseline...");
         distribution_t tmp_zeros = distribution_sub(&clock.builder,
                                                     &clock.offsets,
                                                     &clock.offsets);
-        const stats_t zero_stats = stats_analyze(analyzer, &tmp_zeros);
+        const statistics_t zero_stats = analyzer_apply(analyzer, &tmp_zeros);
+        log_statistics(UDIPE_DEBUG,
+                       "- Baseline",
+                       "  *",
+                       zero_stats,
+                       "ns");
         clock.builder = distribution_reset(&tmp_zeros);
-        log_calibration_stats(UDIPE_INFO,
-                              "- Baseline",
-                              zero_stats,
-                              "ns");
 
         info("Finding minimal measurable loop...");
         distribution_t loop_durations;
-        stats_t loop_duration_stats;
+        statistics_t loop_duration_stats;
         num_iters = 1;
         do {
             debugf("- Trying loop with %zu iteration(s)...", num_iters);
@@ -462,17 +363,16 @@
                 outlier_filter,
                 &clock.builder
             );
-            loop_duration_stats = stats_analyze(analyzer, &loop_durations);
-            log_calibration_stats(UDIPE_DEBUG,
-                                  "  * Loop duration",
-                                  loop_duration_stats,
-                                  "ns");
-            const signed_duration_ns_t loop_duration_spread =
-                loop_duration_stats.high - loop_duration_stats.low;
-            if (loop_duration_stats.low < 9*offset_stats.high) {
-                debug("  * Clock contribution may still be >10%...");
-            } else if(loop_duration_stats.low < 10*loop_duration_spread) {
-                debug("  * Duration may still fluctuates by >10%...");
+            loop_duration_stats = analyzer_apply(analyzer, &loop_durations);
+            log_statistics(UDIPE_DEBUG,
+                           "  * Loop duration",
+                           "    -",
+                           loop_duration_stats,
+                           "ns");
+            if (loop_duration_stats.low_dispersion_bound.low <= 0.0) {
+                debug("  * Measuring a zero duration is too likely...");
+            } else if(loop_duration_stats.mean.low < 10*loop_duration_stats.sym_dispersion_width.high) {
+                debug("  * Duration signal-noise ratio is too low...");
             } else {
                 debug("  * That's long enough and stable enough.");
                 clock.builder = distribution_initialize();
@@ -490,8 +390,11 @@
         clock.best_empty_durations = loop_durations;
         distribution_poison(&loop_durations);
         clock.best_empty_stats = loop_duration_stats;
-        const int64_t best_precision = loop_duration_stats.high - loop_duration_stats.low;
-        double best_uncertainty = relative_uncertainty(loop_duration_stats);
+        const int64_t best_precision = loop_duration_stats.sym_dispersion_width.high;
+        estimate_t best_iter =
+            estimate_iteration_duration(loop_duration_stats.mean,
+                                        clock.best_empty_iters);
+        double best_dispersion = relative_dispersion(best_iter);
         do {
             num_iters *= 2;
             debugf("- Trying loop with %zu iterations...", num_iters);
@@ -504,25 +407,29 @@
                 outlier_filter,
                 &clock.builder
             );
-            loop_duration_stats = stats_analyze(analyzer, &loop_durations);
-            log_calibration_stats(UDIPE_DEBUG,
-                                  "  * Loop duration",
-                                  loop_duration_stats,
-                                  "ns");
-            log_iteration_stats(UDIPE_DEBUG,
-                                "  *",
-                                loop_duration_stats,
-                                num_iters,
-                                "ns");
-            const double uncertainty = relative_uncertainty(loop_duration_stats);
-            const int64_t precision = loop_duration_stats.high - loop_duration_stats.low;
+            loop_duration_stats = analyzer_apply(analyzer, &loop_durations);
+            log_statistics(UDIPE_DEBUG,
+                           "  * Loop duration",
+                           "    -",
+                           loop_duration_stats,
+                           "ns");
+            const estimate_t curr_iter =
+                estimate_iteration_duration(loop_duration_stats.mean,
+                                            num_iters);
+            log_estimate(UDIPE_DEBUG,
+                         "  * Iteration duration",
+                         curr_iter,
+                         "ns");
+            const double dispersion = relative_dispersion(curr_iter);
+            const int64_t precision = loop_duration_stats.sym_dispersion_width.high;
             // In a regime of stable run timing precision, doubling the
-            // iteration count should improve iteration timing uncertainty by
+            // iteration count should improve iteration timing dispersion by
             // 2x. Ignore small improvements that don't justify a 2x longer run
             // duration, and thus fewer runs per unit of execution time...
-            if (uncertainty < best_uncertainty/1.1) {
+            if (dispersion < best_dispersion/1.1) {
                 debug("  * This is our new best loop. Can we do even better?");
-                best_uncertainty = uncertainty;
+                best_iter = curr_iter;
+                best_dispersion = dispersion;
                 clock.best_empty_iters = num_iters;
                 clock.builder = distribution_reset(&clock.best_empty_durations);
                 clock.best_empty_durations = loop_durations;
@@ -530,9 +437,9 @@
                 clock.best_empty_stats = loop_duration_stats;
                 continue;
             } else if (precision <= 3*best_precision) {
-                // ...but keep trying until the uncertainty degradation becomes
+                // ...but keep trying until the dispersion degradation becomes
                 // much worse than expected in a regime of stable iteration
-                // timing uncertainty, in which case loop duration fluctuates 2x
+                // timing dispersion, in which case loop duration fluctuates 2x
                 // more when loop iteration gets 2x higher.
                 debug("  * That's not much better/worse, keep trying...");
                 clock.builder = distribution_reset(&loop_durations);
@@ -545,15 +452,16 @@
         } while(true);
         infof("- Achieved optimal precision at %zu loop iterations.",
               clock.best_empty_iters);
-        log_calibration_stats(UDIPE_INFO,
-                              "- Best loop duration",
-                              clock.best_empty_stats,
-                              "ns");
-        log_iteration_stats(UDIPE_INFO,
-                            "-",
-                            clock.best_empty_stats,
-                            clock.best_empty_iters,
-                            "ns");
+        log_statistics(UDIPE_INFO,
+                       "- Best loop duration",
+                       "  *",
+                       clock.best_empty_stats,
+                       "ns");
+        log_estimate(UDIPE_DEBUG,
+                     "- Best iteration duration",
+                     best_iter,
+                     "ns");
+
         return clock;
     }
 
@@ -635,11 +543,7 @@
             clock->win32_frequency = 0;
         #endif
         clock->best_empty_iters = SIZE_MAX;
-        clock->best_empty_stats = (stats_t){
-            .low = INT64_MIN,
-            .center = INT64_MIN,
-            .high = INT64_MIN
-        };
+        clock->best_empty_stats = (statistics_t){ 0 };
     }
 
 
@@ -649,7 +553,7 @@
         x86_clock_t
         x86_clock_initialize(outlier_filter_t* outlier_filter,
                              os_clock_t* os,
-                             stats_analyzer_t* analyzer) {
+                             analyzer_t* analyzer) {
             // Zero out all clock fields initially
             //
             // This is a valid (if incorrect) value for some fields but not all
@@ -693,10 +597,11 @@
                 outlier_filter,
                 &builder
             );
-            log_calibration_stats(UDIPE_INFO,
-                                  "- Offset-biased best loop",
-                                  stats_analyze(analyzer, &raw_empty_ticks),
-                                  "ticks");
+            log_statistics(UDIPE_INFO,
+                           "- Offset-biased best loop",
+                           "  *",
+                           analyzer_apply(analyzer, &raw_empty_ticks),
+                           "ticks");
 
             info("Measuring clock offset...");
             builder = distribution_initialize();
@@ -713,21 +618,24 @@
             builder = distribution_reset(&clock.offsets);
             clock.offsets = tmp_offsets;
             distribution_poison(&tmp_offsets);
-            log_calibration_stats(UDIPE_INFO,
-                                  "- Clock offset",
-                                  stats_analyze(analyzer, &clock.offsets),
-                                  "ticks");
+            log_statistics(UDIPE_INFO,
+                           "- Clock offset",
+                           "  *",
+                           analyzer_apply(analyzer, &clock.offsets),
+                           "ticks");
 
             info("Deducing clock baseline...");
             distribution_t tmp_zeros = distribution_sub(&builder,
                                                         &clock.offsets,
                                                         &clock.offsets);
-            const stats_t zero_stats = stats_analyze(analyzer, &tmp_zeros);
+            const statistics_t zero_stats = analyzer_apply(analyzer,
+                                                           &tmp_zeros);
             builder = distribution_reset(&tmp_zeros);
-            log_calibration_stats(UDIPE_INFO,
-                                  "- Baseline",
-                                  zero_stats,
-                                  "ticks");
+            log_statistics(UDIPE_DEBUG,
+                           "- Baseline",
+                           "  *",
+                           zero_stats,
+                           "ticks");
 
             debug("Applying offset correction to best loop duration...");
             distribution_t corrected_empty_ticks = distribution_sub(
@@ -736,17 +644,20 @@
                 &clock.offsets
             );
             builder = distribution_reset(&raw_empty_ticks);
-            clock.best_empty_stats = stats_analyze(analyzer,
-                                                   &corrected_empty_ticks);
-            log_calibration_stats(UDIPE_DEBUG,
-                                  "- Offset-corrected best loop",
-                                  clock.best_empty_stats,
-                                  "ticks");
-            log_iteration_stats(UDIPE_DEBUG,
-                                "-",
-                                clock.best_empty_stats,
-                                os->best_empty_iters,
-                                "ticks");
+            clock.best_empty_stats = analyzer_apply(analyzer,
+                                                    &corrected_empty_ticks);
+            log_statistics(UDIPE_DEBUG,
+                           "- Offset-corrected best loop",
+                           "  *",
+                           clock.best_empty_stats,
+                           "ticks");
+            const estimate_t best_iter_ticks =
+                estimate_iteration_duration(clock.best_empty_stats.mean,
+                                            os->best_empty_iters);
+            log_estimate(UDIPE_DEBUG,
+                         "- Loop iteration",
+                         best_iter_ticks,
+                         "ticks");
 
             info("Deducing TSC tick frequency...");
             clock.frequencies = distribution_scaled_div(
@@ -756,27 +667,32 @@
                 &os->best_empty_durations
             );
             // `builder` cannot be used after this point
-            log_calibration_stats(UDIPE_INFO,
-                                  "- TSC frequency",
-                                  stats_analyze(analyzer, &clock.frequencies),
-                                  "ticks/sec");
+            log_statistics(UDIPE_INFO,
+                           "- TSC frequency",
+                           "  *",
+                           analyzer_apply(analyzer, &clock.frequencies),
+                           "ticks/sec");
 
             debug("Deducing best loop duration...");
-            const stats_t best_empty_duration = x86_duration(
+            const statistics_t best_empty_duration = x86_duration(
                 &clock,
                 &os->builder,
                 &corrected_empty_ticks,
                 analyzer
             );
-            log_calibration_stats(UDIPE_DEBUG,
-                                  "- Best loop duration",
-                                  best_empty_duration,
-                                  "ns");
-            log_iteration_stats(UDIPE_DEBUG,
-                                "-",
-                                best_empty_duration,
-                                os->best_empty_iters,
-                                "ns");
+            log_statistics(UDIPE_DEBUG,
+                           "- Best loop duration",
+                           "  *",
+                           best_empty_duration,
+                           "ns");
+            const estimate_t best_iter_ns =
+                estimate_iteration_duration(best_empty_duration.mean,
+                                            os->best_empty_iters);
+            log_estimate(UDIPE_DEBUG,
+                         "- Loop iteration",
+                         best_iter_ns,
+                         "ns");
+
             return clock;
         }
 
@@ -878,16 +794,16 @@
         }
 
         UDIPE_NON_NULL_ARGS
-        stats_t x86_duration(x86_clock_t* clock,
-                             distribution_builder_t* tmp_builder,
-                             const distribution_t* ticks,
-                             stats_analyzer_t* analyzer) {
+        statistics_t x86_duration(x86_clock_t* clock,
+                                  distribution_builder_t* tmp_builder,
+                                  const distribution_t* ticks,
+                                  analyzer_t* analyzer) {
             distribution_t tmp_durations =
                 distribution_scaled_div(tmp_builder,
                                         ticks,
                                         UDIPE_SECOND,
                                         &clock->frequencies);
-            const stats_t result = stats_analyze(analyzer, &tmp_durations);
+            const statistics_t result = analyzer_apply(analyzer, &tmp_durations);
             *tmp_builder = distribution_reset(&tmp_durations);
             return result;
         }
@@ -905,11 +821,7 @@
             distribution_finalize(&clock->frequencies);
 
             debug("Poisoning the now-invalid TSC clock...");
-            clock->best_empty_stats = (stats_t){
-                .low = INT64_MIN,
-                .center = INT64_MIN,
-                .high = INT64_MIN
-            };
+            clock->best_empty_stats = (statistics_t){ 0 };
         }
 
     #endif  // X86_64
@@ -925,8 +837,8 @@
         debug("Setting up outlier filtering...");
         clock.outlier_filter = outlier_filter_initialize();
 
-        debug("Setting up statistical analysis...");
-        clock.analyzer = stats_analyzer_initialize(CONFIDENCE * 100.0);
+        debug("Setting up the statistical analyzer...");
+        clock.analyzer = analyzer_initialize();
 
         info("Setting up the OS clock...");
         clock.os = os_clock_initialize(&clock.outlier_filter,
@@ -963,7 +875,7 @@
         os_clock_finalize(&clock->os);
 
         debug("Destroying the statistical analyzer...");
-        stats_analyzer_finalize(&clock->analyzer);
+        analyzer_finalize(&clock->analyzer);
 
         debug("Destroying the outlier filter...");
         outlier_filter_finalize(&clock->outlier_filter);

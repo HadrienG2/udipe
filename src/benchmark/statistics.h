@@ -293,7 +293,7 @@
     /// \}
 
 
-    /// \name Public API
+    /// \name Public \ref analyzer_t API
     /// \{
 
     /// Set up a statistical analyzer
@@ -333,6 +333,59 @@
     void analyzer_finalize(analyzer_t* analyzer);
 
     /// \}
+
+
+    /// Estimate a mean iteration duration from a mean iteration batch duration
+    ///
+    /// Because iteration durations are not observable, we need to make some
+    /// assumptions about the benchmark's probabilistic behavior in order to be
+    /// able to estimate them by statistical inference means. Our assumptions
+    /// are that:
+    ///
+    /// - The provided iteration batch duration solely represents the duration
+    ///   of benchmark iterations, excluding any affine setup and teardown
+    ///   overhead.
+    /// - Within the batch of interest, iterations are independent from each
+    ///   other and identically distributed. This is typically only achieved for
+    ///   "central" iterations of a sufficiently long-running benchmark, as the
+    ///   first and last few iterations tend to be slower than other iterations
+    ///   due to CPU pipelining effects.
+    /// - Iteration confidence intervals can be estimated from run confidence
+    ///   intervals through linear scaling by the ratio of standard deviations.
+    ///
+    /// The first two assumptions typically require that this analysis be
+    /// performed on a difference of large run durations, rather than a raw run
+    /// duration. Indeed, any benchmark run has some nontrivial setup and
+    /// teardown overhead and some slower iterations at the start and the end.
+    /// But for a sufficiently long-running benchmark, the difference of
+    /// durations between a run with N + M iterations and a run with N
+    /// iterations will average to M times the duration of a central, maximally
+    /// reproducible loop iteration.
+    ///
+    /// \param sum_mean is an estimate of the mean duration of `num_iterations`
+    ///                 benchmark loop iterations.
+    /// \param num_iterations is the number of iterations that are timed by
+    ///                       `sum_means`.
+    ///
+    /// \returns an estimate of the duration of one benchmark loop iteration.
+    static inline
+    estimate_t estimate_iteration_duration(estimate_t sum_mean,
+                                           size_t num_iterations) {
+        estimate_t iter_mean;
+        // Per linearity hypothesis, run duration = sum(iter duration)
+        // From this, i.i.d. hypothesis gives us linear mean & variance scaling
+        iter_mean.center = sum_mean.center / num_iterations;
+        // Given linear variance scaling, we trivially deduce that stddev scales
+        // as the square root of the number of iterations...
+        const double stddev_norm = 1.0 / sqrt(num_iterations);
+        // ...which, per the assumed confidence interval scaling law, gives us
+        // the iteration duration confidence interval.
+        iter_mean.low = iter_mean.center
+                      - (sum_mean.center - sum_mean.low) * stddev_norm;
+        iter_mean.high = iter_mean.center
+                       + (sum_mean.high - sum_mean.center) * stddev_norm;
+        return iter_mean;
+    }
 
 
     /// \name Implementation details
