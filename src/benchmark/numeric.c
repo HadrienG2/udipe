@@ -392,7 +392,7 @@
                             ensure(!expected[addend_exp]);
                             expected[addend_exp] = !carry;
                             for (size_t bit = addend_exp + 1; bit < num_bits; ++bit) {
-                                ensure(!expected[addend_exp]);
+                                ensure(!expected[bit]);
                             }
                             expected_sign = signbit(addend);
                         }
