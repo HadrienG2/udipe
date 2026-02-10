@@ -32,22 +32,42 @@
     UDIPE_NON_NULL_ARGS
     statistics_t analyzer_apply(analyzer_t* analyzer,
                                 const distribution_t* dist) {
+        trace("Calibrating quantiles...");
+        const double quantile_sym_dispersion_start = (1.0 - DISPERSION_WIDTH) / 2;
+        const double quantile_low_dispersion_bound = 1.0 - DISPERSION_WIDTH;
+        const double quantile_high_dispersion_bound = DISPERSION_WIDTH;
+        const double quantile_sym_dispersion_end = (1.0 + DISPERSION_WIDTH) / 2;
+
         trace("Performing bootstrap resampling...");
         for (size_t run = 0; run < NUM_RESAMPLES; ++run) {
             tracef("- Performing resample #%zu/%zu", run, NUM_RESAMPLES);
             distribution_t resample =
                 distribution_resample(&analyzer->resample_builder, dist);
             trace("  * Computing mean...");
-            analyzer->statistics[MEAN][run] =
-                analyze_mean(analyzer, &resample);
-            trace("  * Computing 5% percentile...");
-            const int64_t p5 = distribution_quantile(&resample, 0.05);
-            analyzer->statistics[P5][run] = p5;
-            trace("  * Computing 95% percentile...");
-            const int64_t p95 = distribution_quantile(&resample, 0.95);
-            analyzer->statistics[P95][run] = p95;
-            trace("  * Computing 5%->95% spread...");
-            analyzer->statistics[P5_TO_P95][run] = p95 - p5;
+            analyzer->statistics[MEAN][run] = analyze_mean(analyzer, &resample);
+            trace("  * Computing symmetric dispersion start...");
+            const int64_t sym_dispersion_start =
+                distribution_quantile(&resample, quantile_sym_dispersion_start);
+            analyzer->statistics[SYM_DISPERSION_START][run] =
+                sym_dispersion_start;
+            trace("  * Computing low dispersion bound...");
+            const int64_t low_dispersion_bound =
+                distribution_quantile(&resample, quantile_low_dispersion_bound);
+            analyzer->statistics[LOW_DISPERSION_BOUND][run] =
+                low_dispersion_bound;
+            trace("  * Computing high dispersion bound...");
+            const int64_t high_dispersion_bound =
+                distribution_quantile(&resample, quantile_high_dispersion_bound);
+            analyzer->statistics[HIGH_DISPERSION_BOUND][run] =
+                high_dispersion_bound;
+            trace("  * Computing symmetric dispersion end...");
+            const int64_t sym_dispersion_end =
+                distribution_quantile(&resample, quantile_sym_dispersion_end);
+            analyzer->statistics[SYM_DISPERSION_END][run] =
+                sym_dispersion_end;
+            trace("  * Computing symmetric dispersion width...");
+            analyzer->statistics[SYM_DISPERSION_WIDTH][run] =
+                sym_dispersion_end - sym_dispersion_start;
             trace("  * Resetting resampling buffer...");
             analyzer->resample_builder = distribution_reset(&resample);
         }
@@ -59,9 +79,11 @@
         }
         return (statistics_t){
             .mean = estimates[MEAN],
-            .p5 = estimates[P5],
-            .p95 = estimates[P95],
-            .p5_to_p95 = estimates[P5_TO_P95]
+            .sym_dispersion_start = estimates[SYM_DISPERSION_START],
+            .low_dispersion_bound = estimates[LOW_DISPERSION_BOUND],
+            .high_dispersion_bound = estimates[HIGH_DISPERSION_BOUND],
+            .sym_dispersion_end = estimates[SYM_DISPERSION_END],
+            .sym_dispersion_width = estimates[SYM_DISPERSION_WIDTH]
         };
     }
 
@@ -112,7 +134,10 @@
             const double rel_count = (double)count * len_norm;
 
             mean_accumulators[bin] = rel_count * (double)value;
-            tracef("- Bin #%zu: value %zd with end_rank %zd (prev+%zu, %.3g%% max count) => contribution %g.", bin, value, curr_end_rank, count, rel_count * 100.0, mean_accumulators[bin]);
+            tracef("- Bin #%zu: value %zd with end_rank %zd (prev+%zu, "
+                   "  %.3g%% max count) => contribution %g.",
+                   bin, value, curr_end_rank, count,
+                   rel_count * 100.0, mean_accumulators[bin]);
         }
 
         trace("Computing the mean...");

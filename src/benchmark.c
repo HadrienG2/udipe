@@ -355,14 +355,36 @@
         // TODO: clean up e.g. reuse storage and deduplicate code
         analyzer_t analyzer = analyzer_initialize();
         const statistics_t stats = analyzer_apply(&analyzer, &result);
+        debugf("Symmetric dispersion start is %g with %g%% CI [%g; %g]",
+               stats.sym_dispersion_start.center,
+               CONFIDENCE * 100.0,
+               stats.sym_dispersion_start.low,
+               stats.sym_dispersion_start.high);
+        debugf("Low dispersion bound is %g with %g%% CI [%g; %g]",
+               stats.low_dispersion_bound.center,
+               CONFIDENCE * 100.0,
+               stats.low_dispersion_bound.low,
+               stats.low_dispersion_bound.high);
         debugf("Mean is %g with %g%% CI [%g; %g]",
-               stats.mean.center, CONFIDENCE * 100.0, stats.mean.low, stats.mean.high);
-        debugf("P5 is %g with %g%% CI [%g; %g]",
-               stats.p5.center, CONFIDENCE * 100.0, stats.p5.low, stats.p5.high);
-        debugf("P95 is %g with %g%% CI [%g; %g]",
-               stats.p95.center, CONFIDENCE * 100.0, stats.p95.low, stats.p95.high);
-        debugf("P5->P95 spread is %g with %g%% CI [%g; %g]",
-               stats.p5_to_p95.center, CONFIDENCE * 100.0, stats.p5_to_p95.low, stats.p5_to_p95.high);
+               stats.mean.center,
+               CONFIDENCE * 100.0,
+               stats.mean.low,
+               stats.mean.high);
+        debugf("High dispersion bound is %g with %g%% CI [%g; %g]",
+               stats.high_dispersion_bound.center,
+               CONFIDENCE * 100.0,
+               stats.high_dispersion_bound.low,
+               stats.high_dispersion_bound.high);
+        debugf("Symmetric dispersion end is %g with %g%% CI [%g; %g]",
+               stats.sym_dispersion_end.center,
+               CONFIDENCE * 100.0,
+               stats.sym_dispersion_end.low,
+               stats.sym_dispersion_end.high);
+        debugf("Symmetric dispersion width is %g with %g%% CI [%g; %g]",
+               stats.sym_dispersion_width.center,
+               CONFIDENCE * 100.0,
+               stats.sym_dispersion_width.low,
+               stats.sym_dispersion_width.high);
         analyzer_finalize(&analyzer);
 
         return result;

@@ -35,9 +35,7 @@
     ///             been generated from a \ref distribution_builder_t via
     ///             distribution_build() and hasn't yet been recycled via
     ///             distribution_reset() or destroyed via
-    ///             distribution_finalize(). It will be turned into the output
-    ///             distribution builder returned by this function, and
-    ///             therefore cannot be used after calling this function.
+    ///             distribution_finalize().
     /// \param level is the log level at which the distribution state should be
     ///              logged.
     /// \param header is a string that will precede the distribution display in
