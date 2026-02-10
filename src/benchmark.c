@@ -237,7 +237,7 @@
     /// \returns the relative magnitude of its dispersion in percentage points
     ///          of the central tendency.
     static inline double relative_dispersion(estimate_t estimate) {
-        return (double)(estimate.high - estimate.low) / estimate.center * 100.0;
+        return (estimate.high - estimate.low) / estimate.center * 100.0;
     }
 
     UDIPE_NON_NULL_ARGS
@@ -794,7 +794,7 @@
         }
 
         UDIPE_NON_NULL_ARGS
-        statistics_t x86_duration(x86_clock_t* clock,
+        statistics_t x86_duration(const x86_clock_t* clock,
                                   distribution_builder_t* tmp_builder,
                                   const distribution_t* ticks,
                                   analyzer_t* analyzer) {

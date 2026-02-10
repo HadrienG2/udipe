@@ -185,7 +185,7 @@ bool add_with_carry_u64(bool carry,
                         uint64_t augend,
                         uint64_t addend,
                         uint64_t* out) {
-    const uint64_t new_addend = addend + carry;
+    const uint64_t new_addend = addend + (uint64_t)carry;
     const bool inc_carry = (new_addend < addend);
     const uint64_t sum = augend + new_addend;
     const bool add_carry = (sum < augend);
@@ -208,7 +208,7 @@ bool subtract_with_carry_u64(bool carry,
                              uint64_t minuend,
                              uint64_t subtrahend,
                              uint64_t* out) {
-    const uint64_t new_subtrahend = subtrahend + carry;
+    const uint64_t new_subtrahend = subtrahend + (uint64_t)carry;
     const bool inc_carry = (new_subtrahend < subtrahend);
     const uint64_t difference = minuend - new_subtrahend;
     const bool sub_carry = (difference > minuend);

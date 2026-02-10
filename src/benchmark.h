@@ -576,7 +576,7 @@
         ///          `ticks` corresponds to, in nanoseconds, with a confidence
         ///          interval given by `analyzer`.
         UDIPE_NON_NULL_ARGS
-        statistics_t x86_duration(x86_clock_t* clock,
+        statistics_t x86_duration(const x86_clock_t* clock,
                                   distribution_builder_t* tmp_builder,
                                   const distribution_t* ticks,
                                   analyzer_t* analyzer);
