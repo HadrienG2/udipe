@@ -111,7 +111,9 @@
     }
 
 
-    /// Log a statistical estimate with some identiying header
+    // TODO: extract the following to statistics.[ch]
+
+    /// Log a statistical estimate
     ///
     /// This function must be called within the scope of with_logger().
     ///
@@ -119,49 +121,55 @@
     /// \param header is a string that will be prepended to the log. This is
     ///               where you would put list bullets and quantity names.
     /// \param estimate is the \ref estimate_t to be displayed
+    /// \param mean_difference is used to indicate how much the measured
+    ///                        quantity differs from the distribution mean,
+    ///                        you can leave this as "" if not needed.
     /// \param unit is a string that spells out the measurement unit of
     ///             `estimate`
     UDIPE_NON_NULL_ARGS
     static void log_estimate(udipe_log_level_t level,
                              const char header[],
                              estimate_t estimate,
+                             const char mean_difference[],
                              const char unit[]) {
         // Find the smallest fluctuation around the center
-        assert(estimate.low <= estimate.center);
-        double min_spread = estimate.center - estimate.low;
-        assert(estimate.high >= estimate.center);
-        if (min_spread > estimate.high - estimate.center || min_spread == 0.0) {
-            min_spread = estimate.high - estimate.center;
+        double min_spread = fabs(estimate.sample - estimate.low);
+        const double high_spread = fabs(estimate.high - estimate.sample);
+        if (min_spread > high_spread || min_spread == 0.0) {
+            min_spread = high_spread;
         }
 
         // Deduce how many significant digits should be displayed
         int precision = 1;
-        if (fabs(estimate.center) != 0.0) {
-            precision += floor(log10(fabs(estimate.center)));
+        if (fabs(estimate.sample) != 0.0) {
+            precision += floor(log10(fabs(estimate.sample)));
         }
         assert(min_spread >= 0.0);
         if (min_spread > 0.0) {
             precision += 1 - floor(log10(min_spread));
         }
 
-        // Quantify the relative fluctuation with respect to the center value
-        double rel_width = (estimate.high - estimate.low) / fabs(estimate.center);
+        // Quantify the relative fluctuation with respect to the sample value
+        double rel_width = (estimate.high - estimate.low) / fabs(estimate.sample);
         char rel_width_display[32] = { 0 };
         if (isfinite(rel_width)) {
+            assert(rel_width >= 0.0);
+            const int precision = (rel_width < 1.0) ? 2 : 4;
             int len = snprintf(rel_width_display, sizeof(rel_width_display),
-                               " (rel width %.2g%%)",
-                               rel_width * 100.0);
+                               " (rel width %.*g%%)",
+                               precision, rel_width * 100.0);
             ensure_gt(len, 0);
             ensure_lt((size_t)len, sizeof(rel_width_display));
         }
 
         // Display the estimate
         udipe_logf(level,
-                   "%s: %.*g %s with %g%% CI [%.*g; %.*g]%s.",
+                   "%s: %.*g %s%s with %g%% CI [%.*g; %.*g]%s.",
                    header,
                    precision,
-                   estimate.center,
+                   estimate.sample,
                    unit,
+                   mean_difference,
                    CONFIDENCE * 100.0,
                    precision,
                    estimate.low,
@@ -170,29 +178,138 @@
                    rel_width_display);
     }
 
-    /// Set up a header describing a percentile of a distribution
+    /// Describe a percentile of a distribution
     ///
-    /// \param output is the header where the header will be written
+    /// \param output is the location where the description will be written
     /// \param output_size is the capacity of `output` in bytes
-    /// \param fixed_header is a short fixed string to be prepended at the
-    ///                     beginning, this is mainly intended for bullet lists
+    /// \param prefix is a string to be prepended at the beginning (this
+    ///               is mainly used for bullet lists)
     /// \param quantile is the quantile to be displayed, in range ]0.0; 1.0[
     ///
     /// \returns the number of bytes that were written to `output`
     UDIPE_NON_NULL_ARGS
     static size_t write_percentile_header(char output[],
                                           size_t output_size,
-                                          const char fixed_header[],
+                                          const char prefix[],
                                           double quantile) {
         ensure_gt(quantile, 0.0);
         ensure_lt(quantile, 1.0);
         const int len = snprintf(output, output_size,
                                  "%sP%.1f",
-                                 fixed_header, quantile * 100.0);
+                                 prefix, quantile * 100.0);
         ensure_gt(len, 0);
         ensure_lt((size_t)len, output_size);
-        return len;
+        return (size_t)len;
     }
+
+    /// Kind of comparison between a quantity quantity and a mean
+    ///
+    typedef enum mean_comparison_e {
+        DELTA,  ///< "mean+/-1.2%" relative delta, fallback to ratio
+        FRACTION,  ///< "1.2% of mean" relative fraction, fallback to ratio
+        RATIO   ///< "1.2x mean" relative ratio
+    } mean_comparison_t;
+
+    /// Describe how much a value differs from the mean of a distribution
+    ///
+    /// \param output is the location where the description will be written
+    /// \param output_size is the capacity of `output` in bytes
+    /// \param value is the value to be analyzed
+    /// \param comparison is the kind of comparison that should be performed
+    /// \param mean is the mean to which it should be compared
+    ///
+    /// \returns the number of bytes that were written to `output`
+    UDIPE_NON_NULL_ARGS
+    static size_t write_mean_difference(char output[],
+                                        size_t output_size,
+                                        estimate_t value,
+                                        mean_comparison_t comparison,
+                                        double sample_mean) {
+        int len = 0;
+        if (value.sample == sample_mean) {
+            const char eq_mean[] = " (=mean)";
+            ensure_lt(strlen(eq_mean), output_size);
+            strcpy(output, eq_mean);
+            return strlen(eq_mean);
+        }
+        const double ratio = value.sample / sample_mean;
+        switch (comparison) {
+        case DELTA:
+            const double rel_delta = (value.sample - sample_mean) / fabs(sample_mean);
+            if (isfinite(rel_delta) && fabs(rel_delta) < 1.0) {
+                len = snprintf(output, output_size,
+                               " (mean%+.2g%%)",
+                               rel_delta * 100.0);
+            } else if (fabs(rel_delta) > 1.0) {
+                return write_mean_difference(output,
+                                             output_size,
+                                             value,
+                                             RATIO,
+                                             sample_mean);
+            }
+            break;
+        case FRACTION:
+            if (isfinite(ratio) && fabs(ratio) < 1.0) {
+                len = snprintf(output, output_size,
+                               " (%.2g%% of mean)",
+                               ratio * 100.0);
+            } else if (fabs(ratio) >= 1.0) {
+                return write_mean_difference(output,
+                                             output_size,
+                                             value,
+                                             RATIO,
+                                             sample_mean);
+            }
+            break;
+        case RATIO:
+            if (isfinite(ratio)) {
+                len = snprintf(output, output_size,
+                               " (%.1fx mean)",
+                               ratio);
+            }
+            break;
+        };
+        ensure_ge(len, 0);
+        ensure_lt((size_t)len, output_size);
+        if (!len) output[0] = '\0';
+        return (size_t)len;
+    }
+
+    /// Log the estimate of a particular distribution quantile
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param level is the verbosity level at which this log will be emitted
+    /// \param prefix will be prepended to each estimate's display
+    /// \param quantile is the quantile of interest in range ]0.0; 1.0[
+    /// \param estimate is the estimate of the quantile of interest
+    /// \param mean is the estimate of the mean
+    /// \param unit is a string that spells out the measurement unit of
+    ///             `estimate`
+    static void log_quantile_estimate(udipe_log_level_t level,
+                                      const char prefix[],
+                                      double quantile,
+                                      estimate_t estimate,
+                                      double sample_mean,
+                                      const char unit[]) {
+        char header[48];
+        write_percentile_header(header,
+                                sizeof(header),
+                                prefix,
+                                quantile);
+        char mean_difference[32];
+        write_mean_difference(mean_difference,
+                              sizeof(mean_difference),
+                              estimate,
+                              DELTA,
+                              sample_mean);
+        log_estimate(level,
+                     header,
+                     estimate,
+                     mean_difference,
+                     unit);
+    }
+
 
     /// Log measurement statistics
     ///
@@ -222,27 +339,23 @@
         ensure_lt((size_t)bullet_with_space_len, sizeof(bullet_with_space));
 
         // Display the start of the central region
-        char header[32];
-        write_percentile_header(header,
-                                sizeof(header),
-                                bullet_with_space,
-                                CENTER_START_QUANTILE);
-        log_estimate(level,
-                     header,
-                     stats.center_start,
-                     unit);
+        log_quantile_estimate(level,
+                              bullet_with_space,
+                              CENTER_START_QUANTILE,
+                              stats.center_start,
+                              stats.mean.sample,
+                              unit);
 
         // Display the boundary of the low tail region
-        write_percentile_header(header,
-                                sizeof(header),
-                                bullet_with_space,
-                                LOW_TAIL_QUANTILE);
-        log_estimate(level,
-                     header,
-                     stats.low_tail_bound,
-                     unit);
+        log_quantile_estimate(level,
+                              bullet_with_space,
+                              LOW_TAIL_QUANTILE,
+                              stats.low_tail_bound,
+                              stats.mean.sample,
+                              unit);
 
         // Display the distribution mean
+        char header[48];
         int len = snprintf(header, sizeof(header),
                            "%s Mean",
                            bullet);
@@ -251,27 +364,24 @@
         log_estimate(level,
                      header,
                      stats.mean,
+                     "",
                      unit);
 
         // Display the boundary of the high tail region
-        write_percentile_header(header,
-                                sizeof(header),
-                                bullet_with_space,
-                                HIGH_TAIL_QUANTILE);
-        log_estimate(level,
-                     header,
-                     stats.high_tail_bound,
-                     unit);
+        log_quantile_estimate(level,
+                              bullet_with_space,
+                              HIGH_TAIL_QUANTILE,
+                              stats.high_tail_bound,
+                              stats.mean.sample,
+                              unit);
 
         // Display the end of the central region
-        write_percentile_header(header,
-                                sizeof(header),
-                                bullet_with_space,
-                                CENTER_END_QUANTILE);
-        log_estimate(level,
-                     header,
-                     stats.center_end,
-                     unit);
+        log_quantile_estimate(level,
+                              bullet_with_space,
+                              CENTER_END_QUANTILE,
+                              stats.center_end,
+                              stats.mean.sample,
+                              unit);
 
         // Display the width of the central region
         len = write_percentile_header(header,
@@ -287,9 +397,16 @@
                                       CENTER_START_QUANTILE);
         ensure_gt(len, 0);
         ensure_lt((size_t)len, remaining);
+        char mean_difference[32];
+        write_mean_difference(mean_difference,
+                              sizeof(mean_difference),
+                              stats.center_width,
+                              FRACTION,
+                              stats.mean.sample);
         log_estimate(level,
                      header,
                      stats.center_width,
+                     mean_difference,
                      unit);
     }
 
@@ -300,7 +417,7 @@
     /// \returns the relative magnitude of its dispersion in percentage points
     ///          of the central tendency.
     static inline double relative_dispersion(estimate_t estimate) {
-        return (estimate.high - estimate.low) / estimate.center * 100.0;
+        return (estimate.high - estimate.low) / estimate.sample * 100.0;
     }
 
     UDIPE_NON_NULL_ARGS
@@ -435,7 +552,7 @@
             if (loop_duration_stats.low_tail_bound.low <= 0.0) {
                 debug("  * Too many zero/negative values = sub-resolution durations, try more iterations...");
             } else if(loop_duration_stats.mean.low < 10*loop_duration_stats.center_width.high) {
-                debug("  * Duration signal-noise ratio is still unacceptably low, try more iterations...");
+                debug("  * Durations are still unacceptably noisy, try more iterations...");
             } else {
                 clock.builder = distribution_initialize();
                 break;
@@ -481,6 +598,7 @@
             log_estimate(UDIPE_DEBUG,
                          "  * Iteration duration",
                          curr_iter,
+                         "",
                          "ns");
             const double dispersion = relative_dispersion(curr_iter);
             const int64_t precision = loop_duration_stats.center_width.high;
@@ -523,6 +641,7 @@
         log_estimate(UDIPE_DEBUG,
                      "- Best iteration duration",
                      best_iter,
+                     "",
                      "ns");
 
         return clock;
@@ -720,6 +839,7 @@
             log_estimate(UDIPE_DEBUG,
                          "- Loop iteration",
                          best_iter_ticks,
+                         "",
                          "ticks");
 
             info("Deducing TSC tick frequency...");
@@ -754,6 +874,7 @@
             log_estimate(UDIPE_DEBUG,
                          "- Loop iteration",
                          best_iter_ns,
+                         "",
                          "ns");
 
             return clock;

@@ -172,10 +172,11 @@
     /// we do not expect to encounter run durations larger than 2^54 ns (about 7
     /// months!) and below that the int64-to-double conversion is lossless.
     typedef struct estimate_s {
-        /// Central tendency for the statistic of interest
+        /// Value of the statistic of interest computed on the raw data sample
         ///
-        /// This is the median value of the statistic over all bootstrap runs.
-        double center;
+        /// This value is not computed on the bootstrap distribution but
+        /// directly on the raw data distribution.
+        double sample;
 
         /// Lower centered confidence bound of the statistic of interest
         ///
@@ -412,16 +413,16 @@
         estimate_t iter_mean;
         // Per linearity hypothesis, run duration = sum(iter duration)
         // From this, i.i.d. hypothesis gives us linear mean & variance scaling
-        iter_mean.center = sum_mean.center / num_iterations;
+        iter_mean.sample = sum_mean.sample / num_iterations;
         // Given linear variance scaling, we trivially deduce that stddev scales
         // as the square root of the number of iterations...
         const double stddev_norm = 1.0 / sqrt(num_iterations);
         // ...which, per the assumed confidence interval scaling law, gives us
         // the iteration duration confidence interval.
-        iter_mean.low = iter_mean.center
-                      - (sum_mean.center - sum_mean.low) * stddev_norm;
-        iter_mean.high = iter_mean.center
-                       + (sum_mean.high - sum_mean.center) * stddev_norm;
+        iter_mean.low = iter_mean.sample
+                      - (sum_mean.sample - sum_mean.low) * stddev_norm;
+        iter_mean.high = iter_mean.sample
+                       + (sum_mean.high - sum_mean.sample) * stddev_norm;
         return iter_mean;
     }
 
@@ -475,7 +476,7 @@
     double analyze_mean(analyzer_t* analyzer_t,
                         const distribution_t* dist);
 
-    /// Estimate the value of a statistic based on bootstrap data
+    /// Estimate the confidence interval of a statistic based on bootstrap data
     ///
     /// This function must be run after the `analyzer::statistics` array has
     /// been filled up with data from bootstrap resampling.
@@ -485,12 +486,11 @@
     ///                 with analyzer_finalize() yet.
     /// \param stat is a \ref statistic_id_t that indicates which population
     ///             statistic should be estimated.
-    ///
-    /// \returns an estimate of the population statistic with a confidence
-    ///          interval.
+    /// \param estimate is the estimate whose confidence interval should be set
     UDIPE_NON_NULL_ARGS
-    estimate_t analyze_estimate(analyzer_t* analyzer,
-                                statistic_id_t stat);
+    void set_result_confidence(analyzer_t* analyzer,
+                               statistic_id_t stat,
+                               estimate_t* estimate);
 
     /// \}
 

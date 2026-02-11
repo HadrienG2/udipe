@@ -32,6 +32,20 @@
     UDIPE_NON_NULL_ARGS
     statistics_t analyzer_apply(analyzer_t* analyzer,
                                 const distribution_t* dist) {
+        trace("Computing sample statistics...");
+        statistics_t result;
+        result.center_start.sample =
+            distribution_quantile(dist, CENTER_START_QUANTILE);
+        result.low_tail_bound.sample =
+            distribution_quantile(dist, LOW_TAIL_QUANTILE);
+        result.mean.sample = analyze_mean(analyzer, dist);
+        result.high_tail_bound.sample =
+            distribution_quantile(dist, HIGH_TAIL_QUANTILE);
+        result.center_end.sample =
+            distribution_quantile(dist, CENTER_END_QUANTILE);
+        result.center_width.sample =
+            result.center_end.sample - result.center_start.sample;
+
         trace("Performing bootstrap resampling...");
         for (size_t run = 0; run < NUM_RESAMPLES; ++run) {
             tracef("- Performing resample #%zu/%zu", run, NUM_RESAMPLES);
@@ -61,19 +75,26 @@
             analyzer->resample_builder = distribution_reset(&resample);
         }
 
-        trace("Estimating population statistics...");
-        estimate_t estimates[NUM_STATISTICS];
-        for (size_t stat = 0; stat < NUM_STATISTICS; ++stat) {
-            estimates[stat] = analyze_estimate(analyzer, (statistic_id_t)stat);
-        }
-        return (statistics_t){
-            .center_start = estimates[CENTER_START],
-            .low_tail_bound = estimates[LOW_TAIL_BOUND],
-            .mean = estimates[MEAN],
-            .high_tail_bound = estimates[HIGH_TAIL_BOUND],
-            .center_end = estimates[CENTER_END],
-            .center_width = estimates[CENTER_WIDTH]
-        };
+        trace("Estimating confidence intervals from resamples...");
+        set_result_confidence(analyzer,
+                              CENTER_START,
+                              &result.center_start);
+        set_result_confidence(analyzer,
+                              LOW_TAIL_BOUND,
+                              &result.low_tail_bound);
+        set_result_confidence(analyzer,
+                              MEAN,
+                              &result.mean);
+        set_result_confidence(analyzer,
+                              HIGH_TAIL_BOUND,
+                              &result.high_tail_bound);
+        set_result_confidence(analyzer,
+                              CENTER_END,
+                              &result.center_end);
+        set_result_confidence(analyzer,
+                              CENTER_WIDTH,
+                              &result.center_width);
+        return result;
     }
 
     UDIPE_NON_NULL_ARGS
@@ -145,24 +166,21 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    estimate_t analyze_estimate(analyzer_t* analyzer,
-                                statistic_id_t stat) {
-        trace("Sorting statistic values...");
+    void set_result_confidence(analyzer_t* analyzer,
+                               statistic_id_t stat,
+                               estimate_t* estimate) {
+        trace("Sorting bootstrap statistics...");
         qsort(analyzer->statistics[stat],
               NUM_RESAMPLES,
               sizeof(double),
               compare_f64);
 
-        trace("Deducing population statistic estimate...");
+        trace("Deducing confidence interval...");
         const size_t last_idx = NUM_RESAMPLES - 1;
-        const size_t center_idx = last_idx / 2;
         const size_t low_idx = round((1.0 - CONFIDENCE) / 2.0 * last_idx);
         const size_t high_idx = round((1.0 + CONFIDENCE) / 2.0 * last_idx);
-        return (estimate_t){
-            .center = analyzer->statistics[stat][center_idx],
-            .low = analyzer->statistics[stat][low_idx],
-            .high = analyzer->statistics[stat][high_idx]
-        };
+        estimate->low = analyzer->statistics[stat][low_idx];
+        estimate->high = analyzer->statistics[stat][high_idx];
     }
 
 #endif   // UDIPE_BUILD_BENCHMARKS
