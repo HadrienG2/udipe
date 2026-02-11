@@ -210,13 +210,13 @@
         RATIO   ///< "1.2x mean" relative ratio
     } mean_comparison_t;
 
-    /// Describe how much a value differs from the mean of a distribution
+    /// Describe how much a value differs from the sample mean of a distribution
     ///
     /// \param output is the location where the description will be written
     /// \param output_size is the capacity of `output` in bytes
     /// \param value is the value to be analyzed
     /// \param comparison is the kind of comparison that should be performed
-    /// \param mean is the mean to which it should be compared
+    /// \param sample_mean is the sample mean to which it should be compared
     ///
     /// \returns the number of bytes that were written to `output`
     UDIPE_NON_NULL_ARGS
@@ -283,7 +283,7 @@
     /// \param prefix will be prepended to each estimate's display
     /// \param quantile is the quantile of interest in range ]0.0; 1.0[
     /// \param estimate is the estimate of the quantile of interest
-    /// \param mean is the estimate of the mean
+    /// \param sample_mean is the mean of the underlying sample
     /// \param unit is a string that spells out the measurement unit of
     ///             `estimate`
     static void log_quantile_estimate(udipe_log_level_t level,
