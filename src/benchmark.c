@@ -140,13 +140,13 @@
         }
 
         // Deduce how many significant digits should be displayed
-        int precision = 1;
+        int estimate_precision = 1;
         if (fabs(estimate.sample) != 0.0) {
-            precision += floor(log10(fabs(estimate.sample)));
+            estimate_precision += floor(log10(fabs(estimate.sample)));
         }
         assert(min_spread >= 0.0);
         if (min_spread > 0.0) {
-            precision += 1 - floor(log10(min_spread));
+            estimate_precision += 1 - floor(log10(min_spread));
         }
 
         // Quantify the relative fluctuation with respect to the sample value
@@ -154,10 +154,10 @@
         char rel_width_display[32] = { 0 };
         if (isfinite(rel_width)) {
             assert(rel_width >= 0.0);
-            const int precision = (rel_width < 1.0) ? 2 : 4;
+            const int width_precision = (rel_width < 1.0) ? 2 : 4;
             int len = snprintf(rel_width_display, sizeof(rel_width_display),
                                " (rel width %.*g%%)",
-                               precision, rel_width * 100.0);
+                               width_precision, rel_width * 100.0);
             ensure_gt(len, 0);
             ensure_lt((size_t)len, sizeof(rel_width_display));
         }
@@ -166,14 +166,14 @@
         udipe_logf(level,
                    "%s: %.*g %s%s with %g%% CI [%.*g; %.*g]%s.",
                    header,
-                   precision,
+                   estimate_precision,
                    estimate.sample,
                    unit,
                    mean_difference,
                    CONFIDENCE * 100.0,
-                   precision,
+                   estimate_precision,
                    estimate.low,
-                   precision,
+                   estimate_precision,
                    estimate.high,
                    rel_width_display);
     }
@@ -268,7 +268,7 @@
                                ratio);
             }
             break;
-        };
+        }
         ensure_ge(len, 0);
         ensure_lt((size_t)len, output_size);
         if (!len) output[0] = '\0';
