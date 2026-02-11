@@ -76,7 +76,7 @@
         /// reproducible results.
         //
         // TODO: Tune on more systems
-        #define NUM_RUNS_BEST_LOOP_X86 ((size_t)8*1024)
+        #define NUM_RUNS_BEST_LOOP_X86 ((size_t)64*1024)
 
         /// Warmup duration used for TSC clock offset calibration
         //
@@ -89,7 +89,7 @@
         /// reproducible results.
         //
         // TODO: Tune on more systems
-        #define NUM_RUNS_OFFSET_X86 ((size_t)16*1024)
+        #define NUM_RUNS_OFFSET_X86 ((size_t)64*1024)
 
     #endif  // X86_64
 
@@ -410,7 +410,7 @@
                      unit);
     }
 
-    /// Compute the relative dispersion from some \ref estimate_t
+    /// Compute the relative dispersion of some \ref estimate_t
     ///
     /// \param estimate is an \ref estimate_t that directly or indirectly derive
     ///                 from some measurements.
@@ -419,6 +419,9 @@
     static inline double relative_dispersion(estimate_t estimate) {
         return (estimate.high - estimate.low) / estimate.sample * 100.0;
     }
+
+
+    // TODO: Move the following to other files
 
     UDIPE_NON_NULL_ARGS
     distribution_t compute_duration_distribution(
