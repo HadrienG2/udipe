@@ -111,30 +111,26 @@
     }
 
 
-    /// Log a statistical estimate, possibly as part of a bullet list
+    /// Log a statistical estimate with some identiying header
     ///
     /// This function must be called within the scope of with_logger().
     ///
     /// \param level is the verbosity level at which this log will be emitted
-    /// \param bullet is a string that will be prepended to the log. This is
-    ///               used for bullet lists of estimates. If you are not
-    ///               displaying a bullet list you can set this to NULL, or
-    ///               better yet use the simple log_estimate() function.
-    /// \param name identifies the estimate that is being displayed
+    /// \param header is a string that will be prepended to the log. This is
+    ///               where you would put list bullets and quantity names.
     /// \param estimate is the \ref estimate_t to be displayed
     /// \param unit is a string that spells out the measurement unit of
     ///             `estimate`
-    UDIPE_NON_NULL_SPECIFIC_ARGS(3, 5)
-    static void log_estimate_impl(udipe_log_level_t level,
-                                  const char bullet[],
-                                  const char name[],
-                                  estimate_t estimate,
-                                  const char unit[]) {
-        // Find the smallest fluctuation around the mean
+    UDIPE_NON_NULL_ARGS
+    static void log_estimate(udipe_log_level_t level,
+                             const char header[],
+                             estimate_t estimate,
+                             const char unit[]) {
+        // Find the smallest fluctuation around the center
         assert(estimate.low <= estimate.center);
         double min_spread = estimate.center - estimate.low;
         assert(estimate.high >= estimate.center);
-        if (min_spread > estimate.high - estimate.center) {
+        if (min_spread > estimate.high - estimate.center || min_spread == 0.0) {
             min_spread = estimate.high - estimate.center;
         }
 
@@ -148,17 +144,21 @@
             precision += 1 - floor(log10(min_spread));
         }
 
-        // Display the estimate
-        const char* space_after_bullet = " ";
-        if (!bullet) {
-            bullet = "";
-            space_after_bullet = "";
+        // Quantify the relative fluctuation with respect to the center value
+        double rel_width = (estimate.high - estimate.low) / fabs(estimate.center);
+        char rel_width_display[32] = { 0 };
+        if (isfinite(rel_width)) {
+            int len = snprintf(rel_width_display, sizeof(rel_width_display),
+                               " (rel width %.2g%%)",
+                               rel_width * 100.0);
+            ensure_gt(len, 0);
+            ensure_lt((size_t)len, sizeof(rel_width_display));
         }
+
+        // Display the estimate
         udipe_logf(level,
-                   "%s%s%s: %.*g %s with %g%% CI [%.*g; %.*g].",
-                   bullet,
-                   space_after_bullet,
-                   name,
+                   "%s: %.*g %s with %g%% CI [%.*g; %.*g]%s.",
+                   header,
                    precision,
                    estimate.center,
                    unit,
@@ -166,28 +166,41 @@
                    precision,
                    estimate.low,
                    precision,
-                   estimate.high);
+                   estimate.high,
+                   rel_width_display);
     }
 
-    /// Log a statistical estimate outside of a bullet list context
+    /// Set up a header describing a percentile of a distribution
     ///
-    /// Parameters work as in log_estimate_impl()
+    /// \param output is the header where the header will be written
+    /// \param output_size is the capacity of `output` in bytes
+    /// \param fixed_header is a short fixed string to be prepended at the
+    ///                     beginning, this is mainly intended for bullet lists
+    /// \param quantile is the quantile to be displayed, in range ]0.0; 1.0[
+    ///
+    /// \returns the number of bytes that were written to `output`
     UDIPE_NON_NULL_ARGS
-    static void log_estimate(udipe_log_level_t level,
-                             const char name[],
-                             estimate_t estimate,
-                             const char unit[]) {
-        log_estimate_impl(level, NULL, name, estimate, unit);
+    static size_t write_percentile_header(char output[],
+                                          size_t output_size,
+                                          const char fixed_header[],
+                                          double quantile) {
+        ensure_gt(quantile, 0.0);
+        ensure_lt(quantile, 1.0);
+        const int len = snprintf(output, output_size,
+                                 "%sP%.1f",
+                                 fixed_header, quantile * 100.0);
+        ensure_gt(len, 0);
+        ensure_lt((size_t)len, output_size);
+        return len;
     }
-
 
     /// Log measurement statistics
     ///
     /// This function must be called within the scope of with_logger().
     ///
     /// \param level is the verbosity level at which this log will be emitted
-    /// \param title serves as a headed to the overall display
-    /// \param bullet will be prepended to each stat's display
+    /// \param title serves as a header to the overall statistics display
+    /// \param bullet will be prepended to each estimate's display
     /// \param stats are the \ref statistics_t to be displayed
     /// \param unit is a string that spells out the measurement unit of
     ///             `stats`
@@ -197,37 +210,87 @@
                                const char bullet[],
                                statistics_t stats,
                                const char unit[]) {
+        // Give the set of estimates an overarching title
         udipe_logf(level, "%s:", title);
-        log_estimate_impl(level,
-                          bullet,
-                          "Sym. dispersion start",
-                          stats.sym_dispersion_start,
-                          unit);
-        log_estimate_impl(level,
-                          bullet,
-                          "Low dispersion bound",
-                          stats.low_dispersion_bound,
-                          unit);
-        log_estimate_impl(level,
-                          bullet,
-                          "Mean",
-                          stats.mean,
-                          unit);
-        log_estimate_impl(level,
-                          bullet,
-                          "High dispersion bound",
-                          stats.high_dispersion_bound,
-                          unit);
-        log_estimate_impl(level,
-                          bullet,
-                          "Sym. dispersion end",
-                          stats.sym_dispersion_end,
-                          unit);
-        log_estimate_impl(level,
-                          bullet,
-                          "Sym. dispersion width",
-                          stats.sym_dispersion_width,
-                          unit);
+
+        // Prepare to display estimates in a bullet list
+        char bullet_with_space[16];
+        int bullet_with_space_len =
+            snprintf(bullet_with_space, sizeof(bullet_with_space),
+                     "%s ", bullet);
+        ensure_gt(bullet_with_space_len, 0);
+        ensure_lt((size_t)bullet_with_space_len, sizeof(bullet_with_space));
+
+        // Display the start of the central region
+        char header[32];
+        write_percentile_header(header,
+                                sizeof(header),
+                                bullet_with_space,
+                                CENTER_START_QUANTILE);
+        log_estimate(level,
+                     header,
+                     stats.center_start,
+                     unit);
+
+        // Display the boundary of the low tail region
+        write_percentile_header(header,
+                                sizeof(header),
+                                bullet_with_space,
+                                LOW_TAIL_QUANTILE);
+        log_estimate(level,
+                     header,
+                     stats.low_tail_bound,
+                     unit);
+
+        // Display the distribution mean
+        int len = snprintf(header, sizeof(header),
+                           "%s Mean",
+                           bullet);
+        ensure_gt(len, 0);
+        ensure_lt((size_t)len, sizeof(header));
+        log_estimate(level,
+                     header,
+                     stats.mean,
+                     unit);
+
+        // Display the boundary of the high tail region
+        write_percentile_header(header,
+                                sizeof(header),
+                                bullet_with_space,
+                                HIGH_TAIL_QUANTILE);
+        log_estimate(level,
+                     header,
+                     stats.high_tail_bound,
+                     unit);
+
+        // Display the end of the central region
+        write_percentile_header(header,
+                                sizeof(header),
+                                bullet_with_space,
+                                CENTER_END_QUANTILE);
+        log_estimate(level,
+                     header,
+                     stats.center_end,
+                     unit);
+
+        // Display the width of the central region
+        len = write_percentile_header(header,
+                                      sizeof(header),
+                                      bullet_with_space,
+                                      CENTER_END_QUANTILE);
+        ensure_gt(len, 0);
+        ensure_lt((size_t)len, sizeof(header));
+        size_t remaining = sizeof(header) - (size_t)len;
+        len = write_percentile_header(header + len,
+                                      remaining,
+                                      "-",
+                                      CENTER_START_QUANTILE);
+        ensure_gt(len, 0);
+        ensure_lt((size_t)len, remaining);
+        log_estimate(level,
+                     header,
+                     stats.center_width,
+                     unit);
     }
 
     /// Compute the relative dispersion from some \ref estimate_t
@@ -369,12 +432,11 @@
                            "    -",
                            loop_duration_stats,
                            "ns");
-            if (loop_duration_stats.low_dispersion_bound.low <= 0.0) {
-                debug("  * Measuring a zero duration is too likely...");
-            } else if(loop_duration_stats.mean.low < 10*loop_duration_stats.sym_dispersion_width.high) {
-                debug("  * Duration signal-noise ratio is too low...");
+            if (loop_duration_stats.low_tail_bound.low <= 0.0) {
+                debug("  * Too many zero/negative values = sub-resolution durations, try more iterations...");
+            } else if(loop_duration_stats.mean.low < 10*loop_duration_stats.center_width.high) {
+                debug("  * Duration signal-noise ratio is still unacceptably low, try more iterations...");
             } else {
-                debug("  * That's long enough and stable enough.");
                 clock.builder = distribution_initialize();
                 break;
             }
@@ -382,15 +444,15 @@
             num_iters *= 2;
             clock.builder = distribution_reset(&loop_durations);
         } while(true);
-        infof("- Loops with >=%zu iterations have non-negligible duration.",
+        infof("- Loops with >=%zu iterations start getting into the good measurement range.",
               num_iters);
 
-        info("Finding optimal loop duration...");
+        info("Fine-tuning optimal loop duration...");
         clock.best_empty_iters = num_iters;
         clock.best_empty_durations = loop_durations;
         distribution_poison(&loop_durations);
         clock.best_empty_stats = loop_duration_stats;
-        const int64_t best_precision = loop_duration_stats.sym_dispersion_width.high;
+        const int64_t best_precision = loop_duration_stats.center_width.high;
         estimate_t best_iter =
             estimate_iteration_duration(loop_duration_stats.mean,
                                         clock.best_empty_iters);
@@ -421,11 +483,12 @@
                          curr_iter,
                          "ns");
             const double dispersion = relative_dispersion(curr_iter);
-            const int64_t precision = loop_duration_stats.sym_dispersion_width.high;
+            const int64_t precision = loop_duration_stats.center_width.high;
             // In a regime of stable run timing precision, doubling the
-            // iteration count should improve iteration timing dispersion by
-            // 2x. Ignore small improvements that don't justify a 2x longer run
-            // duration, and thus fewer runs per unit of execution time...
+            // iteration count should reduce iteration timing dispersion by
+            // sqrt(2)x ~ 1.4x. Ignore small improvements that don't justify a
+            // 2x longer run duration, and thus fewer runs per unit of benchmark
+            // execution time, which are also precious...
             if (dispersion < best_dispersion/1.1) {
                 debug("  * This is our new best loop. Can we do even better?");
                 best_iter = curr_iter;

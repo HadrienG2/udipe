@@ -32,12 +32,6 @@
     UDIPE_NON_NULL_ARGS
     statistics_t analyzer_apply(analyzer_t* analyzer,
                                 const distribution_t* dist) {
-        trace("Calibrating quantiles...");
-        const double quantile_sym_dispersion_start = (1.0 - DISPERSION_WIDTH) / 2;
-        const double quantile_low_dispersion_bound = 1.0 - DISPERSION_WIDTH;
-        const double quantile_high_dispersion_bound = DISPERSION_WIDTH;
-        const double quantile_sym_dispersion_end = (1.0 + DISPERSION_WIDTH) / 2;
-
         trace("Performing bootstrap resampling...");
         for (size_t run = 0; run < NUM_RESAMPLES; ++run) {
             tracef("- Performing resample #%zu/%zu", run, NUM_RESAMPLES);
@@ -45,29 +39,24 @@
                 distribution_resample(&analyzer->resample_builder, dist);
             trace("  * Computing mean...");
             analyzer->statistics[MEAN][run] = analyze_mean(analyzer, &resample);
-            trace("  * Computing symmetric dispersion start...");
-            const int64_t sym_dispersion_start =
-                distribution_quantile(&resample, quantile_sym_dispersion_start);
-            analyzer->statistics[SYM_DISPERSION_START][run] =
-                sym_dispersion_start;
-            trace("  * Computing low dispersion bound...");
-            const int64_t low_dispersion_bound =
-                distribution_quantile(&resample, quantile_low_dispersion_bound);
-            analyzer->statistics[LOW_DISPERSION_BOUND][run] =
-                low_dispersion_bound;
-            trace("  * Computing high dispersion bound...");
-            const int64_t high_dispersion_bound =
-                distribution_quantile(&resample, quantile_high_dispersion_bound);
-            analyzer->statistics[HIGH_DISPERSION_BOUND][run] =
-                high_dispersion_bound;
-            trace("  * Computing symmetric dispersion end...");
-            const int64_t sym_dispersion_end =
-                distribution_quantile(&resample, quantile_sym_dispersion_end);
-            analyzer->statistics[SYM_DISPERSION_END][run] =
-                sym_dispersion_end;
-            trace("  * Computing symmetric dispersion width...");
-            analyzer->statistics[SYM_DISPERSION_WIDTH][run] =
-                sym_dispersion_end - sym_dispersion_start;
+            trace("  * Computing center start...");
+            const int64_t center_start =
+                distribution_quantile(&resample, CENTER_START_QUANTILE);
+            analyzer->statistics[CENTER_START][run] = center_start;
+            trace("  * Computing low tail bound...");
+            const int64_t low_tail_bound =
+                distribution_quantile(&resample, LOW_TAIL_QUANTILE);
+            analyzer->statistics[LOW_TAIL_BOUND][run] = low_tail_bound;
+            trace("  * Computing high tail bound...");
+            const int64_t high_tail_bound =
+                distribution_quantile(&resample, HIGH_TAIL_QUANTILE);
+            analyzer->statistics[HIGH_TAIL_BOUND][run] = high_tail_bound;
+            trace("  * Computing center end...");
+            const int64_t center_end =
+                distribution_quantile(&resample, CENTER_END_QUANTILE);
+            analyzer->statistics[CENTER_END][run] = center_end;
+            trace("  * Computing center width...");
+            analyzer->statistics[CENTER_WIDTH][run] = center_end - center_start;
             trace("  * Resetting resampling buffer...");
             analyzer->resample_builder = distribution_reset(&resample);
         }
@@ -78,12 +67,12 @@
             estimates[stat] = analyze_estimate(analyzer, (statistic_id_t)stat);
         }
         return (statistics_t){
+            .center_start = estimates[CENTER_START],
+            .low_tail_bound = estimates[LOW_TAIL_BOUND],
             .mean = estimates[MEAN],
-            .sym_dispersion_start = estimates[SYM_DISPERSION_START],
-            .low_dispersion_bound = estimates[LOW_DISPERSION_BOUND],
-            .high_dispersion_bound = estimates[HIGH_DISPERSION_BOUND],
-            .sym_dispersion_end = estimates[SYM_DISPERSION_END],
-            .sym_dispersion_width = estimates[SYM_DISPERSION_WIDTH]
+            .high_tail_bound = estimates[HIGH_TAIL_BOUND],
+            .center_end = estimates[CENTER_END],
+            .center_width = estimates[CENTER_WIDTH]
         };
     }
 

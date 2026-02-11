@@ -68,58 +68,93 @@
 
     /// Width of confidence intervals
     ///
-    /// This should be set between 0.0 and 1.0 exclusive. Wider confidence
-    /// intervals will likely require a larger \ref NUM_RESAMPLES to converge.
+    /// This should be set between 0.0 and 1.0 exclusive.
     ///
-    /// 95% is chosen because it is the de facto standard in statistics.
+    /// 95% is used at the time of writing because it is the de facto standard
+    /// in statistics. Higher values will lead to a lower probability of
+    /// estimates randomly falling outside of the confidence interval by chance,
+    /// at the expense of worse convergence that will likely require more data
+    /// points and/or larger values of \ref NUM_RESAMPLES and thus
+    /// longer-running benchmarks.
     #define CONFIDENCE ((double)0.95)
     static_assert(CONFIDENCE > 0.0 && CONFIDENCE < 1.0);
 
-    /// Fraction of data points that dispersion quantiles surround
+    /// Fraction of data points that are excluded by the quantiles used in
+    /// dispersion analysis
     ///
-    /// Although they are both set to 95% at the time of writing, confidence
-    /// intervals and dispersion quantiles should not be confused as they
-    /// measure different things:
+    /// Although they both select 95% of a certain kind of value at the time of
+    /// writing, confidence intervals and dispersion quantiles should not be
+    /// confused as they measure two very different things:
     ///
-    /// - Confidence intervals apply to a certain population parameter, which is
-    ///   presumed to be fixed, and indicate how much our estimate of this
-    ///   parameter would likely vary due to random error if we were to run the
-    ///   benchmark again while measuring the same thing in an identical system
-    ///   configuration.
-    ///     * For example, the confidence interval on the mean of a duration
-    ///       indicates how much the observed mean duration is likely to vary
-    ///       from one benchmark run to another due to observed random error
-    ///       alone. A larger change in mean duration is likely to originate
-    ///       from a change in benchmark workload or system configuration.
+    /// - Confidence intervals apply to estimates of a certain parameter of the
+    ///   population probability distribution, which is presumed to remain fixed
+    ///   across benchmark runs. They indicate how much our estimate of this
+    ///   parameter would likely vary due to random error if we were to execute
+    ///   the benchmark again while measuring the same workload in an identical
+    ///   system configuration.
+    ///     * For example, the confidence interval on the mean duration of a
+    ///       benchmark indicates how much the computed mean duration is likely
+    ///       to vary from one benchmark execution to another due to observed
+    ///       random error alone. If another measurement yields a mean outside
+    ///       of the previous confidence interval, it is most likely to
+    ///       originate from a change in the true population distribution mean,
+    ///       caused by a significant change of benchmark workload or system
+    ///       configuration.
+    ///     * Confidence intervals shrink as the amount of available data points
+    ///       increase, with their width theoretically scaling as the inverse
+    ///       square root of the amount of data points though practical
+    ///       considerations like timer quantization and slow variations in the
+    ///       system configuration will lead to deviations from this ideal law.
+    ///       Therefore, if you encounter overly wide confidence intervals, a
+    ///       reliable if not always satisfactory solution is to collect more
+    ///       data points per benchmark execution.
     /// - Dispersion quantiles are selected population quantiles that are used
-    ///   to assess the dispersion i.e. the width of probability distribution.
-    ///   It indicates how much observed timings vary around the mean. A
-    ///   dispersion that is large with respect to the mean value indicates that
-    ///   either there is a lot of noise or the mean is not representative for
-    ///   another reason like a multimodal distribution. It should be understood
-    ///   as an invitation to visualize the full dataset and not be satisfied by
-    ///   the summary provided by the mean alone.
+    ///   to assess the dispersion i.e. the width of the probability
+    ///   distribution associated with the measured quantity of interest. It
+    ///   serves as an indication of how much observed timings vary around the
+    ///   mean or another quantity of interest. If the dispersion is large with
+    ///   respect to the mean, it suggests that benchmark timings are
+    ///   _intrinsically_ variable/non-reproducible in a manner that no extra
+    ///   data points will fix.
+    ///     * High dispersion warrants further investigation as such a finding
+    ///       may either be normal (if measuring fundamentally non-reproducible
+    ///       phenomena like download performance from a random internet server)
+    ///       or pathological (if a timing that should be highly reproducible
+    ///       has abnormal variability due to CPU frequency scaling, background
+    ///       system workload, etc). Generally speaking, high-dispersion
+    ///       distributions should be studied manually through visualization and
+    ///       careful investigation, not by looking at statistical summaries
+    ///       alone, which can only highlight dispersion but not explain it.
     ///
-    /// While the width of confidence intervals is linked to the population
-    /// dispersion, in the sense that a larger dispersion will lead to wider
-    /// confidence intervals, it can be shown that for any probability law,
-    /// measuring a larger number of data points will shrink confidence
-    /// intervals whereas the dispersion will converge to a nonzero limit.
-    #define DISPERSION_WIDTH ((double)0.95)
+    /// There's nothing sacred about 5%, we can in principle use any
+    /// distribution quantile to quantify dispersion. However there's a tradeoff
+    /// that must be kept in mind when tuning this parameter:
+    ///
+    /// - Excluding fewer data points, where the limit is to study the
+    ///   distribution's min/max value with an excluded fraction of 0.0, makes
+    ///   the dispersion measurement more sensitive to outliers and slower to
+    ///   converge as the number of data points increases because we become
+    ///   sensitive to increasingly small/improbable tails of the probability
+    ///   distribution.
+    /// - Excluding more data points, as in the standard quartile-based
+    ///   5-numbers statistical summary, will lead to more misleading numbers
+    ///   that is less representative of the "true" distribution width when the
+    ///   probability distribution has a complex shape like e.g. multiple modes.
+    #define DISPERSION_EXCLUDED_FRACTION ((double)0.05)
 
     /// Number of resamples required for confidence intervals to converge
     ///
     /// The value 201 seems appropriate for two reasons:
     ///
     /// - Bootstrap resampling literature frequently states that around 100
-    ///   samples should be enough for standard error estimates.
+    ///   samples should be enough when computing standard error estimates.
     /// - When computing a 95% symmetrical confidence interval, it is best if
     ///   percentiles P2.5 and P97.5 fall nearly exactly on a certain value of
     ///   the resampled statistic list, as opposed to being rounded by a large
     ///   margin. This is trivially ensured with 201 resamples, where the
     ///   spacing between resamples corresponds to a quantile spacing of 0.5%.
     ///
-    /// Nonetheless, this number of resamples should be increased, and the
+    /// Nonetheless, this number of resamples should be increased, and the above
     /// rationale comment updated accordingly, if unstable or blatantly
     /// incorrect confidence intervals are observed in a manner that is not
     /// resolved by simply collecting more data points per benchmark.
@@ -164,79 +199,82 @@
     /// Population quantiles are estimated through bootstram resampling rather
     /// than deduced from the standard deviation because the latter procedure
     /// implicitly relies on assuming a certain underlying probability law
-    /// (typically the normal law) which is not even approximately followed by
+    /// (typically the normal law), which is not even approximately followed by
     /// many real-world benchmark datasets.
     typedef struct statistics_s {
-        /// Estimated population mean
+        /// Estimated \ref DISPERSION_CENTER_START population quantile
         ///
-        /// Technically a truncated mean since it is computed over a dataset
-        /// from which outliers have been removed by \ref outlier_filter_t.
-        ///
-        /// The reason why are using a truncated mean rather than the median,
-        /// even though it requires outlier filtering to achieve good outlier
-        /// resilience, is that in the presence of clock quantization, the
-        /// median's "boundary effects" turn out to particularly problematic.
-        /// They can lead to values that are mostly very stable, yet can vary
-        /// dramatically from time to time, and this can way too easily be
-        /// misinterpreted as changes of the underlying benchmark load by users.
-        estimate_t mean;
-
-        /// Estimated `(1 - DISPERSION_WIDTH) / 2` population quantile
-        ///
-        /// Assuming a \ref DISPERSION_WIDTH of 95% for clarity, the interval
-        /// `[sym_dispersion_start; sym_dispersion_end]` surrounds 95% of data
-        /// points by setting aside the lowest and highest 2.5% of the dataset.
+        /// Assuming a \ref DISPERSION_EXCLUDED_FRACTION of 5% for clarity, the
+        /// interval `[center_start; center_end]` surrounds 95% of data points
+        /// by setting aside the lowest and highest 2.5% of the dataset.
         ///
         /// In other words, it measures the spread of the dataset around its
         /// median value in a manner that is less outlier-sensitive than a pure
         /// `[min; max]` interval would, at the expense of ignoring some data.
         ///
-        /// You can use the `[sym_dispersion_start; sym_dispersion_end]` as a
-        /// rough indicator of where most of your data points lie.
-        estimate_t sym_dispersion_start;
+        /// You can use the `[center_start; center_end]` interval as an
+        /// indicator of where most of your data points lie.
+        estimate_t center_start;
 
-        /// Estimated `1 - DISPERSION_WIDTH` population quantile
+        /// Estimated \ref DISPERSION_LOW_TAIL_BOUND population quantile
         ///
-        /// Assuming a \ref DISPERSION_WIDTH of 95% for clarity, the interval
-        /// `[low_dispersion_bound; +inf[` surrounds 95% of data points by
+        /// Assuming a \ref DISPERSION_EXCLUDED_FRACTION of 5% for clarity, the
+        /// interval `[low_tail_bound; +inf[` surrounds 95% of data points by
         /// setting aside the lowest 5% of the dataset.
         ///
-        /// This dispersion interval is useful when you want to detect when e.g.
-        /// measured timings have risen above a certain constant threshold, such
-        /// as a user-specified minimal duration.
+        /// This dispersion interval is useful when you want to detect when most
+        /// measured values have risen above a certain constant threshold, such
+        /// as a user-specified minimal duration for timing measurements.
         ///
         /// If the threshold is not fixed but determined via another
-        /// measurement, then this quantile cannot be used and you must instead
-        /// study the distribution of `measurement - threshold` differences. A
-        /// typical statistical test will for example ensure that 95% of these
-        /// differences are above 0.0.
-        estimate_t low_dispersion_bound;
+        /// measurement, then this quantile cannot be used directly and you must
+        /// instead study the distribution of `measurement - threshold`
+        /// differences. A typical statistical test will for example ensure that
+        /// 95% of these differences are above 0.0.
+        estimate_t low_tail_bound;
 
-        /// Estimated \ref DISPERSION_WIDTH population quantile
+        /// Estimated population mean
         ///
-        /// This is the "high" counterpart of `low_dispersion_bound`. Assuming
-        /// our usual 95% \ref DISPERSION_WIDTH, the interval `]-inf;
-        /// high_dispersion_bound]` surrounds 95% of data points by setting
-        /// aside the highest 5% of the dataset.
-        estimate_t high_dispersion_bound;
-
-        /// Estimated `(1 + DISPERSION_WIDTH) / 2` population quantile
+        /// Technically a truncated mean since it is computed over a dataset
+        /// from which outliers have been removed by \ref outlier_filter_t.
         ///
-        /// This is the "high" counterpart of `sym_dispersion_start`.  Assuming
-        /// our usual 95% \ref DISPERSION_WIDTH, the interval
-        /// `[sym_dispersion_start; sym_dispersion_end]` surrounds 95% of data
-        /// points by setting aside the lowest and highest 2.5% of the dataset.
-        estimate_t sym_dispersion_end;
+        /// The reason we are using a truncated mean rather than the median,
+        /// even though it requires outlier filtering to achieve satisfying
+        /// outlier resilience, is that in the presence of timing measurements
+        /// subjected to clock quantization, the median's "boundary effects" can
+        /// lead to problematically large jumps in output values when the
+        /// dataset is perturbed in a relatively small fashion.
+        ///
+        /// They can lead to values that are mostly very stable, yet can vary
+        /// dramatically from time to time, and this can way too easily be
+        /// misinterpreted as changes of the underlying benchmark load by users.
+        estimate_t mean;
 
-        /// Estimated width of `[sym_dispersion_start; sym_dispersion_end]`
+        /// Estimated \ref DISPERSION_HIGH_TAIL_BOUND population quantile
+        ///
+        /// This is the "high" counterpart of `low_tail_bound`. Assuming our
+        /// usual 5% \ref DISPERSION_EXCLUDED_FRACTION, the interval `]-inf;
+        /// high_tail_bound]` surrounds 95% of data points by setting aside the
+        /// highest 5% of the dataset.
+        estimate_t high_tail_bound;
+
+        /// Estimated \ref DISPERSION_CENTER_END population quantile
+        ///
+        /// This is the "high" counterpart of `center_start`.  Assuming our
+        /// usual 5% \ref DISPERSION_EXCLUDED_FRACTION, the interval
+        /// `[center_start; center_end]` surrounds 95% of data points by setting
+        /// aside the lowest and highest 2.5% of the dataset.
+        estimate_t center_end;
+
+        /// Estimated width of `[center_start; center_end]`
         ///
         /// If you want to know the spread of data points, as when computing
-        /// signal-to-noise ratio, then this statistic is more reliable than
-        /// computing the difference `sym_dispersion_end - sym_dispersion_start`
-        /// and guesstimating the width of the confidence interval as it will
-        /// correctly account for correlations between the two bounds caused by
-        /// e.g. CPU frequency scaling.
-        estimate_t sym_dispersion_width;
+        /// signal-to-noise ratio metrics, then this statistic is more reliable
+        /// than computing the difference `center_end.center -
+        /// center_start.center` and guesstimating the width of the confidence
+        /// interval, as it will correctly account for correlations between the
+        /// two bounds caused by e.g. CPU frequency scaling.
+        estimate_t center_width;
 
         // To add another statistic here, you need an associated entry to
         // statistic_id_e and appropriate code in analyzer_apply().
@@ -247,13 +285,13 @@
     /// This enum has one entry per \ref estimate_t in \ref statistics_t and is
     /// used to locate the appropriate data sub-array inside of \ref analyzer_t.
     typedef enum statistic_id_e {
-        MEAN = 0,
-        SYM_DISPERSION_START,
-        LOW_DISPERSION_BOUND,
-        HIGH_DISPERSION_BOUND,
-        SYM_DISPERSION_END,
-        SYM_DISPERSION_WIDTH,
-        NUM_STATISTICS  // Must remain the last entry
+        CENTER_START = 0,
+        LOW_TAIL_BOUND,
+        MEAN,
+        HIGH_TAIL_BOUND,
+        CENTER_END,
+        CENTER_WIDTH,
+        NUM_STATISTICS  // Must remain the last entry of this enum
     } statistic_id_t;
 
     /// Statistical analyzer
@@ -390,6 +428,34 @@
 
     /// \name Implementation details
     /// \{
+
+    /// Lower quantile used when studying a distribution's central dispersion
+    ///
+    /// See \ref statistics_t::center_start for more information.
+    //
+    // TODO extract to .c along with text rendering primitives
+    #define CENTER_START_QUANTILE  (DISPERSION_EXCLUDED_FRACTION / 2.0)
+
+    /// Higher quantile used when studying a distribution's central dispersion
+    ///
+    /// See \ref statistics_t::center_end for more information.
+    //
+    // TODO extract to .c along with text rendering primitives
+    #define CENTER_END_QUANTILE  (1.0 - DISPERSION_EXCLUDED_FRACTION / 2.0)
+
+    /// Quantile used when studying a distribution's left tail
+    ///
+    /// See \ref statistics_t::low_tail_bound for more information.
+    //
+    // TODO extract to .c along with text rendering primitives
+    #define LOW_TAIL_QUANTILE  DISPERSION_EXCLUDED_FRACTION
+
+    /// Quantile used when studying a distribution's right tail
+    ///
+    /// See \ref statistics_t::high_tail_bound for more information.
+    //
+    // TODO extract to .c along with text rendering primitives
+    #define HIGH_TAIL_QUANTILE  (1.0 - DISPERSION_EXCLUDED_FRACTION)
 
     /// Compute the mean of a distribution
     ///
