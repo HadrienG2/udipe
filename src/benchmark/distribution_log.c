@@ -84,7 +84,8 @@
         const size_t max_segment_size =
             (single_segment_size <= double_segment_size) ? double_segment_size
                                                          : single_segment_size;
-        return max_width*max_segment_size + 1;
+        // +1 for title-surrounding spaces, +1 for trailing \0
+        return max_width*max_segment_size + 2;
     }
 
     UDIPE_NON_NULL_ARGS

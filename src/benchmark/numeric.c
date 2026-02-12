@@ -351,20 +351,24 @@
                 if (addend != 0) {
                     int zero_based_exp = exp + SUBNORMAL_EXPONENT_BIAS_F64 + FRACTION_BITS_F64;
                     ensure_ge(zero_based_exp, 0);
-                    size_t addend_exp = zero_based_exp;
                     if (signbit(addend) == expected_sign) {
                         // Increase accumulator magnitude by addend, propagating
                         // carries as needed.
-                        while (expected[addend_exp]) {
-                            expected[addend_exp] = false;
-                            ++addend_exp;
-                            if (addend_exp == num_bits) {
-                                warn("Accumulator overflown, this should be very unlikely with a good RNG!");
-                                acc = ACCUMULATOR_ZERO;
+                        size_t addend_exp;
+                        for (addend_exp = zero_based_exp; addend_exp < num_bits; ++addend_exp) {
+                            if (expected[addend_exp]) {
+                                expected[addend_exp] = false;
                                 continue;
+                            } else {
+                                expected[addend_exp] = true;
+                                break;
                             }
                         }
-                        expected[addend_exp] = true;
+                        if (addend_exp == num_bits) {
+                            warn("Accumulator overflown, this should be very unlikely with a good RNG!");
+                            acc = ACCUMULATOR_ZERO;
+                            continue;
+                        }
                     } else {
                         // Determine how big the accumulator is
                         size_t expected_high_bit = num_bits - 1;
@@ -373,25 +377,31 @@
                         }
 
                         // Deduce who should be subtracted from whom
-                        if (expected_high_bit >= addend_exp) {
-                            // Subtract addend from accumulator
-                            while (!expected[addend_exp]) {
-                                expected[addend_exp] = true;
-                                ++addend_exp;
-                                ensure_lt(addend_exp, num_bits);
+                        if (expected_high_bit >= (size_t)zero_based_exp) {
+                            // Subtract addend from accumulator, propagating
+                            // carries as needed.
+                            size_t addend_exp;
+                            for (addend_exp = zero_based_exp; addend_exp < num_bits; ++addend_exp) {
+                                if (expected[addend_exp]) {
+                                    expected[addend_exp] = false;
+                                    break;
+                                } else {
+                                    expected[addend_exp] = true;
+                                    continue;
+                                }
                             }
-                            expected[addend_exp] = false;
+                            ensure_lt(addend_exp, num_bits);
                         } else {
                             // Subtract accumulator from addend
                             bool carry = false;
-                            for (size_t bit = 0; bit < addend_exp; ++bit) {
+                            for (size_t bit = 0; bit < (size_t)zero_based_exp; ++bit) {
                                 const bool subtrahend = expected[bit];
                                 expected[bit] = subtrahend ^ carry;
                                 carry = subtrahend || carry;
                             }
-                            ensure(!expected[addend_exp]);
-                            expected[addend_exp] = !carry;
-                            for (size_t bit = addend_exp + 1; bit < num_bits; ++bit) {
+                            ensure(!expected[zero_based_exp]);
+                            expected[zero_based_exp] = !carry;
+                            for (size_t bit = zero_based_exp + 1; bit < num_bits; ++bit) {
                                 ensure(!expected[bit]);
                             }
                             expected_sign = signbit(addend);
