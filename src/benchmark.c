@@ -312,8 +312,8 @@
         distribution_builder_t duration_changes_builder = distribution_initialize();
 
         debug("Measuring the clock resolution and minimal duration...");
-        size_t num_iters = 1;
         debug("- Measuring loop with 1 iteration...");
+        size_t num_iters = 1;
         distribution_t prev_durations = os_clock_measure(
             &clock,
             empty_loop,
@@ -323,7 +323,10 @@
             outlier_filter,
             &prev_durations_builder
         );
+
         // TODO: Init clock resolution estimate to min prev_durations internal delta
+        // TODO: Add associated logging
+
         distribution_t curr_durations, duration_changes;
         num_iters = 2;
         do {
@@ -343,18 +346,19 @@
             // TODO: If so, break this loop (TODO define state required at next step)
             // TODO: If not, reset prev_durations into curr_durations_builder,
             //       move curr_durations into prev_durations, poison curr_durations,
-            //       reset duration_changes into duration_changes_builder and poison
-            //       duration_changes.
-            // TODO: add logging
+            //       reset duration_changes into duration_changes_builder, poison
+            //       duration_changes, and finally double num_iters.
+            // TODO: add more logging
         } while (/* TODO set condition */ false);
 
         // TODO: Set up quantization noise randomization by recording in
         //       os_clock_t the proper range of random num_iters that should be
         //       performed between benchmark runs in order to be safe from
         //       systematic quantization bias, which is num_iters/2..=num_iters.
-        //       Initialize this num_iters to 0 in basic setup above so that the
-        //       initial calls to os_clock_measure get something to work with.
-        //       Add support for this random wait in os_clock_measure.
+        //       Initialize this clock_dithering_iters variable to 0 in basic
+        //       setup above so that the initial calls to os_clock_measure get
+        //       something to work with. Add support for this random wait in
+        //       os_clock_measure.
 
         // TODO: Implement next calibrations steps, starting with "signal"
 
