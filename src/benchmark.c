@@ -309,7 +309,7 @@
         debug("Setting up initial duration storage");
         distribution_builder_t prev_durations_builder = distribution_initialize();
         distribution_builder_t curr_durations_builder = distribution_initialize();
-        distribution_builder_t extra_durations_builder = distribution_initialize();
+        distribution_builder_t duration_changes_builder = distribution_initialize();
 
         debug("Measuring the clock resolution and minimal duration...");
         size_t num_iters = 1;
@@ -324,7 +324,7 @@
             &prev_durations_builder
         );
         // TODO: Init clock resolution estimate to min prev_durations internal delta
-        distribution_t curr_durations, extra_durations;
+        distribution_t curr_durations, duration_changes;
         num_iters = 2;
         do {
             debugf("- Measuring loop with %zu iterations...", num_iters);
@@ -338,13 +338,13 @@
 
             // TODO: Update clock resolution estimate to min curr_durations internal delta if lower
             // TODO: Update clock resolution estimate to min curr/prev_durations delta if lower
-            // TODO: Build extra_durations = curr_durations - prev_durations distribution using extra_durations_builder
-            // TODO: Check if P5 of extra_durations is > 0.0
+            // TODO: Build duration_changes = curr_durations - prev_durations distribution using duration_changes_builder
+            // TODO: Check if P5 of duration_changes is > 0.0
             // TODO: If so, break this loop (TODO define state required at next step)
             // TODO: If not, reset prev_durations into curr_durations_builder,
             //       move curr_durations into prev_durations, poison curr_durations,
-            //       reset extra_durations into extra_durations_builder and poison
-            //       extra_durations.
+            //       reset duration_changes into duration_changes_builder and poison
+            //       duration_changes.
             // TODO: add logging
         } while (/* TODO set condition */ false);
 
