@@ -22,6 +22,78 @@
     #include <string.h>
 
 
+    // === Configuration constants ===
+    //
+    // To calibrate our clocks, we make them measure a dummy empty loop
+    // workload, chosen for its simplicity, tunable duration and extreme timing
+    // stability. The number of iterations of this empty loop is tuned up
+    // through a power-of-2 exponential series as part of a 4-stage calibration
+    // process that determines the optimal range of iterations for time
+    // measurements while measuring clock characteristics along the way.
+    //
+    // To explain this calibration process, let us denote t(N) the measured
+    // duration of an N-iterations loop (which depends on complicated factors
+    // like the clock measurement overhead, which functions on the call path get
+    // inlined, etc) and dt(N) = t(2 * N) - t(N) the extra time it takes to run
+    // the loop for dN more iterations (which, for high enough N, should only
+    // depend on the steady-state loop iteration duration).
+    //
+    // 1. At the "threshold" stage, we determine Nthr such that most of the
+    //    values of dt(Nthr) are strictly positive. In other words Nthr is a
+    //    factor 1-2x above the smallest N for which 2*N loop iterations have an
+    //    easily observable impact on execution time compared to N iterations.
+    //    Along the way, we also estimate the clock resolution as the smallest
+    //    observed difference between clock readings, and use this measurement
+    //    to introduce a random delay between benchmark runs such that the
+    //    quantization noise that this finite clock resolution introduces only
+    //    translates into random error, not systematic bias towards duration
+    //    values that are 1 tick smaller or higher than the true measurement.
+    // 2. At the "SNR" stage, we determine Nclean such that quantization
+    //    and random noise have a sufficiently small impact on most measured
+    //    durations dt(Nclean). For quantization noise, this is achieved by
+    //    ensuring that most values of dt(Nclean) are higher than
+    //    MIN_QUANTIZATION_SNR times the clock resolution, which means that
+    //    quantization noise only has a 1/MIN_QUANTIZATION_SNR relative
+    //    contribution to the measured duration signal. For random noise, this
+    //    is achieved by ensuring that most values of dt(Nclean) are at least
+    //    MIN_RANDOM_SNR times larger than the dispersion of this distribution,
+    //    which again ensures that random fluctuations only represent a
+    //    1/MIN_RANDOM_SNR relative contribution to the measured duration
+    //    signal. Together, these two tuning processes ensure that it is the
+    //    workload duration, and not quantization noise or random error, that
+    //    dominate the measured timings.
+    // 3. At the "affine" stage, we then proceed to determine Naffine such that
+    //    dt(2*Naffine) is approximately equal to 2*dt(Naffine), i.e. the
+    //    difference of these distributions is close enough to zero than it can
+    //    be attributed to random statistical error. This is the point where the
+    //    empty loop starts to have enough iterations for the CPU to reach a
+    //    steady state, meaning that any iteration added after this point takes
+    //    a fixed amount of time, and thus it makes sense to speak of an
+    //    "iteration duration" and such a duration can be deduced from dt(N) for
+    //    any N >= Naffine.
+    // 4. At the "limit" stage, we improve the accuracy of our measurements
+    //    by increasing N further until we reach the Nlimit where the
+    //    aforementioned affine approximation breaks down. This can be detected
+    //    as a significant change of the slope or intercept of the
+    //    aforementioned affine model. This breakdown happens at the point where
+    //    undesirable OS/hardware perturbations start adding a non-negligible
+    //    contribution to benchmark timings. Once we get there, we collect all
+    //    slope and intercept measurements made in the affine region and combine
+    //    them into a precise model of the empty loop's performance dt(N) for
+    //    Naffine <= N < Nbreak. From this, we can tell the optimal benchmark
+    //    run duration range where optimal affine behavior is observed (on an
+    //    empty loop at least), and the corresponding amount of empty loop
+    //    iterations.
+    //
+    // At this point, we know the optimal range of N for measuring the empty
+    // loop, and can therefore proceed to jointly measure dt(N) with the OS
+    // clock and TSC at various points in the Naffine <= N <= Nbreak/2 region.
+    // This will give us durations measured in nanoseconds and TSC ticks on the
+    // same workload and at the same time, from which we will be able to deduce
+    // the conversion factor between nanoseconds and TSC ticks which is nothing
+    // but the TSC frequency. And that, in turn, will complete the TSC
+    // calibration process.
+
     /// Warmup duration used for OS clock offset calibration
     //
     // TODO: Tune on more systems
