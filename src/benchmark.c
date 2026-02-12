@@ -48,7 +48,7 @@
     //    quantization noise that this finite clock resolution introduces only
     //    translates into random error, not systematic bias towards duration
     //    values that are 1 tick smaller or higher than the true measurement.
-    // 2. At the "SNR" stage, we determine Nclean such that quantization
+    // 2. At the "signal" stage, we determine Nclean such that quantization
     //    and random noise have a sufficiently small impact on most measured
     //    durations dt(Nclean). For quantization noise, this is achieved by
     //    ensuring that most values of dt(Nclean) are higher than
@@ -59,31 +59,30 @@
     //    MIN_RANDOM_SNR times larger than the dispersion of this distribution,
     //    which again ensures that random fluctuations only represent a
     //    1/MIN_RANDOM_SNR relative contribution to the measured duration
-    //    signal. Together, these two tuning processes ensure that it is the
+    //    signal. Together, these two tuning objectives ensure that it is the
     //    workload duration, and not quantization noise or random error, that
-    //    dominate the measured timings.
+    //    dominate the measured timing signal.
     // 3. At the "affine" stage, we then proceed to determine Naffine such that
     //    dt(2*Naffine) is approximately equal to 2*dt(Naffine), i.e. the
     //    difference of these distributions is close enough to zero than it can
     //    be attributed to random statistical error. This is the point where the
     //    empty loop starts to have enough iterations for the CPU to reach a
-    //    steady state, meaning that any iteration added after this point takes
-    //    a fixed amount of time, and thus it makes sense to speak of an
-    //    "iteration duration" and such a duration can be deduced from dt(N) for
-    //    any N >= Naffine.
+    //    steady state in the middle of it, meaning that any iteration added
+    //    after this point takes a fixed amount of time, and thus it makes sense
+    //    to speak of an "iteration duration" and such a duration can be deduced
+    //    from dt(N) for any N >= Naffine.
     // 4. At the "limit" stage, we improve the accuracy of our measurements
     //    by increasing N further until we reach the Nlimit where the
-    //    aforementioned affine approximation breaks down. This can be detected
-    //    as a significant change of the slope or intercept of the
-    //    aforementioned affine model. This breakdown happens at the point where
-    //    undesirable OS/hardware perturbations start adding a non-negligible
-    //    contribution to benchmark timings. Once we get there, we collect all
-    //    slope and intercept measurements made in the affine region and combine
-    //    them into a precise model of the empty loop's performance dt(N) for
-    //    Naffine <= N < Nbreak. From this, we can tell the optimal benchmark
-    //    run duration range where optimal affine behavior is observed (on an
-    //    empty loop at least), and the corresponding amount of empty loop
-    //    iterations.
+    //    aforementioned affine model breaks down. This breakdown can be
+    //    detected as a significant change of the slope or intercept of the
+    //    aforementioned affine model. It happens at the point where undesirable
+    //    OS/hardware perturbations start adding a non-negligible contribution
+    //    to benchmark timings. Once we get there, we collect all slope and
+    //    intercept measurements made in the affine region and combine them into
+    //    a precise model of the empty loop's performance dt(N) for Naffine <= N
+    //    < Nbreak. From this, we can tell the optimal benchmark run duration
+    //    range where optimal affine behavior is observed (on an empty loop at
+    //    least), and the corresponding amount of empty loop iterations.
     //
     // At this point, we know the optimal range of N for measuring the empty
     // loop, and can therefore proceed to jointly measure dt(N) with the OS
@@ -94,18 +93,73 @@
     // but the TSC frequency. And that, in turn, will complete the TSC
     // calibration process.
 
-    /// Warmup duration used for OS clock offset calibration
+    /// Warmup duration used at the "threshold" calibration stage
     //
     // TODO: Tune on more systems
-    #define WARMUP_OFFSET_OS (1000*UDIPE_MILLISECOND)
+    #define THRESHOLD_WARMUP  (1000*UDIPE_MILLISECOND)
 
-    /// Number of benchmark runs used for OS clock offset calibration
-    ///
-    /// Tune this up if clock offset calibration is unstable, as evidenced by
-    /// the fact that short loops get a nonzero median duration.
+    /// Number of benchmark runs performed at the "threshold" calibration stage
     //
     // TODO: Tune on more systems
-    #define NUM_RUNS_OFFSET_OS ((size_t)64*1024)
+    #define THRESHOLD_NRUNS  ((size_t)64*1024)
+
+    /// Warmup duration used at the "signal" calibration stage
+    //
+    // TODO: Tune on more systems
+    #define SIGNAL_WARMUP  (1000*UDIPE_MILLISECOND)
+
+    /// Number of benchmark runs performed at the "signal" calibration stage
+    //
+    // TODO: Tune on more systems
+    #define SIGNAL_NRUNS  ((size_t)64*1024)
+
+    /// Minimal signal-to-quantization-noise ratio targeted by the "signal"
+    /// calibration stage
+    ///
+    /// This can be tuned almost as high as desired because quantization noise
+    /// does not depend on the number of loop iterations and therefore SNR can
+    /// be increased as much as you like by simply increasing the benchmark loop
+    /// iteration count.
+    //
+    // TODO: Tune on more systems
+    #define MIN_QUANTIZATION_SNR  ((double)100.0)
+
+    /// Minimal signal-to-random-noise ratio targeted by the "signal"
+    /// calibration stage
+    ///
+    /// Unlike \ref MIN_QUANTIZATION_SNR, this cannot be tuned arbitrarily high
+    /// because beyond a certain number of loop iterations, random timing
+    /// dispersion starts scaling with the loop iteration count. However, all
+    /// computers are empirically capable of achieving ~10% benchmark stability
+    /// without special tuning, so we can aim for this as a starting point, and
+    /// later see if a particular workload can get more stable than this.
+    //
+    // TODO: Tune on more systems
+    #define MIN_RANDOM_SNR  ((double)10.0)
+
+    /// Warmup duration used at the "affine" calibration stage
+    //
+    // TODO: Tune on more systems
+    #define AFFINE_WARMUP  (2000*UDIPE_MILLISECOND)
+
+    /// Number of benchmark runs performed at the "affine" calibration stage
+    //
+    // TODO: Tune on more systems
+    #define AFFINE_NRUNS  ((size_t)64*1024)
+
+    /// Warmup duration used at the "limit" calibration stage
+    //
+    // TODO: Tune on more systems
+    #define LIMIT_WARMUP  (2000*UDIPE_MILLISECOND)
+
+    /// Number of benchmark runs performed at the "limit" calibration stage
+    //
+    // TODO: Tune on more systems
+    #define LIMIT_NRUNS  ((size_t)64*1024)
+
+
+    // TODO: Remove all of the following, superseded by the above, but add
+    //       parameters for the TSC calibration once ready to work on it
 
     /// Warmup duration used for shortest loop calibration
     //
@@ -244,52 +298,73 @@
         #endif
 
         debug("Allocating timestamp buffer and duration distribution...");
-        size_t max_runs = NUM_RUNS_OFFSET_OS;
-        if (max_runs < NUM_RUNS_SHORTEST_LOOP) max_runs = NUM_RUNS_SHORTEST_LOOP;
-        if (max_runs < NUM_RUNS_BEST_LOOP_OS) max_runs = NUM_RUNS_BEST_LOOP_OS;
-        const size_t timestamps_size = (max_runs+1) * sizeof(os_timestamp_t);
+        size_t max_runs = THRESHOLD_NRUNS;
+        if (max_runs < SIGNAL_NRUNS) max_runs = SIGNAL_NRUNS;
+        if (max_runs < AFFINE_NRUNS) max_runs = AFFINE_NRUNS;
+        if (max_runs < LIMIT_NRUNS) max_runs = LIMIT_NRUNS;
+        const size_t timestamps_size = 2*max_runs * sizeof(os_timestamp_t);
         clock.timestamps = realtime_allocate(timestamps_size);
         clock.num_durations = max_runs;
-        clock.builder = distribution_initialize();
 
-        info("Bootstrapping clock offset to 0 ns...");
-        distribution_insert(&clock.builder, 0);
-        clock.offsets = distribution_build(&clock.builder);
-        clock.builder = distribution_initialize();
+        debug("Setting up initial duration storage");
+        distribution_builder_t prev_durations_builder = distribution_initialize();
+        distribution_builder_t curr_durations_builder = distribution_initialize();
+        distribution_builder_t extra_durations_builder = distribution_initialize();
 
-        info("Measuring actual clock offset...");
-        size_t num_iters = 0;
-        distribution_t tmp_offsets = os_clock_measure(
+        debug("Measuring the clock resolution and minimal duration...");
+        size_t num_iters = 1;
+        debug("- Measuring loop with 1 iteration...");
+        distribution_t prev_durations = os_clock_measure(
             &clock,
             empty_loop,
             &num_iters,
-            WARMUP_OFFSET_OS,
-            NUM_RUNS_OFFSET_OS,
+            THRESHOLD_WARMUP,
+            THRESHOLD_NRUNS,
             outlier_filter,
-            &clock.builder
+            &prev_durations_builder
         );
-        clock.builder = distribution_reset(&clock.offsets);
-        clock.offsets = tmp_offsets;
-        distribution_poison(&tmp_offsets);
-        const statistics_t offset_stats =
-            analyzer_apply(analyzer, &clock.offsets);
-        log_statistics(UDIPE_DEBUG,
-                       "- Clock offset",
-                       "  *",
-                       offset_stats,
-                       "ns");
+        // TODO: Init clock resolution estimate to min prev_durations internal delta
+        distribution_t curr_durations, extra_durations;
+        num_iters = 2;
+        do {
+            debugf("- Measuring loop with %zu iterations...", num_iters);
+            curr_durations = os_clock_measure(&clock,
+                                              empty_loop,
+                                              &num_iters,
+                                              THRESHOLD_WARMUP,
+                                              THRESHOLD_NRUNS,
+                                              outlier_filter,
+                                              &curr_durations_builder);
 
-        info("Deducing clock baseline...");
-        distribution_t tmp_zeros = distribution_sub(&clock.builder,
-                                                    &clock.offsets,
-                                                    &clock.offsets);
-        const statistics_t zero_stats = analyzer_apply(analyzer, &tmp_zeros);
-        log_statistics(UDIPE_DEBUG,
-                       "- Baseline",
-                       "  *",
-                       zero_stats,
-                       "ns");
-        clock.builder = distribution_reset(&tmp_zeros);
+            // TODO: Update clock resolution estimate to min curr_durations internal delta if lower
+            // TODO: Update clock resolution estimate to min curr/prev_durations delta if lower
+            // TODO: Build extra_durations = curr_durations - prev_durations distribution using extra_durations_builder
+            // TODO: Check if P5 of extra_durations is > 0.0
+            // TODO: If so, break this loop (TODO define state required at next step)
+            // TODO: If not, reset prev_durations into curr_durations_builder,
+            //       move curr_durations into prev_durations, poison curr_durations,
+            //       reset extra_durations into extra_durations_builder and poison
+            //       extra_durations.
+            // TODO: add logging
+        } while (/* TODO set condition */ false);
+
+        // TODO: Set up quantization noise randomization by recording in
+        //       os_clock_t the proper range of random num_iters that should be
+        //       performed between benchmark runs in order to be safe from
+        //       systematic quantization bias, which is num_iters/2..=num_iters.
+        //       Initialize this num_iters to 0 in basic setup above so that the
+        //       initial calls to os_clock_measure get something to work with.
+        //       Add support for this random wait in os_clock_measure.
+
+        // TODO: Implement next calibrations steps, starting with "signal"
+
+        // TODO: Finish implementing new calibration procedure
+        // TODO: Don't forget to recycle distributions that have no further use
+        //       at the end
+        exit_with_error("All code beyond this point must be rewritten "
+                        "to follow the new calibration procedure");
+
+        clock.builder = distribution_initialize();
 
         info("Finding minimal measurable loop...");
         distribution_t loop_durations;
@@ -479,7 +554,6 @@
         clock->num_durations = 0;
 
         debug("Destroying duration distributions...");
-        distribution_finalize(&clock->offsets);
         distribution_finalize(&clock->best_empty_durations);
         distribution_finalize(&clock->builder.inner);
 

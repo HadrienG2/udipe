@@ -200,16 +200,7 @@
             uint64_t win32_frequency;
         #endif
 
-        /// Clock offset distribution in nanoseconds
-        ///
-        /// This is the offset that must be subtracted from OS clock durations
-        /// in order to get an unbiased estimator of the duration of the code
-        /// that is being benchmarked, excluding the cost of os_now() itself.
-        ///
-        /// You do not need to perform this offset subtraction yourself,
-        /// os_duration() and os_clock_measure() will take care of it for you.
-        distribution_t offsets;
-
+        // TODO remove/change
         /// Empty loop iteration count at which the best relative precision on
         /// the loop iteration duration is achieved
         ///
@@ -217,6 +208,7 @@
         /// or when calibrating a different clock based on the system clock.
         size_t best_empty_iters;
 
+        // TODO remove/change
         /// Empty loop duration distribution in nanoseconds
         ///
         /// This field contains the distribution of execution times for the best
@@ -226,12 +218,14 @@
         /// the tick rate as a ticks-to-seconds ratio.
         distribution_t best_empty_durations;
 
+        // TODO remove/change
         /// Duration statistics for `best_empty_dist`
         ///
         /// This is used when calibrating the duration of a benchmark run
         /// towards the region where the system clock is most precise.
         statistics_t best_empty_stats;
 
+        // TODO remove/change
         /// Unused \ref distribution_builder_t
         ///
         /// The clock calibration process uses one more \ref
@@ -244,13 +238,13 @@
         /// Timestamp buffer
         ///
         /// This is used for timestamp storage during OS clock measurements. It
-        /// contains enough storage for `num_durations + 1` timestamps.
+        /// contains enough storage for `2 * num_durations` timestamps.
         os_timestamp_t* timestamps;
 
         /// Duration buffer capacity
         ///
-        /// See individual buffer descriptions for more information about how
-        /// buffer capacities derive from this quantity.
+        /// This is the capacity of the `timestamps` buffer in (start, stop)
+        /// pairs, i.e. half its capacity in individual timestamps.
         size_t num_durations;
     } os_clock_t;
 
@@ -305,7 +299,7 @@
         return timestamp;
     }
 
-    /// Estimate the elapsed time between two system clock readouts
+    /// Compute the elapsed time between two system clock readouts
     ///
     /// Given the `start` and `end` timestamps returned by two calls to now(),
     /// where `start` was measured before `end`, this estimates the amount of
@@ -319,25 +313,25 @@
     /// \param end is the timestamp that was measured using os_now() at the end
     ///            of the time span of interest (and therefore after `start`).
     ///
-    /// \returns an offset-corrected estimate of the amount of time that elapsed
-    ///          between `start` and `end`, in nanoseconds.
+    /// \returns an estimate of the amount of time that elapsed between `start`
+    ///          and `end`, in nanoseconds.
     UDIPE_NON_NULL_ARGS
     static inline signed_duration_ns_t os_duration(const os_clock_t* clock,
                                                    os_timestamp_t start,
                                                    os_timestamp_t end) {
         assert(os_timestamp_le(start, end));
-        signed_duration_ns_t uncorrected_ns;
+        signed_duration_ns_t duration_ns;
         #if defined(_POSIX_TIMERS)
             const int64_t secs = (int64_t)end.tv_sec - (int64_t)start.tv_sec;
-            uncorrected_ns = secs * UDIPE_SECOND;
-            uncorrected_ns += (int64_t)end.tv_nsec - (int64_t)start.tv_nsec;
+            duration_ns = secs * UDIPE_SECOND;
+            duration_ns += (int64_t)end.tv_nsec - (int64_t)start.tv_nsec;
         #elif defined(_WIN32)
             assert(clock->win32_frequency > 0);
-            uncorrected_ns = (end.QuadPart - start.QuadPart) * UDIPE_SECOND / clock->win32_frequency;
+            duration_ns = (end.QuadPart - start.QuadPart) * UDIPE_SECOND / clock->win32_frequency;
         #else
             #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
         #endif
-        return uncorrected_ns - distribution_choose(&clock->offsets);
+        return duration_ns;
     }
 
     /// Measure the execution duration of `workload` using the OS clock
@@ -370,9 +364,8 @@
     /// \param clock is the benchmark clock that is going to be used. This
     ///              routine can be used before said clock is fully initialized,
     ///              but it must be at minimum initialized enough to allow for
-    ///              offset-biased OS clock measurements (i.e. on Windows
-    ///              `win32_frequency` must have been queried already, and on
-    ///              all OSes `offset` must be zeroed out if not known yet).
+    ///              basic clock measurements (i.e. on Windows `win32_frequency`
+    ///              must have been queried already).
     /// \param workload is the workload whose duration should be measured.
     /// \param context encodes the parameters that should be passed to
     ///                `workload`, if any.
