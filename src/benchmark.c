@@ -343,7 +343,7 @@
     /// `context` must be a pointer to the associated \ref os_clock_t.
     static inline int64_t compute_os_duration(void* context,
                                               size_t run) {
-        os_clock_t* clock = (os_clock_t*)context;
+        const os_clock_t* clock = (os_clock_t*)context;
         assert(run < clock->num_durations);
         return os_duration(clock,
                            clock->timestamps[run],
@@ -574,7 +574,7 @@
         /// compute_duration_distribution() context used by x86_clock_measure()
         ///
         typedef struct x86_measure_context_s {
-            x86_clock_t* clock;  ///< x86 clock used for the measurement
+            const x86_clock_t* clock;  ///< x86 clock used for the measurement
             size_t num_runs;  ///< Number of benchmark runs
         } x86_measure_context_t;
 
@@ -584,12 +584,12 @@
         /// x86_measure_context_t.
         static inline int64_t compute_x86_duration(void* context,
                                                    size_t run) {
-            x86_measure_context_t* measure = (x86_measure_context_t*)context;
-            x86_clock_t* clock = measure->clock;
+            const x86_measure_context_t* measure = (x86_measure_context_t*)context;
+            const x86_clock_t* clock = measure->clock;
             assert(run < measure->num_runs);
             assert(measure->num_runs < clock->num_durations);
-            x86_instant* starts = clock->instants;
-            x86_instant* ends = starts + measure->num_runs;
+            const x86_instant* starts = clock->instants;
+            const x86_instant* ends = starts + measure->num_runs;
             const int64_t raw_ticks = ends[run] - starts[run];
             return raw_ticks - distribution_choose(&clock->offsets);
         }

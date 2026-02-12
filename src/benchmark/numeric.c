@@ -387,7 +387,7 @@
                             for (size_t bit = 0; bit < addend_exp; ++bit) {
                                 const bool subtrahend = expected[bit];
                                 expected[bit] = subtrahend ^ carry;
-                                carry = subtrahend | carry;
+                                carry = subtrahend || carry;
                             }
                             ensure(!expected[addend_exp]);
                             expected[addend_exp] = !carry;

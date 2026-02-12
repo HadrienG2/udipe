@@ -156,7 +156,7 @@ static void default_log_callback(void* /* context */,
     #endif
 
     // Query the current thread's name
-    const char* thread_name = get_thread_name();;
+    const char* thread_name = get_thread_name();
     assert(thread_name);
 
     // Display the log on stderr

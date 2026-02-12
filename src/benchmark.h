@@ -322,7 +322,7 @@
     /// \returns an offset-corrected estimate of the amount of time that elapsed
     ///          between `start` and `end`, in nanoseconds.
     UDIPE_NON_NULL_ARGS
-    static inline signed_duration_ns_t os_duration(os_clock_t* clock,
+    static inline signed_duration_ns_t os_duration(const os_clock_t* clock,
                                                    os_timestamp_t start,
                                                    os_timestamp_t end) {
         assert(os_timestamp_le(start, end));

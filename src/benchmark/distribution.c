@@ -701,7 +701,6 @@
                 }
 
                 const size_t prev_end = prev_bins;
-                const size_t prev_last = prev_end - 1;
                 if (insert_pos == SIZE_MAX) {
                     trace("- Checking past-the-end insertion...");
                     ensure_eq(builder.inner.num_bins, prev_end + 1);

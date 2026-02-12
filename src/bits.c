@@ -15,6 +15,7 @@ UDIPE_NON_NULL_ARGS
 void generate_entropy(uint64_t output[], size_t length) {
     ensure_eq(count_trailing_zeros(RAND_MAX), (word_t)0);
     const size_t bits_per_rand = population_count(RAND_MAX);
+    ensure_le(bits_per_rand, BITS_PER_ENTROPY_WORD);
     memset(output, 0, length * sizeof(uint64_t));
     size_t bits_so_far = 0;
     while (bits_so_far < length * BITS_PER_ENTROPY_WORD) {
@@ -26,7 +27,6 @@ void generate_entropy(uint64_t output[], size_t length) {
         output[word] |= entropy << offset;
         const size_t local_bits = BITS_PER_ENTROPY_WORD - offset;
         if (local_bits < bits_per_rand && word + 1 < length) {
-            const size_t remaining_bits = bits_per_rand - local_bits;
             output[word + 1] = entropy >> local_bits;
         }
         bits_so_far += bits_per_rand;

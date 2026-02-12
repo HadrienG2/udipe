@@ -259,7 +259,7 @@
         //
         // Since this function works with both distribution_builder_t and the
         // final distribution_t, it can only use the sorted_values field.
-        int64_t* sorted_values = distribution_layout(dist).sorted_values;
+        const int64_t* sorted_values = distribution_layout(dist).sorted_values;
         const size_t end_pos = dist->num_bins;
         tracef("Searching for a bin with a value around %zd (direction %d) "
                "within a distribution with %zu bins.",
@@ -487,7 +487,7 @@
                dist->num_bins);
 
         // Find index of closest bin >= value, if any
-        const int64_t bin_pos = distribution_bin_by_value(&builder->inner,
+        const int64_t bin_pos = distribution_bin_by_value(dist,
                                                           value,
                                                           BIN_ABOVE);
 

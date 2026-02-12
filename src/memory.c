@@ -327,7 +327,7 @@ void* realtime_allocate(size_t size) {
         default:
             warn_on_errno();
             warn(mlock_failure_msg);
-            goto prefault_and_return;;
+            goto prefault_and_return;
         }
 
         // If the first mlock failed, try to increase the underlying rlimit

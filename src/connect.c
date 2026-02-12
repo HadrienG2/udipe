@@ -89,8 +89,10 @@ connect_options_allocate(connect_options_allocator_t* allocator) {
         if ((availability & bit) == 0) {
             trace("Sadly, another thread got there first, must try again...");
             continue;
+        } else {
+            break;
         }
-    } while(false);
+    } while(true);
     // With this fence, we synchronize with the thread that previously
     // deallocated these options.
     atomic_thread_fence(memory_order_acquire);
