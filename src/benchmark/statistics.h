@@ -374,28 +374,28 @@
     /// iterations will average to M times the duration of a central, maximally
     /// reproducible loop iteration.
     ///
-    /// \param sum_mean is an estimate of the mean duration of `num_iterations`
-    ///                 benchmark loop iterations.
-    /// \param num_iterations is the number of iterations that are timed by
-    ///                       `sum_means`.
+    /// \param batch_mean is an estimate of the mean duration of
+    ///                   `batch_size` benchmark loop iterations.
+    /// \param batch_size is the number of iterations that are timed by
+    ///                   `batch_mean`.
     ///
     /// \returns an estimate of the duration of one benchmark loop iteration.
     static inline
-    estimate_t estimate_iteration_duration(estimate_t sum_mean,
-                                           size_t num_iterations) {
+    estimate_t estimate_iteration_duration(estimate_t batch_mean,
+                                           size_t batch_size) {
         estimate_t iter_mean;
         // Per linearity hypothesis, run duration = sum(iter duration)
         // From this, i.i.d. hypothesis gives us linear mean & variance scaling
-        iter_mean.sample = sum_mean.sample / num_iterations;
+        iter_mean.sample = batch_mean.sample / batch_size;
         // Given linear variance scaling, we trivially deduce that stddev scales
         // as the square root of the number of iterations...
-        const double stddev_norm = 1.0 / sqrt(num_iterations);
+        const double stddev_norm = 1.0 / sqrt(batch_size);
         // ...which, per the assumed confidence interval scaling law, gives us
         // the iteration duration confidence interval.
         iter_mean.low = iter_mean.sample
-                      - (sum_mean.sample - sum_mean.low) * stddev_norm;
+                      - (batch_mean.sample - batch_mean.low) * stddev_norm;
         iter_mean.high = iter_mean.sample
-                       + (sum_mean.high - sum_mean.sample) * stddev_norm;
+                       + (batch_mean.high - batch_mean.sample) * stddev_norm;
         return iter_mean;
     }
 
