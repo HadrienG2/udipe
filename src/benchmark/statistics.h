@@ -59,8 +59,10 @@
     #include "distribution.h"
 
     #include <assert.h>
+    #include <math.h>
     #include <stddef.h>
     #include <stdint.h>
+    #include <stdio.h>
 
 
     /// \name Tunable parameters
@@ -197,7 +199,7 @@
     /// calibration procedure and can rather easily be extended to accomodate
     /// new needs.
     ///
-    /// Population quantiles are estimated through bootstram resampling rather
+    /// Population quantiles are estimated through bootstrap resampling rather
     /// than deduced from the standard deviation because the latter procedure
     /// implicitly relies on assuming a certain underlying probability law
     /// (typically the normal law), which is not even approximately followed by
@@ -332,47 +334,18 @@
     /// \}
 
 
-    /// \name Public \ref analyzer_t API
+    /// \name Public \ref estimate_t API
     /// \{
 
-    /// Set up a statistical analyzer
+    /// Compute the relative dispersion of some \ref estimate_t
     ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \returns an \ref analyzer_t that can be used to analyze measurements
-    ///          with analyzer_apply().
-    analyzer_t analyzer_initialize();
-
-    /// Perform statistical analysis of `dist`
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param analyzer must be an \ref analyzer_t that has been initialized
-    ///                 with analyzer_initialize() and has not been destroyed
-    ///                 with analyzer_finalize() yet.
-    /// \param dist must be a \ref distribution_t that has previously
-    ///             been generated from a \ref distribution_builder_t via
-    ///             distribution_build() and hasn't yet been recycled via
-    ///             distribution_reset() or destroyed via
-    ///             distribution_finalize().
-    UDIPE_NON_NULL_ARGS
-    statistics_t analyzer_apply(analyzer_t* analyzer,
-                                const distribution_t* dist);
-
-    /// Destroy a statistical analyzer
-    ///
-    /// `analyzer` must not be used again after calling this function.
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param analyzer must be an \ref analyzer_t that has been initialized
-    ///                 with analyzer_initialize() and has not been destroyed
-    ///                 with analyzer_finalize() yet.
-    UDIPE_NON_NULL_ARGS
-    void analyzer_finalize(analyzer_t* analyzer);
-
-    /// \}
-
+    /// \param estimate is an \ref estimate_t that directly or indirectly derive
+    ///                 from some measurements.
+    /// \returns the relative magnitude of its dispersion in percentage points
+    ///          of the central tendency.
+    static inline double relative_dispersion(estimate_t estimate) {
+        return (estimate.high - estimate.low) / estimate.sample * 100.0;
+    }
 
     /// Estimate a mean iteration duration from a mean iteration batch duration
     ///
@@ -426,37 +399,183 @@
         return iter_mean;
     }
 
+    /// Log a statistical estimate
+    ///
+    /// This will log the string specified by "header", followed by a colon,
+    /// followed by a description of `estimate`.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param level is the verbosity level at which this log will be emitted
+    /// \param header is a string that will be prepended to the log. This is
+    ///               typically used for list bullets and estimate names.
+    /// \param estimate is the \ref estimate_t to be displayed
+    /// \param mean_difference is used to indicate how much the measured
+    ///                        quantity differs from the distribution mean,
+    ///                        you can leave this as "" if not needed.
+    /// \param unit is a string that spells out the measurement unit of
+    ///             `estimate`
+    UDIPE_NON_NULL_ARGS
+    void log_estimate(udipe_log_level_t level,
+                      const char header[],
+                      estimate_t estimate,
+                      const char mean_difference[],
+                      const char unit[]);
+
+    /// \}
+
+
+    /// \name Public \ref statistics_t API
+    /// \{
+
+    /// Log measurement statistics
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param level is the verbosity level at which this log will be emitted
+    /// \param title serves as a header to the overall statistics display
+    /// \param bullet will be prepended to each estimate's display
+    /// \param stats are the \ref statistics_t to be displayed
+    /// \param unit is a string that spells out the measurement unit of
+    ///             `stats`
+    UDIPE_NON_NULL_ARGS
+    void log_statistics(udipe_log_level_t level,
+                        const char title[],
+                        const char bullet[],
+                        statistics_t stats,
+                        const char unit[]);
+
+    /// \}
+
+
+    /// \name Public \ref analyzer_t API
+    /// \{
+
+    /// Set up a statistical analyzer
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \returns an \ref analyzer_t that can be used to analyze measurements
+    ///          with analyzer_apply().
+    analyzer_t analyzer_initialize();
+
+    /// Perform statistical analysis of `dist`
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param analyzer must be an \ref analyzer_t that has been initialized
+    ///                 with analyzer_initialize() and has not been destroyed
+    ///                 with analyzer_finalize() yet.
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_build() and hasn't yet been recycled via
+    ///             distribution_reset() or destroyed via
+    ///             distribution_finalize().
+    UDIPE_NON_NULL_ARGS
+    statistics_t analyzer_apply(analyzer_t* analyzer,
+                                const distribution_t* dist);
+
+    /// Destroy a statistical analyzer
+    ///
+    /// `analyzer` must not be used again after calling this function.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param analyzer must be an \ref analyzer_t that has been initialized
+    ///                 with analyzer_initialize() and has not been destroyed
+    ///                 with analyzer_finalize() yet.
+    UDIPE_NON_NULL_ARGS
+    void analyzer_finalize(analyzer_t* analyzer);
+
+    /// \}
+
 
     /// \name Implementation details
     /// \{
 
-    /// Lower quantile used when studying a distribution's central dispersion
+    /// Kind of comparison between a quantity quantity and a mean
     ///
-    /// See \ref statistics_t::center_start for more information.
-    //
-    // TODO extract to .c along with text rendering primitives
-    #define CENTER_START_QUANTILE  (DISPERSION_EXCLUDED_FRACTION / 2.0)
+    typedef enum mean_comparison_e {
+        DELTA,  ///< "mean+/-1.2%" relative delta, fallback to ratio for large deltas
+        FRACTION,  ///< "1.2% of mean" relative fraction, fallback to ratio for large deltas
+        RATIO   ///< "1.2x mean" relative ratio
+    } mean_comparison_t;
 
-    /// Higher quantile used when studying a distribution's central dispersion
+    /// Describe a percentile of a distribution
     ///
-    /// See \ref statistics_t::center_end for more information.
-    //
-    // TODO extract to .c along with text rendering primitives
-    #define CENTER_END_QUANTILE  (1.0 - DISPERSION_EXCLUDED_FRACTION / 2.0)
+    /// \param output is the location where the description will be written
+    /// \param output_size is the capacity of `output` in bytes
+    /// \param prefix is a string to be prepended at the beginning (this
+    ///               is mainly used for bullet lists)
+    /// \param quantile is the quantile to be displayed, in range ]0.0; 1.0[
+    ///
+    /// \returns the number of bytes that were written to `output`
+    UDIPE_NON_NULL_ARGS
+    static inline size_t write_percentile_header(char output[],
+                                                 size_t output_size,
+                                                 const char prefix[],
+                                                 double quantile) {
+        ensure_gt(quantile, 0.0);
+        ensure_lt(quantile, 1.0);
+        const int len = snprintf(output, output_size,
+                                 "%sP%.1f",
+                                 prefix, quantile * 100.0);
+        ensure_gt(len, 0);
+        ensure_lt((size_t)len, output_size);
+        return (size_t)len;
+    }
 
-    /// Quantile used when studying a distribution's left tail
+    /// Describe how much a value differs from the sample mean of a distribution
     ///
-    /// See \ref statistics_t::low_tail_bound for more information.
-    //
-    // TODO extract to .c along with text rendering primitives
-    #define LOW_TAIL_QUANTILE  DISPERSION_EXCLUDED_FRACTION
+    /// \param output is the location where the description will be written
+    /// \param output_size is the capacity of `output` in bytes
+    /// \param value is the value to be analyzed
+    /// \param comparison is the kind of comparison that should be performed
+    /// \param sample_mean is the sample mean to which it should be compared
+    ///
+    /// \returns the number of bytes that were written to `output`
+    UDIPE_NON_NULL_ARGS
+    size_t write_mean_difference(char output[],
+                                 size_t output_size,
+                                 estimate_t value,
+                                 mean_comparison_t comparison,
+                                 double sample_mean);
 
-    /// Quantile used when studying a distribution's right tail
+    /// Log the estimate of a particular distribution quantile
     ///
-    /// See \ref statistics_t::high_tail_bound for more information.
-    //
-    // TODO extract to .c along with text rendering primitives
-    #define HIGH_TAIL_QUANTILE  (1.0 - DISPERSION_EXCLUDED_FRACTION)
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param level is the verbosity level at which this log will be emitted
+    /// \param prefix will be prepended to each estimate's display
+    /// \param quantile is the quantile of interest in range ]0.0; 1.0[
+    /// \param estimate is the estimate of the quantile of interest
+    /// \param sample_mean is the mean of the underlying sample
+    /// \param unit is a string that spells out the measurement unit of
+    ///             `estimate`
+    UDIPE_NON_NULL_ARGS
+    static inline void log_quantile_estimate(udipe_log_level_t level,
+                                             const char prefix[],
+                                             double quantile,
+                                             estimate_t estimate,
+                                             double sample_mean,
+                                             const char unit[]) {
+        char header[48];
+        write_percentile_header(header,
+                                sizeof(header),
+                                prefix,
+                                quantile);
+        char mean_difference[32];
+        write_mean_difference(mean_difference,
+                              sizeof(mean_difference),
+                              estimate,
+                              DELTA,
+                              sample_mean);
+        log_estimate(level,
+                     header,
+                     estimate,
+                     mean_difference,
+                     unit);
+    }
 
     /// Compute the mean of a distribution
     ///
