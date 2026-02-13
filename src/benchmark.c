@@ -342,6 +342,7 @@
                                               THRESHOLD_NRUNS,
                                               outlier_filter,
                                               &curr_durations_builder);
+
             if (clock_resolution > 1) {
                 const uint64_t initial_resolution = clock_resolution;
                 const uint64_t curr_resolution =
@@ -432,11 +433,11 @@
         // num_iters is now high enough to get good measurement SNR.
 
         debug("Locating the affine region...");
-        estimate_t slope_estimate =
+        estimate_t curr_slope_estimate =
             estimate_iteration_duration(changes_stats.mean, num_iters / 2);
         log_estimate(UDIPE_DEBUG,
                      "- Initial slope estimate",
-                     slope_estimate,
+                     curr_slope_estimate,
                      "",
                      "ns/iter");
         distribution_t prev_changes = curr_changes;
@@ -445,6 +446,12 @@
         distribution_builder_t double_prev_changes_builder = distribution_initialize();
         distribution_builder_t slope_diff_builder = distribution_initialize();
         distribution_t double_prev_changes, slope_diff, curr_intercept, intercept_diff;
+        bool in_affine_range = false;
+        size_t first_affine_iters;
+        size_t best_affine_iters;
+        size_t last_affine_iters;
+        estimate_t best_slope_estimate;
+        double best_slope_estimate_dispersion;
         do {
             num_iters *= 2;
             debugf("- Measuring a loop with %zu iterations...", num_iters);
@@ -494,32 +501,66 @@
 
             if (slope_diff_stats.mean.low > 0.0
                 || slope_diff_stats.mean.high < 0.0) {
-                debug("  * Slope changed significantly: "
-                      "we're not in the affine regime yet!");
-                continue;
+                if (in_affine_range) {
+                    last_affine_iters = num_iters / 4;
+                    debugf("  * Slope changed significantly: "
+                           "we left the affine regime after num_iters = %zu!",
+                           last_affine_iters);
+                    break;
+                } else {
+                    debug("  * Slope changed significantly: "
+                          "we're not in the affine regime yet!");
+                    continue;
+                }
             } else {
-                debugf("  * Slope looks stable: we entered a "
-                       "stable affine regime back at num_iters = %zu.",
-                       num_iters / 4);
-                break;
+                curr_slope_estimate =
+                    estimate_iteration_duration(changes_stats.mean,
+                                                num_iters / 2);
+                const double slope_estimate_dispersion =
+                    relative_dispersion(curr_slope_estimate);
+                if (in_affine_range) {
+                    debug("  * Slope looks stable: "
+                          "we're still in the affine regime.");
+                    log_estimate(UDIPE_DEBUG,
+                                 "  * New slope estimate",
+                                 curr_slope_estimate,
+                                 "",
+                                 "ns/iter");
+                    if (slope_estimate_dispersion < best_slope_estimate_dispersion) {
+                        debug("  * This is our best slope estimate so far!");
+                        best_slope_estimate = curr_slope_estimate;
+                        best_slope_estimate_dispersion = slope_estimate_dispersion;
+                        best_affine_iters = num_iters / 2;
+                    } else {
+                        debug("  * This is not an improvement over previous estimates...");
+                    }
+                    continue;
+                } else {
+                    first_affine_iters = num_iters / 4;
+                    debugf("  * Slope looks stable: we entered a "
+                           "stable affine regime back at num_iters = %zu.",
+                           num_iters / 4);
+                    in_affine_range = true;
+                    log_estimate(UDIPE_DEBUG,
+                                 "- First known-good slope estimate",
+                                 curr_slope_estimate,
+                                 "",
+                                 "ns/iter");
+                    best_slope_estimate = curr_slope_estimate;
+                    best_slope_estimate_dispersion =
+                        relative_dispersion(curr_slope_estimate);
+                    best_affine_iters = num_iters / 2;
+                    continue;
+                }
             }
         } while(true);
-        slope_estimate =
-            estimate_iteration_duration(changes_stats.mean, num_iters / 2);
+        debugf("- Computed most precise slope estimate at num_iters = %zu.",
+               best_affine_iters);
         log_estimate(UDIPE_DEBUG,
-                     "- First known-good slope estimate",
-                     slope_estimate,
+                     "- Best slope estimate",
+                     best_slope_estimate,
                      "",
                      "ns/iter");
-
-        // TODO: Implement last calibration step, reusing as much of the above
-        //       code as possible. One possibility would be to integrate the
-        //       start/end search into the above loop code. Add a before_affine
-        //       boolean variable, initially set to false. Encountering a good
-        //       slope while this variable is unset sets this variable to true
-        //       and triggers the saving of beginning-of-region information.
-        //       Encountering a bad slope while this variable is set exits the
-        //       loop and triggers the saving of end-of-region information.
 
         // TODO: Finish implementing new calibration procedure
         // TODO: Don't forget to recycle distributions that have no further use
