@@ -163,37 +163,10 @@
     // TODO: Remove all of the following, superseded by the above, but add
     //       parameters for the TSC calibration once ready to work on it
 
-    /// Warmup duration used for shortest loop calibration
-    //
-    // TODO: Tune on more systems
-    #define WARMUP_SHORTEST_LOOP (2000*UDIPE_MILLISECOND)
-
-    /// Number of benchmark runs used for shortest loop calibration
-    ///
-    /// Tune this up if the shortest loop calibration is unstable and does not
-    /// converge to a constant loop size.
-    //
-    // TODO: Tune on more systems
-    #define NUM_RUNS_SHORTEST_LOOP ((size_t)64*1024)
-
     /// Warmup duration used for best loop calibration
     //
     // TODO: Tune on more systems
     #define WARMUP_BEST_LOOP (2000*UDIPE_MILLISECOND)
-
-    /// Number of benchmark run used for optimal loop calibration, when using
-    /// the system clock to perform said calibration
-    ///
-    /// Tune this up if the optimal loop calibration is unstable and does not
-    /// converge to sufficiently reproducible statistics.
-    ///
-    /// Tune this down if you observe multimodal timing laws, which indicates
-    /// that the CPU switches performance states during the measurement, and
-    /// this state instability is not fixed by using a longer warmup or
-    /// adjusting the system's power management configuration.
-    //
-    // TODO: Tune on more systems
-    #define NUM_RUNS_BEST_LOOP_OS ((size_t)64*1024)
 
     #ifdef X86_64
 
@@ -565,126 +538,8 @@
         // TODO: Finish implementing new calibration procedure
         // TODO: Don't forget to recycle distributions that have no further use
         //       at the end
-        exit_with_error("All code beyond this point must be rewritten "
-                        "to follow the new calibration procedure");
-
-        clock.builder = distribution_initialize();
-
-        info("Finding minimal measurable loop...");
-        distribution_t loop_durations;
-        statistics_t loop_duration_stats;
-        num_iters = 1;
-        do {
-            debugf("- Trying loop with %zu iteration(s)...", num_iters);
-            loop_durations = os_clock_measure(
-                &clock,
-                empty_loop,
-                &num_iters,
-                WARMUP_SHORTEST_LOOP,
-                NUM_RUNS_SHORTEST_LOOP,
-                outlier_filter,
-                &clock.builder
-            );
-            loop_duration_stats = analyzer_apply(analyzer, &loop_durations);
-            log_statistics(UDIPE_DEBUG,
-                           "  * Loop duration",
-                           "    -",
-                           loop_duration_stats,
-                           "ns");
-            if (loop_duration_stats.low_tail_bound.low <= 0.0) {
-                debug("  * Too many zero/negative values = sub-resolution durations, try more iterations...");
-            } else if(loop_duration_stats.mean.low < 10*loop_duration_stats.center_width.high) {
-                debug("  * Durations are still unacceptably noisy, try more iterations...");
-            } else {
-                clock.builder = distribution_initialize();
-                break;
-            }
-            // If control reaches here, must still increase loop size
-            num_iters *= 2;
-            clock.builder = distribution_reset(&loop_durations);
-        } while(true);
-        infof("- Loops with >=%zu iterations start getting into the good measurement range.",
-              num_iters);
-
-        info("Fine-tuning optimal loop duration...");
-        clock.best_empty_iters = num_iters;
-        clock.best_empty_durations = loop_durations;
-        distribution_poison(&loop_durations);
-        clock.best_empty_stats = loop_duration_stats;
-        const int64_t best_precision = loop_duration_stats.center_width.high;
-        estimate_t best_iter =
-            estimate_iteration_duration(loop_duration_stats.mean,
-                                        clock.best_empty_iters);
-        double best_dispersion = relative_dispersion(best_iter);
-        do {
-            num_iters *= 2;
-            debugf("- Trying loop with %zu iterations...", num_iters);
-            loop_durations = os_clock_measure(
-                &clock,
-                empty_loop,
-                &num_iters,
-                WARMUP_BEST_LOOP,
-                NUM_RUNS_BEST_LOOP_OS,
-                outlier_filter,
-                &clock.builder
-            );
-            loop_duration_stats = analyzer_apply(analyzer, &loop_durations);
-            log_statistics(UDIPE_DEBUG,
-                           "  * Loop duration",
-                           "    -",
-                           loop_duration_stats,
-                           "ns");
-            const estimate_t curr_iter =
-                estimate_iteration_duration(loop_duration_stats.mean,
-                                            num_iters);
-            log_estimate(UDIPE_DEBUG,
-                         "  * Iteration duration",
-                         curr_iter,
-                         "",
-                         "ns");
-            const double dispersion = relative_dispersion(curr_iter);
-            const int64_t precision = loop_duration_stats.center_width.high;
-            // In a regime of stable run timing precision, doubling the
-            // iteration count should reduce iteration timing dispersion by
-            // sqrt(2)x ~ 1.4x. Ignore small improvements that don't justify a
-            // 2x longer run duration, and thus fewer runs per unit of benchmark
-            // execution time, which are also precious...
-            if (dispersion < best_dispersion/1.1) {
-                debug("  * This is our new best loop. Can we do even better?");
-                best_iter = curr_iter;
-                best_dispersion = dispersion;
-                clock.best_empty_iters = num_iters;
-                clock.builder = distribution_reset(&clock.best_empty_durations);
-                clock.best_empty_durations = loop_durations;
-                distribution_poison(&loop_durations);
-                clock.best_empty_stats = loop_duration_stats;
-                continue;
-            } else if (precision <= 3*best_precision) {
-                // ...but keep trying until the dispersion degradation becomes
-                // much worse than expected in a regime of stable iteration
-                // timing dispersion, in which case loop duration fluctuates 2x
-                // more when loop iteration gets 2x higher.
-                debug("  * That's not much better/worse, keep trying...");
-                clock.builder = distribution_reset(&loop_durations);
-                continue;
-            } else {
-                debug("  * Absolute precision degraded by >3x: time to stop!");
-                clock.builder = distribution_reset(&loop_durations);
-                break;
-            }
-        } while(true);
-        infof("- Achieved optimal precision at %zu loop iterations.",
-              clock.best_empty_iters);
-        log_statistics(UDIPE_INFO,
-                       "- Best loop duration",
-                       "  *",
-                       clock.best_empty_stats,
-                       "ns");
-        log_estimate(UDIPE_DEBUG,
-                     "- Best iteration duration",
-                     best_iter,
-                     "",
-                     "ns");
+        exit_with_error("All client code must be adapted to "
+                        "the new calibration procedure!");
 
         return clock;
     }
