@@ -382,39 +382,6 @@
         exit_with_error("Control should never reach this point!");
     }
 
-    /// Smallest difference between two values of `dist`, if any, else
-    /// `UINT64_MAX`
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param dist is a \ref distribution_t, which can be the `inner`
-    ///             distribution of a \ref distribution_builder_t.
-    ///
-    /// \returns the smallest difference between two values of `dist`. If all
-    ///          inner values are equal or there is no inner value (which is in
-    ///          some sense a special case of the former), `UINT64_MAX` is
-    ///          returned.
-    UDIPE_NON_NULL_ARGS
-    static inline
-    uint64_t distribution_min_difference(const distribution_t* dist) {
-        const size_t num_bins = dist->num_bins;
-        if (num_bins == 0) {
-            trace("No value, will return UINT64_MAX");
-            return UINT64_MAX;
-        }
-
-        const distribution_layout_t layout = distribution_layout(dist);
-        uint64_t min_difference = UINT64_MAX;
-        int64_t prev_value = layout.sorted_values[0];
-        for (size_t bin = 1; bin < num_bins; ++bin) {
-            const int64_t curr_value = layout.sorted_values[bin];
-            assert(curr_value > prev_value);
-            const uint64_t difference = curr_value - prev_value;
-            if (difference < min_difference) min_difference = difference;
-        }
-        return min_difference;
-    }
-
     // === Specific to distribution_builder_t ===
 
     /// Create a new histogram bin within a distribution builder
@@ -797,16 +764,16 @@
                                       int64_t factor,
                                       const distribution_t* dist);
 
-    /// Estimate a distribution of `left - right` differences
+    /// Estimate a distribution of `minuend - subtrahend` differences
     ///
-    /// Given the empirical distribution of two quantities `left` and `right`,
-    /// this estimates the distribution of their difference, i.e. the
-    /// distribution of `l - r` where `l` is a random data point from `left` and
-    /// `r` is a random data point from `right`.
+    /// Given the empirical distribution of two quantities `minuend` and
+    /// `subtrahend`, this estimates the distribution of their difference, i.e.
+    /// the distribution of `m - s` where `m` is a random data point from
+    /// `minuend` and `s` is a random data point from `subtrahend`.
     ///
     /// For a high-quality estimate, you will want...
     ///
-    /// - `left` and `right` distributions of similar length.
+    /// - `minuend` and `subtrahend` distributions of similar length.
     /// - Large distribution lengths, ideally 50-100x larger than the minimum
     ///   amount of values needed for the empirical distribution to be
     ///   a good approximation of the underlying true probability distribution.
@@ -818,16 +785,16 @@
     ///                      distribution_reset() and hasn't been subjected to
     ///                      any other operation since. It will be consumed by
     ///                      this function and cannot be used again.
-    /// \param left is the distribution from which the left hand side of the
-    ///             subtraction will be taken.
-    /// \param right is the distribution from which the right hand side of the
-    ///              subtraction will be taken.
+    /// \param minuend is the distribution from which the left hand side of the
+    ///                subtraction will be taken.
+    /// \param subtrahend is the distribution from which the right hand side of
+    ///                   the subtraction will be taken.
     ///
-    /// \returns an estimated distribution of `left - right` differences.
+    /// \returns an estimated distribution of `minuend - subtrahend` differences.
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_sub(distribution_builder_t* empty_builder,
-                                    const distribution_t* left,
-                                    const distribution_t* right);
+                                    const distribution_t* minuend,
+                                    const distribution_t* subtrahend);
 
     /// Estimate a distribution of `num * factor / denom` scaled ratios
     ///
@@ -1012,6 +979,58 @@
         const distribution_layout_t layout = distribution_layout(dist);
         return layout.sorted_values[dist->num_bins - 1];
     }
+
+    /// Smallest difference between two values of `dist`, if any, else
+    /// `UINT64_MAX`
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param dist is a \ref distribution_t, which can be the `inner`
+    ///             distribution of a \ref distribution_builder_t.
+    ///
+    /// \returns the smallest nonzero difference between two values of `dist`.
+    ///          If all inner values are equal or there is no inner value (which
+    ///          is in some sense a special case of the former), `UINT64_MAX`
+    ///          can be returned. But 0 will never be returned.
+    UDIPE_NON_NULL_ARGS
+    static inline
+    uint64_t distribution_min_difference(const distribution_t* dist) {
+        const size_t num_bins = dist->num_bins;
+        if (num_bins == 0) {
+            trace("No value, will return UINT64_MAX");
+            return UINT64_MAX;
+        }
+
+        const distribution_layout_t layout = distribution_layout(dist);
+        uint64_t min_difference = UINT64_MAX;
+        int64_t prev_value = layout.sorted_values[0];
+        for (size_t bin = 1; bin < num_bins; ++bin) {
+            const int64_t curr_value = layout.sorted_values[bin];
+            assert(curr_value > prev_value);
+            const uint64_t difference = curr_value - prev_value;
+            if (difference < min_difference) min_difference = difference;
+        }
+        assert(min_difference > (uint64_t)0);
+        return min_difference;
+    }
+
+    /// Smallest difference between the values of two different distributions,
+    /// if any, else `UINT64_MAX`
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param d1 is a \ref distribution_t, which can be the `inner`
+    ///           distribution of a \ref distribution_builder_t.
+    /// \param d2 is a \ref distribution_t, which can be the `inner`
+    ///           distribution of a \ref distribution_builder_t.
+    ///
+    /// \returns the smallest difference between two values of `d1` and `d2`. In
+    ///          some edge cases where only 0 or 1 value is present in d1/d2 and
+    ///          any single value is equal, `UINT64_MAX` can be returned. But 0
+    ///          will never be returned.
+    UDIPE_NON_NULL_ARGS
+    uint64_t distribution_min_difference_with(const distribution_t* d1,
+                                              const distribution_t* d2);
 
     /// Randomly choose a value from a \ref distribution_t
     ///

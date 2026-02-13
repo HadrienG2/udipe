@@ -200,6 +200,21 @@
             uint64_t win32_frequency;
         #endif
 
+        /// Number of empty loop iterations used for clock dithering
+        ///
+        /// Because clocks have finite resolution, they exhibit quantization
+        /// noise, which can lead to systematic measurement error if we're not
+        /// careful. We avoid this through a "clock dithering" trick, where we
+        /// insert a random delay between benchmark measurements whose variation
+        /// amplitude is at least as large as the clock tick. This ensures that
+        /// each measurement begins and ends at a random position within a clock
+        /// tick, and thus clock tick quantization error should average to zero
+        /// across a sufficiently large set of measurements.
+        ///
+        /// To be more specific, the random number of empty loop iterations in
+        /// use is in range [dither_iters; 2*dither_iters].
+        size_t dither_iters;
+
         // TODO remove/change
         /// Empty loop iteration count at which the best relative precision on
         /// the loop iteration duration is achieved
