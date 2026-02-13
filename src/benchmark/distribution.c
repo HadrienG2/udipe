@@ -224,8 +224,8 @@
 
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_sub(distribution_builder_t* empty_builder,
-                                    const distribution_t* left,
-                                    const distribution_t* right) {
+                                    const distribution_t* minuend,
+                                    const distribution_t* subtrahend) {
         ensure(distribution_empty(empty_builder));
         distribution_builder_t* builder = empty_builder;
         empty_builder = NULL;
@@ -235,15 +235,15 @@
         const distribution_t* shorter;
         const distribution_t* longer;
         int64_t diff_sign;
-        if (distribution_len(left) <= distribution_len(right)) {
-            trace("Left distribution is shorter, will iterate over left and sample from right.");
-            shorter = left;
-            longer = right;
+        if (distribution_len(minuend) <= distribution_len(subtrahend)) {
+            trace("Minuend distribution is shorter, will iterate over minuend and sample from subtrahend.");
+            shorter = minuend;
+            longer = subtrahend;
             diff_sign = +1;
         } else {
-            trace("Right distribution is shorter, will iterate over right and sample from left.");
-            shorter = right;
-            longer = left;
+            trace("Subtrahend distribution is shorter, will iterate over subtrahend and sample from minuend.");
+            shorter = subtrahend;
+            longer = minuend;
             diff_sign = -1;
         }
 
@@ -262,7 +262,7 @@
                 const int64_t diff = short_value - distribution_choose(longer);
                 tracef("  * Random short-long difference is %zd.", diff);
                 const int64_t signed_diff = diff_sign * diff;
-                tracef("  * Random left-right difference is %zd.", signed_diff);
+                tracef("  * Random minuend-subtrahend difference is %zd.", signed_diff);
                 distribution_insert(builder, signed_diff);
             }
             prev_short_end_rank = short_end_rank;
@@ -332,6 +332,81 @@
 
 
     // === Querying distributions ===
+
+    UDIPE_NON_NULL_ARGS
+    uint64_t distribution_min_difference_with(const distribution_t* d1,
+                                              const distribution_t* d2) {
+        typedef const distribution_t* distribution_cptr_t;
+        distribution_cptr_t distributions[2] = { d1, d2 };
+        const size_t num_bins[2] = {
+            distributions[0]->num_bins,
+            distributions[1]->num_bins
+        };
+        if (num_bins[0] == 0 || num_bins[1] == 0) {
+            trace("At least one distribution is empty, will return UINT64_MAX");
+            return UINT64_MAX;
+        }
+        typedef const int64_t* sorted_values_cptr_t;
+        const sorted_values_cptr_t sorted_values[2] = {
+            distribution_layout(distributions[0]).sorted_values,
+            distribution_layout(distributions[1]).sorted_values
+        };
+
+        const size_t short_dist = (size_t)(num_bins[1] < num_bins[0]);
+        const size_t long_dist = 1 - short_dist;
+        uint64_t min_difference = UINT64_MAX;
+        for (
+            size_t short_bin = 0;
+            short_bin < num_bins[short_dist];
+            ++short_bin
+        ) {
+            // Consider each value from the shortest distribution
+            const int64_t short_value = sorted_values[short_dist][short_bin];
+
+            // Find the nearest value in the longest distribution
+            const size_t long_bin =
+                distribution_bin_by_value(distributions[long_dist],
+                                          short_value,
+                                          BIN_NEAREST);
+            assert(long_bin < num_bins[long_dist]);
+            const int64_t long_value = sorted_values[long_dist][long_bin];
+
+            // Check how these values differ
+            int64_t difference = short_value - long_value;
+            if (difference == 0) {
+                // The same value exists in the both distributions. Look at
+                // neighboring values in the longest distribution (if any) to
+                // find the smallest nonzero differences between values in the
+                // longest distribution and short_value.
+                if (long_bin > 0) {
+                    difference = short_value - sorted_values[long_dist][long_bin - 1];
+                    assert(difference > 0);
+                }
+                if (long_bin + 1 < num_bins[long_dist]) {
+                    const int64_t diff_candidate = sorted_values[long_dist][long_bin + 1] - short_value;
+                    assert(diff_candidate > 0);
+                    if (diff_candidate < difference) {
+                        difference = diff_candidate;
+                    }
+                }
+                // No suitable neighbor -> No nonzero distance from short_value
+                if (difference == 0) continue;
+            } else if (difference < 0) {
+                // If the values are different, then make sure difference is
+                // positive, effectively computing its absolute value.
+                difference = -difference;
+            }
+            assert(difference > 0);
+
+            // Update min_difference according to the observed
+            // inter-distribution nearest neighbor difference
+            if ((uint64_t)difference < min_difference) {
+                min_difference = difference;
+            }
+        }
+        assert(min_difference > (uint64_t)0);
+        return min_difference;
+    }
 
     UDIPE_NON_NULL_ARGS
     distribution_builder_t distribution_reset(distribution_t* dist) {

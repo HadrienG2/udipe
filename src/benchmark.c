@@ -129,10 +129,12 @@
     ///
     /// Unlike \ref MIN_QUANTIZATION_SNR, this cannot be tuned arbitrarily high
     /// because beyond a certain number of loop iterations, random timing
-    /// dispersion starts scaling with the loop iteration count. However, all
-    /// computers are empirically capable of achieving ~10% benchmark stability
-    /// without special tuning, so we can aim for this as a starting point, and
-    /// later see if a particular workload can get more stable than this.
+    /// dispersion starts scaling with the loop iteration count which means that
+    /// adding more loop iterations does not improve iteration timing
+    /// resolution. However, all computers are empirically capable of achieving
+    /// ~10% benchmark timing stability without special tuning, so we can aim
+    /// for this as a starting point, and later see if a particular workload can
+    /// get more stable than this.
     //
     // TODO: Tune on more systems
     #define MIN_RANDOM_SNR  ((double)10.0)
@@ -323,10 +325,11 @@
             outlier_filter,
             &prev_durations_builder
         );
-
-        // TODO: Init clock resolution estimate to min prev_durations internal delta
-        // TODO: Add associated logging
-
+        // prev_durations_builder cannot be used beyond this point
+        uint64_t clock_resolution = distribution_min_difference(&prev_durations);
+        debugf("  * Initializing clock resolution estimate to "
+               "shortest duration difference %zu ns...",
+               clock_resolution);
         distribution_t curr_durations, duration_changes;
         num_iters = 2;
         do {
@@ -338,27 +341,63 @@
                                               THRESHOLD_NRUNS,
                                               outlier_filter,
                                               &curr_durations_builder);
+            if (clock_resolution > 1) {
+                const uint64_t initial_resolution = clock_resolution;
+                const uint64_t curr_resolution =
+                    distribution_min_difference(&curr_durations);
+                if (curr_resolution < clock_resolution) {
+                    clock_resolution = curr_resolution;
+                }
+                const uint64_t delta_resolution =
+                    distribution_min_difference_with(&prev_durations,
+                                                     &curr_durations);
+                if (delta_resolution < clock_resolution) {
+                    clock_resolution = delta_resolution;
+                }
+                if (clock_resolution < initial_resolution) {
+                    debugf("  * Updated clock resolution estimate to %zu ns.",
+                           clock_resolution);
+                }
+            }
 
-            // TODO: Update clock resolution estimate to min curr_durations internal delta if lower
-            // TODO: Update clock resolution estimate to min curr/prev_durations delta if lower
-            // TODO: Build duration_changes = curr_durations - prev_durations distribution using duration_changes_builder
-            // TODO: Check if P5 of duration_changes is > 0.0
-            // TODO: If so, break this loop (TODO define state required at next step)
-            // TODO: If not, reset prev_durations into curr_durations_builder,
-            //       move curr_durations into prev_durations, poison curr_durations,
-            //       reset duration_changes into duration_changes_builder, poison
-            //       duration_changes, and finally double num_iters.
-            // TODO: add more logging
-        } while (/* TODO set condition */ false);
+            duration_changes = distribution_sub(&duration_changes_builder,
+                                                &curr_durations,
+                                                &prev_durations);
+            const statistics_t changes_stats = analyzer_apply(analyzer,
+                                                              &duration_changes);
+            log_statistics(UDIPE_DEBUG,
+                           "  * Change with respect to previous iteration count",
+                           "    -",
+                           changes_stats,
+                           "ns");
 
-        // TODO: Set up quantization noise randomization by recording in
-        //       os_clock_t the proper range of random num_iters that should be
-        //       performed between benchmark runs in order to be safe from
-        //       systematic quantization bias, which is num_iters/2..=num_iters.
-        //       Initialize this clock_dithering_iters variable to 0 in basic
-        //       setup above so that the initial calls to os_clock_measure get
-        //       something to work with. Add support for this random wait in
-        //       os_clock_measure.
+            if (changes_stats.low_tail_bound.low <= 0.0) {
+                debug("  * Measuring a zero/negative change is still too likely, try more loop iterations...");
+                num_iters *= 2;
+                curr_durations_builder = distribution_reset(&prev_durations);
+                prev_durations = curr_durations;
+                distribution_poison(&curr_durations);
+                duration_changes_builder = distribution_reset(&duration_changes);
+                continue;
+            } else {
+                debug("  * Measuring a zero/negative change is now rare enough, let's move on...");
+                break;
+            }
+        } while (true);
+        // At this point...
+        // - All prev/curr/changes builders are in a unusable state
+        // - All prev/curr/changes distributions are in a valid state
+        // - clock_resolution is a reasonable estimate of the clock resolution
+        // - The duration difference between num_iters / 2 and num_iters is much
+        //   higher than measurement noise, which means in particular that it is
+        //   above quantization noise and can thus be used to dither clock
+        //   quantization error.
+
+        ensure_ge(num_iters, (size_t)2);
+        clock.dither_iters = num_iters / 2;
+        debugf("Configured a clock dithering loop of "
+               "[%zu; %zu] iterations.",
+               clock.dither_iters, num_iters);
 
         // TODO: Implement next calibrations steps, starting with "signal"
 
@@ -497,8 +536,8 @@
         const os_clock_t* clock = (os_clock_t*)context;
         assert(run < clock->num_durations);
         return os_duration(clock,
-                           clock->timestamps[run],
-                           clock->timestamps[run+1]);
+                           clock->timestamps[2*run],
+                           clock->timestamps[2*run+1]);
     }
 
     UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
@@ -515,11 +554,11 @@
             trace("Reallocating storage from %zu to %zu durations...");
             realtime_liberate(
                 clock->timestamps,
-                (clock->num_durations+1) * sizeof(os_timestamp_t)
+                2 * clock->num_durations * sizeof(os_timestamp_t)
             );
             clock->num_durations = num_runs;
             clock->timestamps =
-                realtime_allocate((num_runs+1) * sizeof(os_timestamp_t));
+                realtime_allocate(2 * num_runs * sizeof(os_timestamp_t));
         }
 
         trace("Warming up...");
@@ -533,13 +572,26 @@
         } while(elapsed < warmup);
 
         tracef("Performing %zu timed runs...", num_runs);
-        timestamps[0] = os_now();
+        ensure_ge((size_t)RAND_MAX, clock->dither_iters);
         for (size_t run = 0; run < num_runs; ++run) {
+            // To avoid systematic measurement error caused by clock tick
+            // quantization, we empty a dithering trick wherein random
+            // busy-sleep is used to ensure that every measurement starts and
+            // ends at a random position within a clock tick.
+            size_t num_dither_iters =
+                clock->dither_iters + rand() % (clock->dither_iters + 1);
+            empty_loop(&num_dither_iters);
+
             UDIPE_ASSUME_READ(timestamps);
+            timestamps[2*run] = os_now();
+            UDIPE_ASSUME_READ(timestamps);
+
             workload(context);
-            timestamps[run+1] = os_now();
+
+            UDIPE_ASSUME_READ(timestamps);
+            timestamps[2*run+1] = os_now();
+            UDIPE_ASSUME_READ(timestamps);
         }
-        UDIPE_ASSUME_READ(timestamps);
 
         trace("Computing duration distribution...");
         return compute_duration_distribution(compute_os_duration,
