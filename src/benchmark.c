@@ -106,7 +106,7 @@
     /// Warmup duration used at the "signal" calibration stage
     //
     // TODO: Tune on more systems
-    #define SIGNAL_WARMUP  (1000*UDIPE_MILLISECOND)
+    #define SIGNAL_WARMUP  (2000*UDIPE_MILLISECOND)
 
     /// Number of benchmark runs performed at the "signal" calibration stage
     //
@@ -122,7 +122,7 @@
     /// iteration count.
     //
     // TODO: Tune on more systems
-    #define MIN_QUANTIZATION_SNR  ((double)100.0)
+    #define MIN_QUANTIZATION_SNR  ((double)50.0)
 
     /// Minimal signal-to-random-noise ratio targeted by the "signal"
     /// calibration stage
@@ -311,10 +311,10 @@
         debug("Setting up initial duration storage");
         distribution_builder_t prev_durations_builder = distribution_initialize();
         distribution_builder_t curr_durations_builder = distribution_initialize();
-        distribution_builder_t duration_changes_builder = distribution_initialize();
+        distribution_builder_t curr_changes_builder = distribution_initialize();
 
         debug("Measuring the clock resolution and minimal duration...");
-        debug("- Measuring loop with 1 iteration...");
+        debug("- Measuring a loop with 1 iteration...");
         size_t num_iters = 1;
         distribution_t prev_durations = os_clock_measure(
             &clock,
@@ -330,10 +330,11 @@
         debugf("  * Initializing clock resolution estimate to "
                "shortest duration difference %zu ns...",
                clock_resolution);
-        distribution_t curr_durations, duration_changes;
+        distribution_t curr_durations, curr_changes;
+        statistics_t changes_stats;
         num_iters = 2;
         do {
-            debugf("- Measuring loop with %zu iterations...", num_iters);
+            debugf("- Measuring a loop with %zu iterations...", num_iters);
             curr_durations = os_clock_measure(&clock,
                                               empty_loop,
                                               &num_iters,
@@ -360,32 +361,33 @@
                 }
             }
 
-            duration_changes = distribution_sub(&duration_changes_builder,
-                                                &curr_durations,
-                                                &prev_durations);
-            const statistics_t changes_stats = analyzer_apply(analyzer,
-                                                              &duration_changes);
+            curr_changes = distribution_sub(&curr_changes_builder,
+                                            &curr_durations,
+                                            &prev_durations);
+            changes_stats = analyzer_apply(analyzer, &curr_changes);
             log_statistics(UDIPE_DEBUG,
-                           "  * Change with respect to previous iteration count",
+                           "  * Change from previous iteration count",
                            "    -",
                            changes_stats,
                            "ns");
 
             if (changes_stats.low_tail_bound.low <= 0.0) {
-                debug("  * Measuring a zero/negative change is still too likely, try more loop iterations...");
+                debug("  * Zero/negative change is still too likely: "
+                      "try more iterations...");
                 num_iters *= 2;
                 curr_durations_builder = distribution_reset(&prev_durations);
                 prev_durations = curr_durations;
                 distribution_poison(&curr_durations);
-                duration_changes_builder = distribution_reset(&duration_changes);
+                curr_changes_builder = distribution_reset(&curr_changes);
                 continue;
             } else {
-                debug("  * Measuring a zero/negative change is now rare enough, let's move on...");
+                debug("  * Zero/negative change is now rare enough: "
+                      "move to next calibration step.");
                 break;
             }
         } while (true);
         // At this point...
-        // - All prev/curr/changes builders are in a unusable state
+        // - All prev/curr/changes builders are in an invalid state
         // - All prev/curr/changes distributions are in a valid state
         // - clock_resolution is a reasonable estimate of the clock resolution
         // - The duration difference between num_iters / 2 and num_iters is much
@@ -399,7 +401,125 @@
                "[%zu; %zu] iterations.",
                clock.dither_iters, num_iters);
 
-        // TODO: Implement next calibrations steps, starting with "signal"
+        debug("Optimizing signal-noise ratio...");
+        const double mean_quantization_limit = MIN_QUANTIZATION_SNR * clock_resolution;
+        while (changes_stats.mean.low < fmax(MIN_RANDOM_SNR * changes_stats.center_width.high,
+                                             mean_quantization_limit)) {
+            num_iters *= 2;
+            debugf("- SNR is still too low. Trying a loop with %zu iterations...", num_iters);
+            curr_durations_builder = distribution_reset(&prev_durations);
+            prev_durations = curr_durations;
+            curr_durations = os_clock_measure(&clock,
+                                              empty_loop,
+                                              &num_iters,
+                                              SIGNAL_WARMUP,
+                                              SIGNAL_NRUNS,
+                                              outlier_filter,
+                                              &curr_durations_builder);
+            curr_changes_builder = distribution_reset(&curr_changes);
+            curr_changes = distribution_sub(&curr_changes_builder,
+                                            &curr_durations,
+                                            &prev_durations);
+            changes_stats = analyzer_apply(analyzer, &curr_changes);
+            log_statistics(UDIPE_DEBUG,
+                           "  * Change from previous iteration count",
+                           "    -",
+                           changes_stats,
+                           "ns");
+        }
+        debug("  * SNR is now satisfactory with respect to quantization and random error.");
+        // Distributions are in the same configuration as before here, but
+        // num_iters is now high enough to get good measurement SNR.
+
+        debug("Locating the affine region...");
+        estimate_t slope_estimate =
+            estimate_iteration_duration(changes_stats.mean, num_iters / 2);
+        log_estimate(UDIPE_DEBUG,
+                     "- Initial slope estimate",
+                     slope_estimate,
+                     "",
+                     "ns/iter");
+        distribution_t prev_changes = curr_changes;
+        distribution_poison(&curr_changes);
+        curr_changes_builder = distribution_initialize();
+        distribution_builder_t double_prev_changes_builder = distribution_initialize();
+        distribution_builder_t slope_diff_builder = distribution_initialize();
+        distribution_t double_prev_changes, slope_diff, curr_intercept, intercept_diff;
+        do {
+            num_iters *= 2;
+            debugf("- Measuring a loop with %zu iterations...", num_iters);
+            curr_durations_builder = distribution_reset(&prev_durations);
+            prev_durations = curr_durations;
+            curr_durations = os_clock_measure(&clock,
+                                              empty_loop,
+                                              &num_iters,
+                                              SIGNAL_WARMUP,
+                                              SIGNAL_NRUNS,
+                                              outlier_filter,
+                                              &curr_durations_builder);
+            curr_changes = distribution_sub(&curr_changes_builder,
+                                            &curr_durations,
+                                            &prev_durations);
+            changes_stats = analyzer_apply(analyzer, &curr_changes);
+            log_statistics(UDIPE_DEBUG,
+                           "  * Change from previous iteration count",
+                           "    -",
+                           changes_stats,
+                           "ns");
+
+            debug("  * Predicting duration change under affine model...");
+            double_prev_changes = distribution_scale(&double_prev_changes_builder,
+                                                     2,
+                                                     &prev_changes);
+            slope_diff = distribution_sub(&slope_diff_builder,
+                                          &curr_changes,
+                                          &double_prev_changes);
+            const statistics_t slope_diff_stats =
+                analyzer_apply(analyzer, &slope_diff);
+            log_statistics(UDIPE_DEBUG,
+                           "  * Actual/predicted duration change difference",
+                           "    -",
+                           slope_diff_stats,
+                           "ns");
+
+            // Always go back to the initial loop state since at this point we
+            // are going to either go back to the beginning of the loop or start
+            // over with anoter loop that works nearly identically (and should
+            // probably be refactored from this loop as such).
+            curr_changes_builder = distribution_reset(&prev_changes);
+            prev_changes = curr_changes;
+            distribution_poison(&curr_changes);
+            double_prev_changes_builder = distribution_reset(&double_prev_changes);
+            slope_diff_builder = distribution_reset(&slope_diff);
+
+            if (slope_diff_stats.mean.low > 0.0
+                || slope_diff_stats.mean.high < 0.0) {
+                debug("  * Slope changed significantly: "
+                      "we're not in the affine regime yet!");
+                continue;
+            } else {
+                debugf("  * Slope looks stable: we entered a "
+                       "stable affine regime back at num_iters = %zu.",
+                       num_iters / 4);
+                break;
+            }
+        } while(true);
+        slope_estimate =
+            estimate_iteration_duration(changes_stats.mean, num_iters / 2);
+        log_estimate(UDIPE_DEBUG,
+                     "- First known-good slope estimate",
+                     slope_estimate,
+                     "",
+                     "ns/iter");
+
+        // TODO: Implement last calibration step, reusing as much of the above
+        //       code as possible. One possibility would be to integrate the
+        //       start/end search into the above loop code. Add a before_affine
+        //       boolean variable, initially set to false. Encountering a good
+        //       slope while this variable is unset sets this variable to true
+        //       and triggers the saving of beginning-of-region information.
+        //       Encountering a bad slope while this variable is set exits the
+        //       loop and triggers the saving of end-of-region information.
 
         // TODO: Finish implementing new calibration procedure
         // TODO: Don't forget to recycle distributions that have no further use
