@@ -149,16 +149,6 @@
     // TODO: Tune on more systems
     #define AFFINE_NRUNS  ((size_t)64*1024)
 
-    /// Warmup duration used at the "limit" calibration stage
-    //
-    // TODO: Tune on more systems
-    #define LIMIT_WARMUP  (2000*UDIPE_MILLISECOND)
-
-    /// Number of benchmark runs performed at the "limit" calibration stage
-    //
-    // TODO: Tune on more systems
-    #define LIMIT_NRUNS  ((size_t)64*1024)
-
 
     // TODO: Remove all of the following, superseded by the above, but add
     //       parameters for the TSC calibration once ready to work on it
@@ -276,7 +266,6 @@
         size_t max_runs = THRESHOLD_NRUNS;
         if (max_runs < SIGNAL_NRUNS) max_runs = SIGNAL_NRUNS;
         if (max_runs < AFFINE_NRUNS) max_runs = AFFINE_NRUNS;
-        if (max_runs < LIMIT_NRUNS) max_runs = LIMIT_NRUNS;
         const size_t timestamps_size = 2*max_runs * sizeof(os_timestamp_t);
         clock.timestamps = realtime_allocate(timestamps_size);
         clock.num_durations = max_runs;
