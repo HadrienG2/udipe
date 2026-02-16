@@ -461,8 +461,10 @@
             double_prev_changes_builder = distribution_reset(&double_prev_changes);
             slope_diff_builder = distribution_reset(&slope_diff);
 
-            if (slope_diff_stats.mean.low > 0.0
-                || slope_diff_stats.mean.high < 0.0) {
+            // Stop when a zero difference between prediction and reality is not
+            // plausible anymore, accounting for clock quantization noise.
+            if (slope_diff_stats.mean.low > clock_resolution
+                || slope_diff_stats.mean.high < -(double)clock_resolution) {
                 if (in_affine_range) {
                     last_affine_iters = num_iters / 4;
                     debugf("  * Slope changed significantly: "
