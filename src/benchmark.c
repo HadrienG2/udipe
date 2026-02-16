@@ -62,19 +62,19 @@
     //    signal. Together, these two tuning objectives ensure that it is the
     //    workload duration, and not quantization noise or random error, that
     //    dominate the measured timing signal.
-    // 3. At the "affine" stage, we then proceed to determine Naffine such that
-    //    dt(2*Naffine) is approximately equal to 2*dt(Naffine), i.e. the
-    //    difference of these distributions is close enough to zero than it can
-    //    be attributed to random statistical error. This is the point where the
-    //    empty loop starts to have enough iterations for the CPU to reach a
-    //    steady state in the middle of it, meaning that any iteration added
-    //    after this point takes a fixed amount of time, and thus it makes sense
-    //    to speak of an "iteration duration" and such a duration can be deduced
-    //    from dt(N) for any N >= Naffine.
-    // 4. At the "limit" stage, we improve the accuracy of our measurements
-    //    by increasing N further until we reach the Nlimit where the
-    //    aforementioned affine model breaks down. This breakdown can be
-    //    detected as a significant change of the slope or intercept of the
+    // 3. At the second half of the "affine" stage, we then proceed to determine
+    //    Naffine such that dt(2*Naffine) is approximately equal to
+    //    2*dt(Naffine), i.e. the difference of these distributions is close
+    //    enough to zero than it can be attributed to random statistical error.
+    //    This is the point where the empty loop starts to have enough
+    //    iterations for the CPU to reach a steady state in the middle of it,
+    //    meaning that any iteration added after this point takes a fixed amount
+    //    of time, and thus it makes sense to speak of an "iteration duration"
+    //    and such a duration can be deduced from dt(N) for any N >= Naffine.
+    // 4. At the second half of the "affine" stage, we improve the accuracy of
+    //    our measurements by increasing N further until we reach the Nlimit
+    //    where the aforementioned affine model breaks down. This breakdown can
+    //    be detected as a significant change of the slope or intercept of the
     //    aforementioned affine model. It happens at the point where undesirable
     //    OS/hardware perturbations start adding a non-negligible contribution
     //    to benchmark timings. Once we get there, we collect all slope and
