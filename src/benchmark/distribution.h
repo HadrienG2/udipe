@@ -613,20 +613,6 @@
         return above_pos;
     }
 
-    /// Mark a distribution as poisoned so it cannot be used anymore
-    ///
-    /// This is used when a distribution is either liberated or moved to a
-    /// different variable, in order to ensure that incorrect
-    /// user-after-free/move can be detected.
-    UDIPE_NON_NULL_ARGS
-    static inline void distribution_poison(distribution_t* dist) {
-        *dist = (distribution_t){
-            .allocation = NULL,
-            .num_bins = 0,
-            .capacity = 0
-        };
-    }
-
     /// \}
 
 
@@ -1059,11 +1045,28 @@
         return distribution_nth(dist, value_rank);
     }
 
+    /// Create an independent copy of a \ref distribution_t
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param dist must be a \ref distribution_t that has previously
+    ///             been generated from a \ref distribution_builder_t via
+    ///             distribution_build() and hasn't been turned back into a \ref
+    ///             distribution_builder_t or destroyed since.
+    ///
+    /// \returns a \ref distribution_t that has the same contents as `dist` but
+    ///          uses a different allocation and can/must therefore be liberated
+    ///          separately.
+    UDIPE_NON_NULL_ARGS
+    distribution_t distribution_clone(distribution_t* dist);
+
     /// Recycle a \ref distribution_t for data recording
     ///
     /// This discards all data points from a distribution and switches it back
     /// to the \ref distribution_builder_t state where data points can be
     /// inserted into it again.
+    ///
+    /// This function must be called within the scope of with_logger().
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via
@@ -1089,6 +1092,25 @@
     ///             destroyed by this function and cannot be used again.
     UDIPE_NON_NULL_ARGS
     void distribution_finalize(distribution_t* dist);
+
+    /// Mark a distribution as poisoned so it cannot be used anymore
+    ///
+    /// This automatically called when a distribution is liberated or recycled,
+    /// but it can be used manually when a value of type \ref distribution_t is
+    /// reassigned to a different variable and the original variable should not
+    /// be used anymore. The intent is to enable easier detection of invalid
+    /// usage of a distribution variable after the end of its expected lifetime.
+    ///
+    /// \param dist is a \ref distribution_t, which can be the `inner`
+    ///             distribution of a \ref distribution_builder_t.
+    UDIPE_NON_NULL_ARGS
+    static inline void distribution_poison(distribution_t* dist) {
+        *dist = (distribution_t){
+            .allocation = NULL,
+            .num_bins = 0,
+            .capacity = 0
+        };
+    }
 
     /// \}
 
