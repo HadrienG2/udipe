@@ -47,7 +47,6 @@
     ///
     /// \returns a distribution pool that must later be liberated using
     ///          distribution_pool_finalize().
-    UDIPE_NON_NULL_ARGS
     distribution_pool_t distribution_pool_initialize();
 
     /// Request a distribution builder from a distribution pool
