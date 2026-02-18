@@ -12,7 +12,6 @@
     #include <stdlib.h>
 
 
-    UDIPE_NON_NULL_ARGS
     distribution_pool_t distribution_pool_initialize() {
         const size_t capacity = get_page_size() / sizeof(distribution_builder_t);
         ensure_ne(capacity, (size_t)0);
