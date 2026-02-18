@@ -409,6 +409,18 @@
     }
 
     UDIPE_NON_NULL_ARGS
+    distribution_t distribution_clone(distribution_t* dist) {
+        tracef("Cloning distribution at location %p...", dist->allocation);
+        distribution_t result = distribution_allocate(dist->capacity);
+        ensure_eq(result.capacity, dist->capacity);
+        memcpy(result.allocation,
+               dist->allocation,
+               dist->capacity * DISTRIBUTION_BIN_SIZE);
+        result.num_bins = dist->num_bins;
+        return result;
+    }
+
+    UDIPE_NON_NULL_ARGS
     distribution_builder_t distribution_reset(distribution_t* dist) {
         tracef("Resetting storage at location %p...", dist->allocation);
         distribution_builder_t result = (distribution_builder_t){
