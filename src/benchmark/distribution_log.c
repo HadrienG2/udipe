@@ -169,14 +169,33 @@
         case HISTOGRAM: {
             const int64_t first = range.first.value;
             const int64_t last = range.last.value;
-            const size_t num_abscissa = last - first + 1;
-            if (len->abscissa > num_abscissa) {
-                const size_t excess_len = len->abscissa - num_abscissa;
+            // The list of distinct abscissa first, first + 1, first + 2, ...,
+            // first + N = last has N + 1 elements where N = last - first.
+            const size_t num_distinct_abscissa = last - first + 1;
+            // In the edge case where all possible abscissa will be displayed,
+            // the plot abscissa display will feature the list first, first,
+            // first + 1, first + 2, ..., last. The repetition of "first" comes
+            // from the fact that the first histogram abscissa is special as it
+            // is left-inclusive, unlike subsequent ones which will be
+            // left-exclusive. And to build a left-inclusive interval of 1
+            // element we need a [first; first] repetition.
+            const size_t max_displayed_abscissa = num_distinct_abscissa + 1;
+            if (len->abscissa > max_displayed_abscissa) {
+                const size_t excess_len = len->abscissa - max_displayed_abscissa;
                 len->abscissa -= excess_len;
                 len->ordinate -= excess_len;
             }
-            for (size_t a = 0; a < len->abscissa; ++a) {
-                const int64_t value = first + (last - first) * a / (len->abscissa - 1);
+            abscissa[0] = (coord_t){ .value = first };
+            const size_t last_a = len->abscissa - 1;
+            for (size_t a = 1; a <= last_a; ++a) {
+                // Only the first interval is left-inclusive, all subsequent
+                // intervals are left-exclusive and therefore follow the easy
+                // len = right bound - left bound property. Thus, by reasoning
+                // on the number of abscissa covered by subsequent histogram
+                // bins, we can get an easy boundary position formula.
+                const size_t num_abscissa_after =
+                    num_distinct_abscissa * (last_a - a) / last_a;
+                const int64_t value = last - num_abscissa_after;
                 abscissa[a] = (coord_t){ .value = value };
             }
             break;
