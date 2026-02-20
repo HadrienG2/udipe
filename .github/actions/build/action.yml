@@ -36,7 +36,7 @@ runs:
       if: ${{ runner.os != 'Windows' }}
       shell: bash
       run: |
-        cd build
+        cd build  \
         && cmake -DCMAKE_BUILD_TYPE=${{ inputs.build-type }}  \
                  -DUDIPE_BUILD_BENCHMARKS=ON  \
                  -DUDIPE_BUILD_EXAMPLES=ON  \
