@@ -19,7 +19,21 @@ runs:
       shell: bash
       run: mkdir build && cd build
 
-    - name: Configure the build w/o Doxygen
+    - name: Configure the build w/o Doxygen (Windows)
+      if: ${{ runner.os == 'Windows' }}
+      shell: pwsh
+      run: |
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=${{ inputs.build-type }}  `
+              -DUDIPE_BUILD_BENCHMARKS=ON  `
+              -DUDIPE_BUILD_EXAMPLES=ON  `
+              -DUDIPE_BUILD_TESTS=ON  `
+              -DUDIPE_WERROR=ON  `
+              ${{ inputs.extra-cmake-opts }}  `
+              ..
+
+    - name: Configure the build w/o Doxygen (non-Windows)
+      if: ${{ runner.os != 'Windows' }}
       shell: bash
       run: |
         cd build  \
