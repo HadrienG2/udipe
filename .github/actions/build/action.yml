@@ -20,7 +20,7 @@ runs:
       run: mkdir build && cd build
 
     - name: Configure the build w/o Doxygen (Windows)
-      if: ${{ runner.os }} == "Windows"
+      if: ${{ runner.os == 'Windows' }}
       shell: pwsh
       run: |
         cd build
@@ -33,7 +33,7 @@ runs:
               ..
 
     - name: Configure the build w/o Doxygen (non-Windows)
-      if: ${{ runner.os }} != "Windows"
+      if: ${{ runner.os != 'Windows' }}
       shell: bash
       run: |
         cd build
