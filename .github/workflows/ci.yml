@@ -118,7 +118,7 @@ jobs:
     container: ghcr.io/hadrieng2/udipe:${{ matrix.distro }}
     steps:
       - name: Download the build directory
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: build-${{ matrix.distro }}-Debug
       - name: Run all tests
@@ -140,7 +140,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
       - name: Download the build directory
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: build-${{ matrix.distro }}-RelWithDebInfo
       - name: Generate binary package
@@ -149,8 +149,9 @@ jobs:
           cd build
           make package
       - name: Upload package
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
+          archive: false
           name: package-bin-${{ matrix.distro }}
           path: build/*.tar.gz
           retention-days: 2
@@ -165,7 +166,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
       - name: Download the build directory
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: build-ubuntu-Debug
       - name: Generate source package
@@ -174,8 +175,9 @@ jobs:
           cd build
           make package_source
       - name: Upload package
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
+          archive: false
           name: package-src
           path: build/*.tar.gz
           retention-days: 2
@@ -190,7 +192,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
       - name: Download the build directory
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: build-ubuntu-Debug
       - name: Unpack and relocate the doxygen render
