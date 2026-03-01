@@ -148,13 +148,13 @@ jobs:
           tar -xvf build.tar
           cd build
           make package
-          mv build/*.tar.gz package-bin-${{ matrix.distro }}.tar.gz
+          mv *.tar.gz package-bin-${{ matrix.distro }}.tar.gz
       - name: Upload package
         uses: actions/upload-artifact@v7
         with:
           archive: false
           name: package-bin-${{ matrix.distro }}
-          path: package-bin-${{ matrix.distro }}.tar.gz
+          path: build/package-bin-${{ matrix.distro }}.tar.gz
           retention-days: 2
 
   package_src:
@@ -175,13 +175,13 @@ jobs:
           tar -xvf build.tar
           cd build
           make package_source
-          mv build/*.tar.gz package-src.tar.gz
+          mv *.tar.gz package-src.tar.gz
       - name: Upload package
         uses: actions/upload-artifact@v7
         with:
           archive: false
           name: package-src
-          path: package-src.tar.gz
+          path: build/package-src.tar.gz
           retention-days: 2
 
   build_pages:
