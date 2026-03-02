@@ -16,6 +16,7 @@
 
     #include "arch.h"
     #include "benchmark/distribution.h"
+    #include "benchmark/distribution_pool.h"
     #include "benchmark/outlier_filter.h"
     #include "benchmark/statistics.h"
     #include "name_filter.h"
@@ -200,57 +201,47 @@
             uint64_t win32_frequency;
         #endif
 
-        /// Clock offset distribution in nanoseconds
+        /// Number of empty_loop() iterations used for clock dithering
         ///
-        /// This is the offset that must be subtracted from OS clock durations
-        /// in order to get an unbiased estimator of the duration of the code
-        /// that is being benchmarked, excluding the cost of os_now() itself.
+        /// Because clocks have finite resolution, they exhibit quantization
+        /// noise, which can lead to systematic measurement error if we're not
+        /// careful. We avoid this through a "clock dithering" trick, where we
+        /// insert a random delay between benchmark measurements whose variation
+        /// amplitude is at least as large as the clock tick. This ensures that
+        /// each measurement begins and ends at a random position within a clock
+        /// tick, and thus clock tick quantization error should average to zero
+        /// across a sufficiently large set of measurements.
         ///
-        /// You do not need to perform this offset subtraction yourself,
-        /// os_duration() and os_clock_measure() will take care of it for you.
-        distribution_t offsets;
+        /// To be more specific, the random number of empty loop iterations in
+        /// use is in range [dither_iters; 2*dither_iters].
+        size_t dither_iters;
 
-        /// Empty loop iteration count at which the best relative precision on
+        /// empty_loop() iteration count at which the best relative precision on
         /// the loop iteration duration is achieved
         ///
         /// This is a useful starting point when recalibrating the system clock,
         /// or when calibrating a different clock based on the system clock.
         size_t best_empty_iters;
 
-        /// Empty loop duration distribution in nanoseconds
+        /// empty_loop() duration differences between best_empty_iters and
+        /// 2*best_empty_iters iterations
         ///
-        /// This field contains the distribution of execution times for the best
-        /// empty loop (as defined above). It can be used to calibrate the tick
-        /// rate of another clock like the x86 TSC clock by making said other
-        /// clock measure the same loop immediately afterwards then computing
-        /// the tick rate as a ticks-to-seconds ratio.
-        distribution_t best_empty_durations;
-
-        /// Duration statistics for `best_empty_dist`
-        ///
-        /// This is used when calibrating the duration of a benchmark run
-        /// towards the region where the system clock is most precise.
-        statistics_t best_empty_stats;
-
-        /// Unused \ref distribution_builder_t
-        ///
-        /// The clock calibration process uses one more \ref
-        /// distribution_builder_t than is required by the calibrated clock at
-        /// the end therefore this \ref distribution_builder_t remains around,
-        /// and can be reused to momentarily store user durations during the
-        /// benchmarking process as long as it is reset in the end.
-        distribution_builder_t builder;
+        /// This can be used to calibrate the tick rate of another clock like
+        /// the x86 TSC clock by making said other clock measure the same loop
+        /// immediately after calibrating the OS clock then computing the tick
+        /// rate as a ticks-to-seconds ratio.
+        distribution_t best_empty_changes;
 
         /// Timestamp buffer
         ///
         /// This is used for timestamp storage during OS clock measurements. It
-        /// contains enough storage for `num_durations + 1` timestamps.
+        /// contains enough storage for `2 * num_durations` timestamps.
         os_timestamp_t* timestamps;
 
         /// Duration buffer capacity
         ///
-        /// See individual buffer descriptions for more information about how
-        /// buffer capacities derive from this quantity.
+        /// This is the capacity of the `timestamps` buffer in (start, stop)
+        /// pairs, i.e. half its capacity in individual timestamps.
         size_t num_durations;
     } os_clock_t;
 
@@ -258,16 +249,20 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param outlier_filter should have been initialized with
+    /// \param distribution_pool must have been initialized with
+    ///                          distribution_pool_initialize() and not have
+    ///                          been finalized yet.
+    /// \param outlier_filter must have been initialized with
     ///                       outlier_filter_initialize() and not have been
     ///                       finalized yet
-    /// \param analyzer should have been initialized with analyzer_initialize()
+    /// \param analyzer must have been initialized with analyzer_initialize()
     ///                 and not have been finalized yet
     ///
     /// \returns a system clock context that must later be finalized using
     ///          os_clock_finalize()
     UDIPE_NON_NULL_ARGS
-    os_clock_t os_clock_initialize(outlier_filter_t* outlier_filter,
+    os_clock_t os_clock_initialize(distribution_pool_t* distribution_pool,
+                                   outlier_filter_t* outlier_filter,
                                    analyzer_t* analyzer);
 
     /// Read the system clock
@@ -305,7 +300,7 @@
         return timestamp;
     }
 
-    /// Estimate the elapsed time between two system clock readouts
+    /// Compute the elapsed time between two system clock readouts
     ///
     /// Given the `start` and `end` timestamps returned by two calls to now(),
     /// where `start` was measured before `end`, this estimates the amount of
@@ -319,25 +314,25 @@
     /// \param end is the timestamp that was measured using os_now() at the end
     ///            of the time span of interest (and therefore after `start`).
     ///
-    /// \returns an offset-corrected estimate of the amount of time that elapsed
-    ///          between `start` and `end`, in nanoseconds.
+    /// \returns an estimate of the amount of time that elapsed between `start`
+    ///          and `end`, in nanoseconds.
     UDIPE_NON_NULL_ARGS
     static inline signed_duration_ns_t os_duration(const os_clock_t* clock,
                                                    os_timestamp_t start,
                                                    os_timestamp_t end) {
         assert(os_timestamp_le(start, end));
-        signed_duration_ns_t uncorrected_ns;
+        signed_duration_ns_t duration_ns;
         #if defined(_POSIX_TIMERS)
             const int64_t secs = (int64_t)end.tv_sec - (int64_t)start.tv_sec;
-            uncorrected_ns = secs * UDIPE_SECOND;
-            uncorrected_ns += (int64_t)end.tv_nsec - (int64_t)start.tv_nsec;
+            duration_ns = secs * UDIPE_SECOND;
+            duration_ns += (int64_t)end.tv_nsec - (int64_t)start.tv_nsec;
         #elif defined(_WIN32)
             assert(clock->win32_frequency > 0);
-            uncorrected_ns = (end.QuadPart - start.QuadPart) * UDIPE_SECOND / clock->win32_frequency;
+            duration_ns = (end.QuadPart - start.QuadPart) * UDIPE_SECOND / clock->win32_frequency;
         #else
             #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
         #endif
-        return uncorrected_ns - distribution_choose(&clock->offsets);
+        return duration_ns;
     }
 
     /// Measure the execution duration of `workload` using the OS clock
@@ -370,9 +365,8 @@
     /// \param clock is the benchmark clock that is going to be used. This
     ///              routine can be used before said clock is fully initialized,
     ///              but it must be at minimum initialized enough to allow for
-    ///              offset-biased OS clock measurements (i.e. on Windows
-    ///              `win32_frequency` must have been queried already, and on
-    ///              all OSes `offset` must be zeroed out if not known yet).
+    ///              basic clock measurements (i.e. on Windows `win32_frequency`
+    ///              must have been queried already).
     /// \param workload is the workload whose duration should be measured.
     /// \param context encodes the parameters that should be passed to
     ///                `workload`, if any.
@@ -426,24 +420,10 @@
         /// This contains a cache of anything needed to (re)calibrate the x86
         /// TimeStamp Counter and use it for duration measurements.
         typedef struct x86_clock_s {
-            /// Clock offset distribution in TSC ticks
+            /// Number of empty loop iterations used for clock dithering
             ///
-            /// This is the offset that must be subtracted from TSC timestamp
-            /// differences in order to get an unbiased estimator of the
-            /// duration of the code that is being benchmarked, excluding the
-            /// cost of x86_timer_start()/x86_timer_end() itself.
-            ///
-            /// You do not need to perform this offset subtraction yourself,
-            /// x86_clock_measure() will take care of it for you.
-            distribution_t offsets;
-
-            /// Empty loop duration statistics in TSC ticks
-            ///
-            /// This summarizes the execution times for the best empty loop (as
-            /// defined in \ref os_clock_t). It is used when calibrating the
-            /// duration of a benchmark run towards the region where the TSC
-            /// clock exhibits best relative precision.
-            statistics_t best_empty_stats;
+            /// See \ref os_clock_t::dither_iters for more information.
+            size_t dither_iters;
 
             /// TSC clock frequency distribution in ticks/second
             ///
@@ -494,24 +474,28 @@
         ///
         /// This function must be called within the scope of with_logger().
         ///
+        /// \param distribution_pool must have been initialized with
+        ///                          distribution_pool_initialize() and not have
+        ///                          been finalized yet
         /// \param outlier_filter should have been initialized with
         ///                       outlier_filter_initialize() and not have been
         ///                       finalized yet
-        /// \param os is a system clock context that was freshly initialized
-        ///           with os_clock_initialize(), ideally right before calling
-        ///           this function, and hasn't been used for any other purpose
-        ///           or finalized with os_clock_finalize() yet.
         /// \param analyzer should have been initialized with
         ///                 analyzer_initialize() and not have been finalized
         ///                 yet
+        /// \param os is a system clock context that was freshly initialized
+        ///           with os_clock_initialize(), ideally right before calling
+        ///           this function, and hasn't been used for any other purpose
+        ///           or finalized with os_clock_finalize() yet
         ///
         /// \returns a TSC clock context that must later be finalized using
-        ///          x86_clock_finalize().
+        ///          x86_clock_finalize()
         UDIPE_NON_NULL_ARGS
         x86_clock_t
-        x86_clock_initialize(outlier_filter_t* outlier_filter,
-                             os_clock_t* os,
-                             analyzer_t* analyzer);
+        x86_clock_initialize(distribution_pool_t* distribution_pool,
+                             outlier_filter_t* outlier_filter,
+                             analyzer_t* analyzer,
+                             os_clock_t* os);
 
         /// Measure the execution duration of `workload` using the TSC clock
         ///
@@ -604,6 +588,12 @@
     /// which attempts to pick the best clock available on the target operating
     /// system and CPU architecture.
     typedef struct benchmark_clock_s {
+        /// Distribution pool
+        ///
+        /// This is used for the purpose of ergonomically allocating and
+        /// recycling data point distributions as needed.
+        distribution_pool_t distribution_pool;
+
         /// Outlier filter
         ///
         /// This is used to remove outliers from benchmark measurements, which
