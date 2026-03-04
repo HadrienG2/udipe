@@ -79,6 +79,8 @@ typedef struct udipe_context_s udipe_context_t;
 /// This function currently only has fatal error cases, which it handles using
 /// `exit(EXIT_FAILURE)`. It is therefore guaranteed to return a non-null
 /// pointer if it returns at all.
+//
+// TODO: Add attribute warn_unused_result on GCC/clang.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_RESULT
 udipe_context_t* udipe_initialize(udipe_config_t config);

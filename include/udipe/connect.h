@@ -103,6 +103,8 @@ typedef struct udipe_connect_options_s {
     // TODO: Maps to SO_RCVTIMEO if set
     udipe_duration_ns_t recv_timeout;
 
+    // TODO: Add `udipe_future_t* after` option to chain this after other ops.
+
     /// Local interface
     ///
     /// If set to a non-`NULL` string, this indicates that you only want to send
@@ -113,6 +115,11 @@ typedef struct udipe_connect_options_s {
     /// `local_address` if it is not a catch-all address) and `remote_address`
     /// (i.e. `remote_address` should be reachable from `local_interface`),
     /// otherwise you will not be able to send and receive datagrams.
+    ///
+    /// If you use the udipe_start_connect() asynchronous version of
+    /// udipe_connect(), then the string targeted by this pointer must not be
+    /// modified or liberated until the future associated with
+    /// udipe_start_connect() had been awaited via udipe_finish().
     ///
     /// By default, the connection is not bound to any network interface.
     //
@@ -330,7 +337,7 @@ typedef struct udipe_connect_options_s {
     bool enable_timestamps;
 
     // TODO: Activer aussi IP_RECVERR et logger voire gérer les erreurs, cf man
-    //       7 ip pour plus d'infos.
+    //       7 ip pour plus d'infos. C'est aussi utilisé pour le zero-copy.
 
     // TODO: Activer périodiquement SO_RXQ_OVFL pour check l'overflow côté
     //       socket, puis le désactiver après réception du cmsg suivant.

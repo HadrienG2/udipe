@@ -46,6 +46,7 @@
 //
 // TODO: Explain somewhere that a udipe connection is mostly like a POSIX socket
 //       but may be implemented using multiple sockets under the hood.
+// TODO: Add attribute warn_unused_result on GCC/clang.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
@@ -53,18 +54,20 @@ udipe_future_t* udipe_start_connect(udipe_context_t* context,
                                     udipe_connect_options_t options);
 
 // TODO: document
+// TODO: Add attribute warn_unused_result on GCC/clang.
 static inline
 UDIPE_NON_NULL_ARGS
 udipe_connect_result_t udipe_connect(udipe_context_t* context,
                                      udipe_connect_options_t options) {
     udipe_future_t* future = udipe_start_connect(context, options);
     assert(future);
-    udipe_result_t result = udipe_wait(future);
+    udipe_result_t result = udipe_finish(future);
     assert(result.command_id == UDIPE_CONNECT);
     return result.payload.connect;
 }
 
 // TODO: document and implement
+// TODO: Add attribute warn_unused_result on GCC/clang.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
@@ -72,13 +75,14 @@ udipe_future_t* udipe_start_disconnect(udipe_context_t* context,
                                        udipe_disconnect_options_t options);
 
 // TODO: document
+// TODO: Add attribute warn_unused_result on GCC/clang.
 static inline
 UDIPE_NON_NULL_ARGS
 udipe_disconnect_result_t udipe_disconnect(udipe_context_t* context,
                                            udipe_disconnect_options_t options) {
     udipe_future_t* future = udipe_start_disconnect(context, options);
     assert(future);
-    udipe_result_t result = udipe_wait(future);
+    udipe_result_t result = udipe_finish(future);
     assert(result.command_id == UDIPE_DISCONNECT);
     return result.payload.connect;
 }
@@ -89,6 +93,7 @@ udipe_disconnect_result_t udipe_disconnect(udipe_context_t* context,
 // TODO: Should have GSO-like semantics, i.e. if you give a large enough buffer
 //       then multiple datagrams may be sent. If GSO is disabled, then it just
 //       sends a single datagram. Do not attempt to send more than 64 datagrams.
+// TODO: Add attribute warn_unused_result on GCC/clang.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
@@ -96,18 +101,20 @@ udipe_future_t* udipe_start_send(udipe_context_t* context,
                                  udipe_send_options_t options);
 
 // TODO: document
+// TODO: Add attribute warn_unused_result on GCC/clang.
 static inline
 UDIPE_NON_NULL_ARGS
 udipe_send_result_t udipe_send(udipe_context_t* context,
                                udipe_send_options_t options) {
     udipe_future_t* future = udipe_start_send(context, options);
     assert(future);
-    udipe_result_t result = udipe_wait(future);
+    udipe_result_t result = udipe_finish(future);
     assert(result.command_id == UDIPE_SEND);
     return result.payload.send;
 }
 
 // TODO: document and implement
+// TODO: Add attribute warn_unused_result on GCC/clang.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
@@ -120,13 +127,19 @@ udipe_future_t* udipe_start_recv(udipe_context_t* context,
 //       then multiple datagrams may be received, and there will be anciliary
 //       data telling you how large the inner segments are. If GRO is disabled,
 //       then it just receives a single datagram.
+// TODO: Add attribute warn_unused_result on GCC/clang.
 static inline
 UDIPE_NON_NULL_ARGS
 udipe_recv_result_t udipe_recv(udipe_context_t* context,
                                udipe_recv_options_t options) {
     udipe_future_t* future = udipe_start_recv(context, options);
     assert(future);
-    udipe_result_t result = udipe_wait(future);
+    udipe_result_t result = udipe_finish(future);
     assert(result.command_id == UDIPE_RECV);
     return result.payload.recv;
 }*/
+
+// TODO: Add udipe_start_delayed(), udipe_start_clock(), and
+//       udipe_start_custom()/udipe_set_custom(), warn about the deadlock
+//       hazards associated with the latter.
+// TODO: For all of these, add attribute warn_unused_result on GCC/clang.

@@ -43,6 +43,7 @@ typedef enum udipe_command_id_e {
     // TODO: Add and implement
     /*UDIPE_SEND,  ///< udipe_send()
     UDIPE_RECV,  ///< udipe_recv()*/
+    UDIPE_JOIN,
 
     /// Invalid command identifier
     ///
