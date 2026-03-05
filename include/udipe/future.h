@@ -3,15 +3,16 @@
 //! \file
 //! \brief Asynchronous operation management
 //!
-//! Asynchronous `libudipe` commands such as udipe_start_connect() do not
-//! directly return a result, but instead return a pointer to a \ref
-//! udipe_future_t proxy that is later used to wait for the result to come up.
+//! Asynchronous `libudipe` commands whose name starts with `udipe_start_`, such
+//! as udipe_start_connect(), do not wait for the associated operation to
+//! complete and return its result. Instead they return a pointer to a \ref
+//! udipe_future_t object that can be used to wait for the result to come up
+//! among other things.
 //!
 //! Adding this intermediary stage where the command has been submitted to
-//! worker threads, but has not been awaited yet, allows you to schedule more
-//! commands before you wait for the result of the initial command to come up,
-//! and to flexibly and efficiently wait for multiple operations using
-//! collective operations such as udipe_join().
+//! worker threads, but has not been awaited yet, provides a lot of flexibility
+//! in the submission and scheduling of I/O-related work, as described in the
+//! documentation of \ref udipe_future_t.
 
 #include "pointer.h"
 #include "result.h"
@@ -25,21 +26,280 @@
 
 /// Asynchronous operation future
 ///
-/// Every asynchronous `libudipe` command (function whose name begins with
-/// `udipe_start_`) returns a pointer to a future, which acts as a proxy for the
-/// associated asynchronous operation.
+/// # Basic principles
 ///
-/// This future **must** later be awaited using udipe_wait() or a collective
-/// version thereof, which is the point at which the operation's result or
-/// errors will be reported, and associated resources will be liberated.
+/// `udipe_future_t` is the heart of the asynchronous API of udipe, which itself
+/// is the recommended default API that you should consider using in all
+/// circumstances where you don't precisely know the performance requirements of
+/// your application and want to get a good balance between ergonomics and
+/// flexibility/performance.
 ///
-/// After a future has been awaited to completion, the ressources associated
+/// Every asynchronous `libudipe` command (those functions in the public API
+/// whose name begins with `udipe_start_`) returns to its caller as quickly as
+/// possible, usually before the associated operation has completed. As opposed
+/// to returning the operation's result, like a synchronous function does, an
+/// asynchronous function returns a pointer to a future object, which can be
+/// used to interact with the associated asynchronous operation in the ways that
+/// are described below.
+///
+/// During normal program execution, every future **must** eventually be passed
+/// to udipe_finish(), which is the point at which the operation's result or
+/// errors will be reported, and associated resources will be liberated. This
+/// operation is blocking by nature, though we will later see that when the
+/// situation demands it, it is possible to have extra flexibility in how the
+/// associated waiting is carried out..
+///
+/// Once a future has been passed to udipe_finish(), the ressources associated
 /// with it have been liberated, and it must not be used again.
 ///
 /// The content of a future is an opaque implementation detail of `libudipe`
 /// that you should not attempt to read or modify in any way.
-//
-// TODO: Bring new future docs from mockup.h
+///
+/// # Collective operations
+///
+/// In situations where there are multiple asynchronous operations in flight, it
+/// is possible to await the associated futures one by one via `udipe_finish()`.
+/// But this future usage pattern comes with two important limitations, which
+/// can be adressed by leveraging udipe's collective operations:
+///
+/// - Sometimes, your application only needs _one_ of the pending operations to
+///   complete in order to make progress, and there is no need to await _all_
+///   pending operations. When this happens, you would like to conceptually
+///   await the operation that will complete the earliest, followed by the
+///   operation that completes next, and so on. This need is covered by the
+///   udipe_start_unordered() function, which lets you await multiple futures in
+///   such a way that you are gradually notified as each future completes, with
+///   a way to know which of the awaited futures have completed.
+/// - Even when your application does need to await several futures before it
+///   can make progress, your operating system may provide more efficient ways
+///   to await multiple operations than to simply await said operations one by
+///   one. This optimization potential is exposed by the udipe_join() collective
+///   wait function, which also comes with a udipe_start_join() asynchronous
+///   version whose use will be explained in the next section.
+///
+/// # Chaining and associated restrictions
+///
+/// Network commands come with a `udipe_future_t* after` option. By setting this
+/// option to point to the future associated with another asynchronous
+/// operation, you can schedule the command of interest to execute after that
+/// asynchronous operation.
+///
+/// When combined with udipe_start_join(), this feature lets you depend on as
+/// many futures as you want, enabling you to express arbitrarily complex
+/// dependency graphs. Sometimes, this can reduce the need for application
+/// threads to constantly block waiting for asynchronous operations.
+///
+/// For example, a basic network packet forwarding task can be expressed as a
+/// chain of network receive and send commands operating on the same buffer,
+/// where the send command is scheduled to execute after the receive command
+/// completes, at which point the application thread can just wait on the final
+/// receive commands in order to wait for the entire task to complete. And if
+/// you have multiple packets to forward, you can just amortize waiting overhead
+/// further by chaining a bunch of (recv, send) futures upfront.
+///
+/// But with that being said, users of other future-based asynchronous
+/// programming frameworks will quickly notice that the asynchronous chaining
+/// capabilities of udipe are less powerful than those found elsewhere, and
+/// notably exclude the ability to post-process input data via a user-defined
+/// callback, an operation known in computer science circles as "monadic map".
+///
+/// This omission is intentional and stems from the fact that in its
+/// asynchronous API, udipe enforces maximal isolation between network threads
+/// and application threads. On one side, network threads execute tightly
+/// performance-tuned code under a strict soft realtime discipline to minimize
+/// UDP packet loss. On the other side, application threads are free to receive
+/// as much or little performance tuning as the use case demands. Alas, by
+/// forcing network threads to execute arbitrary application code at the time
+/// where they signal some I/O completion, monadic map pokes a hole in this
+/// isolation, and thus has no place in the asynchronous udipe API.
+///
+/// Now, performance-conscious users may object that executing very simple data
+/// post-processing callbacks in network threads can have performance benefits
+/// with respect to offloading that processing to application threads via a
+/// thread synchronization transaction. But those performance benefits are
+/// largely voided by the fact that in the asynchronous udipe API, starting any
+/// network command usually involves a thread synchronization transaction, as
+/// does waiting for said command to finish executing, so this API is not
+/// exactly light on synchronization transactions to begin with. It is just one
+/// area where the asynchronous udipe API trades performance for ergonomics.
+///
+/// In scenarios where performance becomes the top concern and reduced
+/// ergonomics is an acceptable price to pay for it, it is instead recommended
+/// to switch to the more advanced callback-based API of udipe. By putting you
+/// in the driver seat of network threads, this API lets you get to the optimum
+/// of zero thread synchronization per UDP packet in basic operation, and is
+/// therefore the recommendation for the most performance-demanding applications
+/// for which the asynchronous API is not efficient enough. (TODO: point to more
+/// resources once callback API is available).
+///
+/// # Cancelation
+///
+/// There are several situations in which an asynchronous command that seemed
+/// sensible at the time where it was initiated, turns out to be unnecessary as
+/// time passes and more information surfaces:
+///
+/// - Sometimes, faillible users ask you to do something, only to realize
+///   something is wrong and change their mind before the work is over.
+/// - Sometimes a command is scheduled to execute after an operation that
+///   errored out, which means it will never be okay to execute it.
+/// - Sometimes latency optimizations force you to speculatively initiate
+///   network requests that you may or may not need later on.
+///
+/// To handle these situations correctly, some sort of cancelation support is
+/// needed. Which is why the asynchronous API of udipe comes with the following
+/// asynchronous operation cancelation support:
+///
+/// - Any asynchronous operation which has not been awaited via udipe_finish()
+///   yet can be manually canceled via udipe_cancel(). Bear in mind that this
+///   may or may not succeed depending on if the work was completed beforehand,
+///   and even when it does succeeds, it is not guaranteed to actually save up
+///   work if the operation was already being processed.
+/// - Any asynchronous operation which errors out will implicitly trigger the
+///   cancelation of other operations that were scheduled to execute after it.
+///
+/// # Time-based scheduling
+///
+/// Sometimes, networking commands need to execute not in relation to each
+/// other, but in relation to external factors such as the passing of time.
+/// Bearing this in mind, the asynchronous udipe API comes with utilities that
+/// let you sync up with the system clock in various ways:
+///
+/// - Sometimes the unbounded waiting logic of udipe_finish() gets in the way
+///   and you would rather cancel an operation if it takes suspiciously long, or
+///   at least periodically interrupt your waiting to take care of other
+///   background chores. For those situations, we provide udipe_wait(), which
+///   supports bounded waiting with a timeout parameter.
+/// - Sometimes you would like to schedule some work to start at a specific
+///   point in real time. This is a job for timers, of which udipe provides the
+///   two flavors that may be used to from experience with other APIs:
+///   udipe_start_timer_once() for single-shot signaling and
+///   udipe_start_timer_repeat() for repeated signaling.
+///
+/// # Custom futures
+///
+/// As anyone with asynchronous programming experience can attest, async
+/// frameworks are all fun and games until the day where you need to compose
+/// them with some awaitable event that the asynchronous framework designer did
+/// not think about, and then the eternal suffering begins.
+///
+/// In an attempt to at least plan ahead for such unexpected use cases, without
+/// over-engineering itself into the corner of supporting arbitrarily complex
+/// and OS-specific operations beyond its intended scope, udipe is able to
+/// interoperate with application-defined events via a purposely minimal API:
+///
+/// - With udipe_start_custom(), you can create a future that behaves for all
+///   intents and purposes like an asynchronous operation that has not completed
+///   yet. Unlike with other udipe-provided futures, however, the result and
+///   completion signaling of this operation is under your control.
+/// - With udipe_set_custom(), you can set a future previously created via
+///   udipe_start_custom() to a result of your choosing, which will mark the
+///   associated asynchronous operation as completed and trigger the execution
+///   of any work that was previously scheduled to execute after it.
+///
+/// While custom futures may seem convenient on paper, prospective users should
+/// be warned that their API is heavily constrained by limitations of the C
+/// programming languages and udipe internals. Custom futures therefore trade
+/// increased flexibility for poor type safety, an inconvenient API, and major
+/// deadlock hazards, which is why they should only be used sparingly and in
+/// situations where no native udipe abstraction fits.
+///
+/// If you find yourself reaching for custom futures often, the recommended
+/// course of action is to contact the udipe developers so that we can figure
+/// out together how to provide better support for your use case.
+///
+/// \internal
+///
+/// # Implementation
+///
+/// On Linux, udipe futures signal up to two thread synchronization paths upon
+/// completion, futexes and special file descriptors, using bits in the futex
+/// state to tell which paths are being awaited and need to be signaled.
+///
+/// - Futexes provide a fast path which is used in simple scenarios, such as
+///   when an application thread directly waits for a network request to
+///   complete or awaits an operation which has already completed. Futexes are
+///   optimally efficient in the sense that they use minimal system resources
+///   and enable zero-syscall operation in the optimal case where the
+///   application thread does not wait for some asynchronous work until the work
+///   is complete. But their composability is alas limited, which is why special
+///   file descriptors are sometimes needed.
+/// - Special file descriptor such as epollfd, eventfd and timerfd provide
+///   increased flexibility at the expense of being only accessible via syscalls
+///   and thus coming with higher synchronization overhead. At the time of
+///   writing, they are the workhorse behind collective operations, future
+///   chaining and time-based scheduling, though this may change in the future
+///   as newer Linux kernel and liburing versions become available and expose
+///   more advanced collective futex waiting and waking capability.
+///
+/// Future implementations can be further divided into three broad categories
+/// depending on how their completion is signaled:
+///
+/// - Eager futures, including network commands futures and custom futures, are
+///   directly signaled by a network or application thread as some previously
+///   submitted work completes.
+///     - These futures have the simplest implementation overall.
+///     - They always support the futex-based signaling fast path, which works
+///       using the most obvious patterns.
+///     - They interoperate with the file descriptor signaling path using via
+///       eventfds that are set to 1 as the work completes, which will in turn
+///       trigger a readiness signal in the epoll sets of any downstream future
+///       or thread that await them via the file descriptor path.
+///     - On the upstream side, only network operation futures support
+///       chaining, which they handle by adding the file descriptor of the
+///       upstream future after which they are chained to the set of file
+///       descriptors that the associated network thread is monitoring.
+///     - Cancelation is... something to be figured out for network commands, it
+///       will probably involve some kind of epollfd that network threads add to
+///       their readiness set, with an extra eventfd for direct cancelation as
+///       described in the collective section below (TODO). For custom commands,
+///       it is just a matter of making udipe_set_custom() fail in the right
+///       manner, and ideally providing an additional API for detecting
+///       cancelation in a nonblocking manner + advertising it above (TODO).
+///     - When these futures are destroyed after all clients have acknowledged
+///       their completion/cancelation, their eventfd is cleared by reading it
+///       if it was written to (which can be known by checking the associated
+///       futex state bit), which enables recycling it.
+/// - Collective futures await other futures via an epoll set, whose epollfd is
+///   in turn exposed as their output file descriptor to enable transitive
+///   downstream signaling without direct assistance of any thread.
+///     - These futures do not spontaneously transition to the completed state
+///       and cannot be awaited via the futex path _alone_. But a downstream
+///       thread which receives a readiness notification from their epollfd
+///       (which should be awaited under futex-guarded mutual exclusion to avoid
+///       the various race conditions around multithreaded epoll use) is
+///       expected to check it out and update their futex and result state
+///       accordingly, which in turn will eventually lead to a final futex state
+///       that clients can process without further syscalls.
+///     - Care must be taken to remove upstream fds from the epoll set as they
+///       become ready, which can sometimes be automated via ONESHOT (e.g. for
+///       timerfds, eventfds and unordered futures) but not always (join futures
+///       being the odd duck there as it takes multiple readiness signals before
+///       all upstream futures are ready), so that the epollfd is back to its
+///       initial state at the end.
+///     - Indirect cancelation from upstream fds should be trivial, but direct
+///       cancelation is trickier. It can probably be handled by setting the
+///       futex as usual, removing all upstream futures from the epoll set while
+///       ignoring errors from futures which were already removed, allocating an
+///       eventfd, attaching it to the epoll set, signaling it, then later
+///       removing/deallocating it when the future gets liberated.
+/// - File descriptor futures are, as the name suggests, just a wrapper around a
+///   Linux special file descriptor type. The main example at the time of
+///   writing is timer futures, which wraps a timerfd to enable deadline and
+///   periodical scheduling.
+///     - Difference in file descriptor behavior aside, these futures work
+///       similarly to collective futures, but with no chaining support and a
+///       much simpler implementation: on the first blocking wait just read the
+///       fd and set the futex state and result accordingly, on the next
+///       blocking wait just read the futex/result directly without syscalls.
+///     - In the end, their special fd is reset for recycling using an
+///       fd-specific process (assuming any reset process is needed).
+///     - Cancelation will also require manipulations specific to the fd type,
+///       but for timerfd at least there are ways to awake all waiters.
+///
+/// TODO: Explain windows impl once we get to that, will likely be based on lots
+///       of semaphores and service threads with a pinch of WaitForMultipleObjects.
+///
+/// TODO finish docs
 typedef struct udipe_future_s udipe_future_t;
 
 /// Wait for the end of an asynchronous operation, collect its result and
@@ -71,7 +331,7 @@ typedef struct udipe_future_s udipe_future_t;
 ///   races, complicated resource liberation procedures, and other thread
 ///   synchronization problems like cache contention.
 ///
-/// ...the price to pay being that timeouts are a bit more cumbersome as they
+/// ...but the price to pay is that timeouts are a bit more cumbersome as they
 /// require the use of a separate entry point called udipe_wait().
 ///
 /// \param future must be a future that was returned by an asynchronous function
@@ -97,8 +357,10 @@ udipe_result_t udipe_finish(udipe_future_t* future);
 /// In contrast with udipe_finish(), which also waits for asynchronous
 /// operations to terminate, this function...
 ///
-/// - Does not wait more than `timeout` plus some small processing delay
-///   (typically in the microsecond range).
+/// - Does not wait more than `timeout` plus some small processing delay. These
+///   delays are typically in the microsecond range, but sadly some OS
+///   primitives only support timeouts with millisecond granularity which bumps
+///   the minimal timeout to 1ms.
 /// - Does not fetch the future's result if the operation does complete.
 /// - Does not liberate the resources associated with the future.
 /// - Can be concurrently called by several threads, at the expense of reduced
@@ -125,6 +387,7 @@ udipe_result_t udipe_finish(udipe_future_t* future);
 ///          without blocking.
 //
 // TODO: Implement
+// TODO: Add attribute warn_unused_result on GCC/clang.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout);
@@ -140,8 +403,8 @@ bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout);
 /// operation you're canceling and how far along it has progressed at the time
 /// udipe_cancel() has been called. Though latency and UX considerations will
 /// sometimes dictate otherwise, the most resource-efficient way to cancel some
-/// work remains obviously to not start the work until you know for sure you are
-/// going to need it...
+/// work remains obviously to not start the work until the point where you know
+/// for sure you are going to need it.
 ///
 /// If the `finish` flag is set, then after canceling the operation, this
 /// function additionally waits for the operation to terminate then liberates
@@ -160,11 +423,18 @@ bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout);
 ///               udipe_finish() was automatically called afterwards, or solely
 ///               send a cancelation notification and leave waiting and cleanup
 ///               to a later manual call to udipe_finish().
+///
+/// \returns the truth that the operation was successfully canceled, i.e. it had
+///          not already completed before udipe_cancel() was called. If this
+///          function returns false and there were other asynchronous operations
+///          scheduled after this operation, then you will need to cancel these
+///          downstream operations too.
 //
 // TODO: Implement
+// TODO: Add attribute warn_unused_result on GCC/clang.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
-void udipe_cancel(udipe_future_t* future, bool finish);
+bool udipe_cancel(udipe_future_t* future, bool finish);
 
 /// Start waiting for multiple asynchronous operations to terminate, returning a
 /// future that will be marked as successfully completed or canceled once all
@@ -220,7 +490,7 @@ udipe_future_t* udipe_start_join(udipe_context_t* context,
                                  udipe_future_t* const futures[],
                                  size_t num_futures);
 
-/// Eagerly wait for multiple asynchronous operations to terminate
+/// Eagerly wait for multiple asynchronous operations to all terminate
 ///
 /// This is the synchronous version of udipe_start_join(), which can be used
 /// when you want to wait for multiple asynchronous operations to finish and
@@ -256,3 +526,10 @@ void udipe_join(udipe_context_t* context,
 
 // TODO: Add udipe_start_unordered(), don't provide a synchronous version.
 // TODO: Add attribute warn_unused_result on GCC/clang.
+
+// TODO: Add udipe_start_timer_once(), udipe_start_timer_repeat(), and
+//       udipe_start_custom()/udipe_set_custom(), warn about the deadlock
+//       hazards associated with the latter (see future docs) and clarify which
+//       clock is used for the former, it should ideally match some libc-exposed
+//       clock. Handle cancelation in udipe_set_custom().
+// TODO: For all of these, add attribute warn_unused_result on GCC/clang.

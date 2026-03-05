@@ -26,6 +26,9 @@ struct udipe_future_s {
     ///
     /// Once the underlying command is done running to completion, its result
     /// will be written down to this field.
+    //
+    // TODO: should be a union with other state for collective futures that
+    //       don't produce results like join().
     alignas(FALSE_SHARING_GRANULARITY) udipe_result_payload_t payload;
 
     /// Futex that can be used to wait for the command to run to completion
@@ -43,6 +46,15 @@ struct udipe_future_s {
     ///   result, then this futex to the appropriate \ref udipe_command_id_t
     ///   with release ordering, and finally it wakes the futex.
     _Atomic uint32_t futex;
+
+    /// File descriptor
+    ///
+    /// Every future gets a file descriptor, which is one of the means by which
+    /// it can be avaited. TODO finish this by mentioning there are multiple
+    /// kinds of fds which may require different processing behavior
+    int fd;
+
+    // TODO: more members which haven't been added yet
 };
 static_assert(alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
               "Each future potentially synchronizes different workers and "
@@ -51,11 +63,11 @@ static_assert(alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
 static_assert(sizeof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
               "Should not need more than one false sharing granule per future");
 static_assert(
-    offsetof(udipe_future_t, futex) + sizeof(uint32_t) <= CACHE_LINE_SIZE,
+    offsetof(udipe_future_t, fd) + sizeof(uint32_t) <= CACHE_LINE_SIZE,
     "Should fit on a single cache line for optimal memory access performance "
     "on CPUs where the FALSE_SHARING_GRANULARITY upper bound is pessimistic"
 );
 static_assert(sizeof(udipe_result_t) <= CACHE_LINE_SIZE,
-              "Should always be true because future is isomorphic to result");
+              "Should always be true because future is a superset of result");
 
 // TODO: Implement operations

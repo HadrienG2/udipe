@@ -138,8 +138,3 @@ udipe_recv_result_t udipe_recv(udipe_context_t* context,
     assert(result.command_id == UDIPE_RECV);
     return result.payload.recv;
 }*/
-
-// TODO: Add udipe_start_delayed(), udipe_start_clock(), and
-//       udipe_start_custom()/udipe_set_custom(), warn about the deadlock
-//       hazards associated with the latter.
-// TODO: For all of these, add attribute warn_unused_result on GCC/clang.
