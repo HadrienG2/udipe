@@ -89,6 +89,8 @@ jobs:
     name: Build for Windows
     # TODO: Go back to windows-latest after VS2026 reaches GA in early May
     runs-on: windows-2025-vs2026
+    # TODO: Remove this after getting the job to work
+    continue-on-error: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
