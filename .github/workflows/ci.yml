@@ -108,8 +108,6 @@ jobs:
           # TODO: Add build-type matrix, see above
           build-type: RelWithDebInfo
           extra-cmake-opts: ${{ steps.vcpkg.outputs.vcpkg-cmake-config }}
-          # TODO: Remove this after getting the job to work
-          continue-on-error: true
       # TODO: Once it builds, add a test_windows job that tests it
 
   test_linux:
