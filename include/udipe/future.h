@@ -149,13 +149,13 @@
 /// needed. Which is why the asynchronous API of udipe comes with the following
 /// asynchronous operation cancelation support:
 ///
-/// - Any asynchronous operation which has not been awaited via udipe_finish()
-///   yet can be manually canceled via udipe_cancel(). Bear in mind that this
-///   may or may not succeed depending on if the work was completed beforehand,
-///   and even when it does succeeds, it is not guaranteed to actually save up
-///   work if the operation was already being processed.
-/// - Any asynchronous operation which errors out will implicitly trigger the
-///   cancelation of other operations that were scheduled to execute after it.
+/// - Any asynchronous operation which is not being awaited via udipe_finish()
+///   yet can be manually canceled via udipe_cancel(). Like all asynchronous
+///   cancelation APIs, this operation comes with a lot of caveats and you
+///   should read its documentation very carefully before using it.
+/// - Any asynchronous operation which is canceled or errors out will
+///   automatically trigger the cancelation of any other operations that were
+///   scheduled to execute after it.
 ///
 /// # Time-based scheduling
 ///
@@ -212,33 +212,26 @@ typedef struct udipe_future_s udipe_future_t;
 /// schedule the liberation of associated resources
 ///
 /// From the point where any thread enters this function, `future` should be
-/// treated as liberated and not used in any manner anymore.
+/// treated as liberated. In other words, udipe_finish() cannot be called until
+/// all previous calls to the udipe API that involve this future have returned,
+/// and this future cannot be passed to any other udipe function by any thread
+/// after the point where udipe_finish() has started being called.
+///
+/// One consequence of this rule is that the future which has been passed to
+/// udipe_finish() cannot be passed to udipe_cancel(), and thus the implicit
+/// wait of udipe_finish() cannot be canceled. To achieve cancelable wait or any
+/// kind of concurrent waiting by multiple threads, you will need to use
+/// udipe_wait() first instead of calling udipe_finish() directly.
 ///
 /// By the time this function returns, it is guaranteed that...
 ///
 /// - The result of the asynchronous operation is known (it is, after all, the
 ///   return value of this function).
 /// - Any input parameter provided via a pointer at the time where the
-///   asynchronous operation was started will not be accessed anymore, meaning
-///   the memory targeted by such pointers can safely be modified, liberated,
-///   etc.
-/// - The liberation of any state associated with the asynchronous operation has
-///   been at least scheduled (though it may not have happened yet).
-///
-/// By coupling wait-for-result with resource liberation in this fashion, the
-/// API design of udipe_finish() ensures that...
-///
-/// - Any operation whose result is awaited (which must always be done in order
-///   to handle unexpected errors) will also get its associated state liberated.
-///   There is no need for a separate liberation step that can easily be
-///   forgotten, leading to resource leaks.
-/// - It is purposely difficult to read the result of an asynchronous operation
-///   from multiple threads, which is discouraged as it is a recipe for data
-///   races, complicated resource liberation procedures, and other thread
-///   synchronization problems like cache contention.
-///
-/// ...but the price to pay is that timeouts are a bit more cumbersome as they
-/// require the use of a separate entry point called udipe_wait().
+///   asynchronous operation was started will not be accessed anymore. So the
+///   memory targeted by such pointers can safely be modified, liberated, etc.
+/// - The liberation of any udipe state associated with the asynchronous
+///   operation has been at least scheduled (it may not have completed yet).
 ///
 /// \param future must be a future that was returned by an asynchronous function
 ///               (those whose name begins with `udipe_start_`) and has not been
@@ -261,22 +254,43 @@ udipe_result_t udipe_finish(udipe_future_t* future);
 /// Wait up to a certain duration for the end of an asynchronous operation
 ///
 /// In contrast with udipe_finish(), which also waits for asynchronous
-/// operations to terminate, this function...
+/// operations to terminate, this function **only** waits for a result to be
+/// available, it does not fetch that result and liberates resources. In other
+/// words, `udipe_wait()`...
 ///
-/// - Does not wait more than `timeout` plus some small processing delay. These
-///   delays are typically in the microsecond range, but sadly some OS
-///   primitives only support timeouts with millisecond granularity which bumps
-///   the minimal timeout to 1ms.
-/// - Does not fetch the future's result if the operation does complete.
-/// - Does not liberate the resources associated with the future.
-/// - Can be concurrently called by several threads, at the expense of reduced
-///   performance due to CPU cache contention.
+/// - Does not fetch the future's result if the operation does complete. It only
+///   tells you when the result is ready to fetch via udipe_finish(), which
+///   won't block in this case.
+/// - Supports cancelation and other kinds of concurrent operation on the same
+///   future by multiple threads, at the expense of a performance hit caused by
+///   CPU cache contention and thread synchronization overhead.
+/// - Does not wait more than `timeout` plus some extra delay. This extra delay
+///   is normally a small processing overhead in the microsecond range, but
+///   sadly some underlying OS APIs only support timeouts with millisecond
+///   granularity, which increases the minimal timeout to 1ms.
+/// - Does not liberate the resources associated with the future, you must still
+///   call udipe_finish() at some later time to achieve this.
 ///
-/// A typical use case for udipe_wait() is when you want to wait a bit for an
-/// asynchronous operation to complete, then either 1/give up and cancel the
-/// operation with udipe_cancel() or 2/take care of some periodical background
-/// chores then go back to waiting, repeating the process until the wait
-/// succeeds and you can finally fetch the result using udipe_finish().
+/// Here are some examples of use cases that you can handle by calling
+/// `udipe_wait()` first instead of calling udipe_finish() directly:
+///
+/// - You need a timeout feature where requests are abandoned after a while if
+///   they take abnormally long. This is achieved by using udipe_wait() with a
+///   timeout, followed by udipe_cancel() if the timeout is indeed reached.
+/// - You must periodically take some background action, such as refreshing a
+///   display or snapshoting your app's state, and therefore cannot afford to
+///   wait indefinitely for a udipe operation to complete. This can be done with
+///   repeated timeout waits, but unordered and timer futures may be a better
+///   building block for this by virtue of being based on absolute rather than
+///   relative durations and thus avoiding "clock drift".
+/// - You need multiple application threads to wait for a udipe operation to
+///   complete. This can be done with `udipe_wait()`, but bear in mind that you
+///   will need to be extra careful as you still need to call udipe_finish() on
+///   one thread eventually and it can only be done after all other threads have
+///   returned from their wait. For this use case, it is normally better to have
+///   one thread that is responsible for awaiting, fetching and broadcasting the
+///   result, which other threads will await via a broadcast synchronization
+///   primitive under your control such as a condition variable.
 ///
 /// \param future must be a future that was returned by an asynchronous function
 ///               (those whose name begins with `udipe_start_`) and has not been
@@ -288,9 +302,9 @@ udipe_result_t udipe_finish(udipe_future_t* future);
 ///                operation has completed.
 ///
 /// \returns the truth that the operation associated with `future` has
-///          completed. If this function returns `true`, calling udipe_finish()
-///          on the same future is guaranteed to return a result immediately
-///          without blocking.
+///          completed and its result is ready to be fetched. If this function
+///          returns `true`, calling udipe_finish() on the same future is
+///          guaranteed to return a result immediately without blocking.
 //
 // TODO: Implement
 // TODO: Add attribute warn_unused_result on GCC/clang.
@@ -305,12 +319,33 @@ bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout);
 /// terminate as quickly as possible, avoiding any work that had not begun yet
 /// including dependent work scheduled after the target future.
 ///
-/// How much work can be saved in this manner depends on the specifics of the
-/// operation you're canceling and how far along it has progressed at the time
-/// udipe_cancel() has been called. Though latency and UX considerations will
-/// sometimes dictate otherwise, the most resource-efficient way to cancel some
-/// work remains obviously to not start the work until the point where you know
-/// for sure you are going to need it.
+/// Like any other asynchronous cancelation APIs, this operation is inherently
+/// racy and therefore comes with a lot of caveats that must be kept in mind
+/// while using it:
+///
+/// - Canceling an operation that has already completed is ineffective, in
+///   particular it will not cancel downstream operations scheduled after the
+///   targeted operation. If that is what you are after, you are responsible for
+///   keeping track of the dependency tree downstream of the future of interest
+///   and walking down that tree as much as necessary to cancel everything.
+/// - Even if the operation has not already completed, there is no guarantee
+///   that cancelation will save any work or meaningfully reduce the remaining
+///   wait delay. Cancelation is just a hint to the implementation of the
+///   underlying asynchronous operation, and not all implementations are capable
+///   of taking this hint at all times, especially when they have already
+///   started and progressed quite far along their execution path.
+/// - An operation that is being awaited via udipe_finish() cannot be canceled.
+///   If you are interested in cancelation, you need a more involved workflow
+///   where you call udipe_wait(), wait for other threads that could have
+///   canceled the operation to notify that they have observed the end of the
+///   wait, and finally call udipe_finish().
+///
+/// In other words, though latency and UX considerations will sometimes dictate
+/// otherwise, the most resource-efficient way to cancel some work remains
+/// obviously to not start the work until the point where you know for sure you
+/// are going to need it.
+///
+/// ---
 ///
 /// If the `finish` flag is set, then after canceling the operation, this
 /// function additionally waits for the operation to terminate then liberates
@@ -318,6 +353,12 @@ bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout);
 /// set, then udipe_cancel() returns immediately and must be followed by an
 /// udipe_finish() call (possibly preceded by some udipe_wait() if
 /// bounded-duration waits are desired) to finish resource cleanup.
+///
+/// It must be understood that the `finish` flag is only safe to set in
+/// situations where you know that no other thread is waiting or could start
+/// waiting for the future. A typical use case for it is single-threaded
+/// workflows when you have started directly or indirectly waiting for a future,
+/// then realize you don't need to wait for this particular operation after all.
 ///
 /// \param future must be a future that was returned by an asynchronous function
 ///               (those whose name begins with `udipe_start_`) and has not been
@@ -403,11 +444,11 @@ udipe_future_t* udipe_start_join(udipe_context_t* context,
 /// have nothing else to do meanwhile.
 ///
 /// On some platforms, the implementation of udipe_join() may be more efficient
-/// than that of simply calling udipe_finish() sequentially for each input
-/// future. But bear in mind that you WILL need to call udipe_finish() on each
-/// of the input futures eventually in order to check out their results and
-/// liberate associated state. All udipe_join() guarantees is that these calls
-/// will be nonblocking, which should greatly reduce their individual overhead.
+/// than that of simply calling udipe_wait() sequentially for each input future.
+/// But bear in mind that you WILL need to call udipe_finish() on each of the
+/// input futures eventually in order to check out their results and liberate
+/// associated state. All udipe_join() guarantees is that these calls will be
+/// nonblocking, which should reduce their individual overhead.
 ///
 /// \param context must point to an \ref udipe_context_t that has been set up
 ///                via udipe_initialize() and hasn't been liberated via
