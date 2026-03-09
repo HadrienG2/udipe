@@ -5,6 +5,8 @@ max_cache_age = "7d"
 exclude_path = [
     # Flaky links in fonts license READMEs are not considered harmful
     ".*fonts/SOURCE-CODE-PRO-LICENSE.txt",
+    # Ignore some brokenness outside our control in doxygen's CSS
+    "doxygen/doxygen.css",
 ]
 
 timeout = 5
