@@ -41,7 +41,7 @@ jobs:
           sparse-checkout: CI/*
           sparse-checkout-cone-mode: false
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           file: CI/Dockerfile.${{ matrix.distro }}
           push: true
