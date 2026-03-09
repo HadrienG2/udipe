@@ -15,6 +15,8 @@ env:
 
 jobs:
   docker_image:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     name: Build docker image
     runs-on: ubuntu-latest
     permissions:
@@ -48,6 +50,8 @@ jobs:
           cache-to: type=gha,scope=${{ matrix.distro }},mode=max
 
   build_ubuntu_doxygen:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     name: Build for Ubuntu w/ Doxygen
     needs: docker_image
     runs-on: ubuntu-latest
@@ -67,6 +71,8 @@ jobs:
           extra-cmake-opts: '-DUDIPE_BUILD_DOXYGEN=ON'
 
   build_other_linux:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     name: Build for other Linux
     needs: docker_image
     runs-on: ubuntu-latest
@@ -86,6 +92,8 @@ jobs:
           build-type: ${{ matrix.build-type }}
 
   build_windows:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     name: Build for Windows
     # TODO: Go back to windows-latest after VS2026 reaches GA in early May
     runs-on: windows-2025-vs2026
@@ -111,6 +119,8 @@ jobs:
       # TODO: Once it builds, add a test_windows job that tests it
 
   test_linux:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     name: Test on Linux
     needs: [build_ubuntu_doxygen, build_other_linux]
     runs-on: ubuntu-latest
@@ -131,6 +141,8 @@ jobs:
           ctest -j$(nproc)
 
   package_bin:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     name: Package binaries
     needs: [build_ubuntu_doxygen, build_other_linux]
     runs-on: ubuntu-latest
@@ -161,6 +173,8 @@ jobs:
           retention-days: 2
 
   package_src:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     name: Package source
     needs: build_ubuntu_doxygen
     runs-on: ubuntu-latest
@@ -188,6 +202,8 @@ jobs:
           retention-days: 2
 
   build_pages:
+    # Don't run CI twice when a PR is created from a branch internal to the repo
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     name: Build website
     needs: build_ubuntu_doxygen
     runs-on: ubuntu-latest
@@ -213,9 +229,11 @@ jobs:
           path: pages/
 
   deploy_pages:
+    # Only deploy pages from the main branch, this removes the PR job
+    # duplication handled elsewhere along the way
+    if: github.ref == 'refs/heads/main'
     name: Deploy website
     runs-on: ubuntu-latest
-    if: ${{ github.ref == 'refs/heads/main' }}
     needs: build_pages
     permissions:
       pages: write
