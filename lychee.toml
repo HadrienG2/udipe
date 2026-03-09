@@ -1,0 +1,10 @@
+cache = true
+cache_exclude_status = "400.."
+max_cache_age = "7d"
+
+exclude_path = [
+    # Flaky links in fonts license READMEs are not considered harmful
+    ".*fonts/SOURCE-CODE-PRO-LICENSE.txt",
+]
+
+timeout = 5

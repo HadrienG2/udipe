@@ -223,6 +223,14 @@ jobs:
           mv build/html doc/src/doxygen
       - name: Build the mdbook documentation
         run: mdbook build doc -d "$(pwd)/pages"
+      - name: Cache lychee output
+        uses: actions/cache@v5
+        with:
+          path: .lycheecache
+          key: lychee-cache
+      - name: Check links in the documentation
+        run: |
+            lychee --config lychee.toml --no-progress --root-dir pages pages
       - name: Generate and upload the artifact
         uses: actions/upload-pages-artifact@v4
         with:

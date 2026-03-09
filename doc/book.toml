@@ -8,5 +8,5 @@ src = "src"
 smart-punctuation = true
 git-repository-url = "https://github.com/HadrienG2/udipe/"
 git-repository-icon = "fab-github"
-edit-url-template = "https://github.com/HadrienG2/udipe/-/edit/main/doc/{path}"
+edit-url-template = "https://github.com/HadrienG2/udipe/edit/main/doc/{path}"
 
