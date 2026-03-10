@@ -498,15 +498,15 @@ typedef union future_status_word_u {
             ///
             /// "Lazy" future types are not eagerly updated by a thread which is
             /// in charge of performing the asynchronous work. Instead they get
-            /// lazily updated at the point where a user thread starts directly
-            /// or indirectly waiting for their output file descriptor to signal
-            /// a status change. At time of writing, this is true of collective
-            /// and repeating timer futures.
+            /// lazily updated, usually at the point where a user thread starts
+            /// directly or indirectly waiting for their output epollfd to
+            /// signal a status change. At time of writing, this is true of
+            /// collective and repeating timer futures.
             ///
             /// Because these future types may be concurrently awaited by
             /// multiple threads, access to their lazily updated internal state
             /// must be synchronized somehow. This is ensured by using this flag
-            /// as a lock.
+            /// as a lock. When such a future needs to be polled...
             ///
             /// - Check if this locking flag is already set.
             ///     - If so, another thread is already in the process of
