@@ -214,8 +214,8 @@ typedef enum future_type_e /* : _BitInt(4) */ {
     /// First network operation type
     ///
     /// All network operations have a type code between \ref TYPE_NETWORK_START
-    /// inclusive and \ref TYPE_NETWORK_END exclusive, and they share the
-    /// following properties:
+    /// inclusive and \ref TYPE_NETWORK_END exclusive, and share the following
+    /// properties:
     ///
     /// - Single optional dependency.
     ///     - If it already has \ref OUTCOME_SUCCESS at command scheduling time,
