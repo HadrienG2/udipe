@@ -574,6 +574,30 @@ typedef struct collective_upstream_s {
     //       for bound-checking accesses to `array`.
 } collective_upstream_t;
 
+/// eventfd used to mark a lazy future as permanently ready once it has reached
+/// its final outcome, after its final status has been set
+///
+/// Most lazy futures (those whose status is set by the client thread that
+/// awaits them, as opposed to eager future which are processed by a background
+/// thread) must have an `output_fd` which is an epollfd. One limitation of
+/// epollfds as an output file descriptor is that they stop being ready once its
+/// readiness notifications have been processed, thus required an additional
+/// eventfd in the epollfd interest list to ensure continued readiness after the
+/// final status has becomes available.
+///
+/// The exception is \ref TYPE_TIMER_ONCE, which is simple enough to avoid the
+/// need for an output epollfd, and can instead expose its internal timerfd
+/// directly as its output file descriptor. This timerfd does not need to be
+/// read by clients and can thus remain in the perpetually ready unread state,
+/// which acts as that future type's output readiness notification.
+///
+/// These eventfds must be written to under `output_lock` protection, and must
+/// be reset and recycled along with the associated output epollfd at the time
+/// where the associated future is liberated.
+//
+// TODO: Windows version, based on NT semaphores?
+typedef int outcome_eventfd_t;
+
 /// \copydoc udipe_future_t
 struct udipe_future_s {
     /// State that is specific to a particular future type
@@ -602,7 +626,7 @@ struct udipe_future_s {
             /// inclusive to \ref TYPE_NETWORK_END exclusive.
             ///
             /// The precise \ref future_type_t you are dealing with will tell
-            /// you which variant of the payload type has been set.
+            /// you which variant of this payload union has been set.
             udipe_network_payload_t network;
 
             /// Custom user command result payload
@@ -630,15 +654,11 @@ struct udipe_future_s {
             /// Must be read and written under `output_lock` protection.
             size_t remaining;
 
-            /// eventfd used to mark this future as permanently ready once it
-            /// has reached its outcome, after its final status has been set.
+            /// eventfd used to mark this future as permanently ready after it
+            /// has reached its final outcome
             ///
-            /// Must be written to under `output_lock` protection, and must be
-            /// reset and recycled along with the associated output epollfd when
-            /// the future is liberated.
-            //
-            // TODO: Windows version, based on NT semaphores?
-            int eventfd;
+            /// See \ref outcome_eventfd_t for more information.
+            outcome_eventfd_t outcome_eventfd;
         } join;
 
         /// Unordered future state and result
@@ -676,15 +696,11 @@ struct udipe_future_s {
             // TODO: Windows version, based on NT service threads?
             int upstream_epollfd;
 
-            /// eventfd used to mark this future as permanently ready once it
+            /// eventfd used to mark this future as permanently ready after it
             /// has reached its final outcome
             ///
-            /// Must be written to under `output_lock` protection, and must be
-            /// reset and recycled alongside the associated output epollfd when
-            /// the future is liberated.
-            //
-            // TODO: Windows version, based on NT semaphores?
-            int eventfd;
+            /// See \ref outcome_eventfd_t for more information.
+            outcome_eventfd_t outcome_eventfd;
         } unordered;
 
         /// Repeating timer state
@@ -718,15 +734,11 @@ struct udipe_future_s {
             // TODO: Windows version, based on NT timer threads?
             int timerfd;
 
-            /// eventfd used to mark this future as permanently ready once it
+            /// eventfd used to mark this future as permanently ready after it
             /// has reached its final outcome
             ///
-            /// Must be written to under `output_lock` protection, and must be
-            /// reset and recycled alongside the output epollfd when the future
-            /// is liberated.
-            //
-            // TODO: Windows version, based on NT semaphores?
-            int eventfd;
+            /// See \ref outcome_eventfd_t for more information.
+            outcome_eventfd_t outcome_eventfd;
         } timer_repeat;
     } specific;
 
