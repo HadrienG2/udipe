@@ -3,11 +3,7 @@
 //! \file
 //! \brief Implementation of \ref udipe_future_t
 //!
-//! Under the hood, futures are implemented using a type that is isomorphic to
-//! \ref udipe_result_t, but uses a futex instead of a dumb enum value. This
-//! futex leverages the existence of the \ref UDIPE_COMMAND_PENDING sentinel
-//! value of the \ref udipe_command_id_t result tag in order to let threads
-//! efficiently wait for the result to come up.
+//! TODO: Outline new implementation.
 
 #include <udipe/future.h>
 #include <udipe/result.h>
@@ -207,17 +203,29 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
 // TODO: Decide if the documentation currently written here is here to stay.
 //       Maybe I should just nuke it once the associated code is written to
 //       avoid having the same info in two places?
-typedef enum future_type_e /* : _BitInt(3) */ {
+// TODO: Sync up with internal table if here to stay.
+typedef enum future_type_e /* : _BitInt(4) */ {
     /// Invalid future type
     ///
     /// This placeholder type is only set on unallocated futures and should
     /// never be observed on a properly initialized future.
     TYPE_INVALID = 0,
 
-    /// Network operation (send, recv)
+    /// First network operation type
     ///
-    /// - Single dependency awaited by the network thread via its output file
-    ///   descriptor.
+    /// All network operations have a type code between \ref TYPE_NETWORK_START
+    /// inclusive and \ref TYPE_NETWORK_END exclusive, and they share the
+    /// following properties:
+    ///
+    /// - Single optional dependency.
+    ///     - If it already has \ref OUTCOME_SUCCESS at command scheduling time,
+    ///       command is scheduled as if no dependency was specified.
+    ///     - If already has a failing outcome at command scheduling time,
+    ///       future is created in the failure state without bothering the
+    ///       network thread with this operation.
+    ///     - If outcome isn't initially known, command is scheduled in a halted
+    ///       state and network thread awaits the dependency via its fd before
+    ///       command execution can start or be canceled.
     /// - Driven to completion by a udipe network thread processing a previously
     ///   submitted network request.
     /// - Produces a result type that depends on the network operation.
@@ -234,15 +242,32 @@ typedef enum future_type_e /* : _BitInt(3) */ {
     /// - Liberation drains the eventfd if known to be signaled (can also be
     ///   done via `write(1)/read()` cycle if status unknown) then recycles it
     ///   along with the future.
-    //
-    // TODO: Figure out if we need finer-grained operation types, e.g. SEND
-    //       and RECV. Probably not, the future type doesn't need to know and
-    //       the network thread doing the work and setting the result can be
-    //       told the operation type via another channel than the future.
-    // TODO: Figure out if connect and disconnect truly need to be asynchronous.
-    //       Probably not. Just make the client thread set up the socket and
-    //       send it to the appropriate network thread.
-    TYPE_NETWORK,
+    TYPE_NETWORK_START,
+
+    /// Connection setup request from udipe_start_connect()
+    ///
+    /// See \ref TYPE_NETWORK_START for general info about network operations.
+    TYPE_NETWORK_CONNECT = TYPE_NETWORK_START,
+
+    /// Connection teardown request from udipe_start_disconnect()
+    ///
+    /// See \ref TYPE_NETWORK_START for general info about network operations.
+    TYPE_NETWORK_DISCONNECT,
+
+    /// Datagram send request from udipe_start_send()
+    ///
+    /// See \ref TYPE_NETWORK_START for general info about network operations.
+    TYPE_NETWORK_SEND,
+
+    /// Datagram receive request from udipe_start_recv()
+    ///
+    /// See \ref TYPE_NETWORK_START for general info about network operations.
+    TYPE_NETWORK_RECV,
+
+    /// First future type past the end of the list of network operations
+    ///
+    /// See \ref TYPE_NETWORK_START for general info about network operations.
+    TYPE_NETWORK_END,
 
     /// Custom operation
     ///
@@ -259,8 +284,9 @@ typedef enum future_type_e /* : _BitInt(3) */ {
     ///   OUTCOME_FAILURE_CANCELED and providing the user thread that handles
     ///   the custom operation with a way to periodically check if its work has
     ///   been canceled.
-    /// - Liberation drains the eventfd as described for \ref TYPE_NETWORK.
-    TYPE_CUSTOM,
+    /// - Liberation drains the eventfd as described for \ref
+    ///   TYPE_NETWORK_START.
+    TYPE_CUSTOM = TYPE_NETWORK_END,
 
     /// Join (aka await all)
     ///
@@ -278,7 +304,7 @@ typedef enum future_type_e /* : _BitInt(3) */ {
     ///   counter is decremented and the associated fd is removed from the
     ///   epollfd's interest list. Join future successful completion happens
     ///   once the pending dep counter reaches 0. When this happens, status word
-    ///   moves to \ref STATUS_RESULT with \ref OUTCOME_SUCCESS, and if
+    ///   moves to \ref STATE_RESULT with \ref OUTCOME_SUCCESS, and if
     ///   downstream_count indicates the presence of any waiters other than the
     ///   active one or the caller is not the final one (i.e. wait() not
     ///   finish() was used), outcome availability eventfd is signaled, marking
@@ -299,8 +325,8 @@ typedef enum future_type_e /* : _BitInt(3) */ {
     ///   availability eventfd if downstream_count + state indicates that at
     ///   least one downstream future monitors the epollfd.
     /// - Liberation drains the cancelation eventfd as described for \ref
-    ///   TYPE_NETWORK, if canceled unregisters fds of all dependencies via
-    ///   `epoll_ctl()` while ignoring errors (not needed in successful case
+    ///   TYPE_NETWORK_START, if canceled unregisters fds of all dependencies
+    ///   via `epoll_ctl()` while ignoring errors (not needed in successful case
     ///   since all dependencies should already be unregistrered), then recycles
     ///   coupled (epoll, eventfd) pair and future.
     TYPE_JOIN,
@@ -372,7 +398,7 @@ typedef enum future_type_e /* : _BitInt(3) */ {
     ///   remains in a perma-signaled state.
     TYPE_TIMER_REPEAT,
 
-    // NOTE: If this enum gets more than 8 variants, reallocate the bit budget
+    // NOTE: If this enum gets more than 16 variants, reallocate the bit budget
     //       of the `type` field of the future_status_word_t accordingly.
 } future_type_t;
 
@@ -465,10 +491,10 @@ typedef union future_status_word_u {
         /// does not strictly need to be in the status word, and can be moved
         /// out to another future field if we start running out of precious
         /// status bits in a future udipe version.
-        unsigned type : 3;
+        unsigned type : 4;
 
         union {
-            /// File descriptor lock
+            /// Output fd and internal state lock
             ///
             /// Some future types are not eagerly updated by a thread which is
             /// in charge of performing the asynchronous work. Instead they get
@@ -493,10 +519,11 @@ typedef union future_status_word_u {
             ///       arrived first to report the final state (or release the
             ///       lock in some other way).
             ///     - If not, attempt to set this flag, and if successful query
-            ///       the fd, adjust the status word accordingly and clear this
-            ///       lock flag along the way, and signal the status word change
-            ///       via wake_by_address_all() if `notify_address` is set.
-            bool output_fd_locked : 1;
+            ///       the fd, adjust future state accordingly finishing with the
+            ///       status word (clearing this lock flag along the way), and
+            ///       signal the status word change via wake_by_address_all() if
+            ///       `notify_address` is set.
+            bool output_lock : 1;
 
             /// Truth that changes to this status word should be signaled via
             /// its output file descriptor
@@ -526,18 +553,182 @@ typedef union future_status_word_u {
     uint32_t as_word;
 } future_status_word_t;
 
+/// Set of upstream futures which collective futures depend on
+///
+/// Collective joined and unordered futures all need to lazily poll a set of
+/// other futures, which is tracked via this struct.
+typedef struct collective_upstream_s {
+    /// Array of upstream futures that this future is awaiting
+    ///
+    /// This array must not be accessed after the point where `status_word` is
+    /// set to a completed state, as the user is allowed to liberate the
+    /// associated memory after this point.
+    ///
+    /// Must have been checked to contain no duplicates and no `NULL`s at
+    /// collective future construction time. As long as we do not expose an
+    /// output fd accessor that lets users call `dup()`, `epoll_ctl()` should
+    /// take care of the former at collective future construction time.
+    udipe_future_t* const* array;
+
+    // TODO: Consider adding a len field in debug builds, used
+    //       for bound-checking accesses to `array`.
+} collective_upstream_t;
+
 /// \copydoc udipe_future_t
 struct udipe_future_s {
-    /// Result of the command, if any
+    /// State that is specific to a particular future type
     ///
-    /// Once the underlying command is done running to completion, its result
-    /// will be written down to this field.
-    //
-    // TODO: should be a union with other state for collective futures that
-    //       don't produce results like join().
-    alignas(FALSE_SHARING_GRANULARITY) udipe_result_payload_t payload;
+    /// At most one of these fields will be set. Which will be set (if any)
+    /// depends on the \ref future_type_t that is set inside of the bitpacked
+    /// `status_word`.
+    alignas(FALSE_SHARING_GRANULARITY) union {
+        /// Eager command result
+        ///
+        /// Eager commands are, as the name suggests, eagerly processed by some
+        /// thread, which is an internal udipe thread for network commands and a
+        /// user thread for custom commands. Once the thread responsible for
+        /// processing a command is done, its result will be written down to
+        /// this field before signaling \ref OUTCOME_SUCCESS with
+        /// `memory_order_release`.
+        ///
+        /// This union variant will be used if either the \ref future_type_t is
+        /// in range from \ref TYPE_NETWORK_START inclusive to \ref
+        /// TYPE_NETWORK_END exclusive, or it is \ref TYPE_CUSTOM.
+        union {
+            /// Network command result payload
+            ///
+            /// This union variant will be set before signaling the outcome if
+            /// the \ref future_type_t is in range from \ref TYPE_NETWORK_START
+            /// inclusive to \ref TYPE_NETWORK_END exclusive.
+            ///
+            /// The precise \ref future_type_t you are dealing with will tell
+            /// you which variant of the payload type has been set.
+            udipe_network_payload_t network;
 
-    // TODO: more members which haven't been added yet
+            /// Custom user command result payload
+            ///
+            /// This union variant will be set before signaling \ref
+            /// OUTCOME_SUCCESS if the \ref future_type_t is \ref TYPE_CUSTOM.
+            udipe_custom_payload_t custom;
+        } eager_payload;
+
+        /// Joined future state
+        ///
+        /// This union variant corresponds to \ref TYPE_JOIN. It tracks the
+        /// state needed to await and signal a collective final state.
+        struct {
+            /// Set of upstream futures awaited by this collective future
+            ///
+            collective_upstream_t upstream;
+
+            /// Number of upstream futures that have not yet reached \ref
+            /// OUTCOME_SUCCESS
+            ///
+            /// If this number reaches 0, then this future can switch to \ref
+            /// STATE_RESULT with \ref OUTCOME_SUCCESS.
+            ///
+            /// Must be read and written under `output_lock` protection.
+            size_t remaining;
+
+            /// eventfd used to mark this future as permanently ready once it
+            /// has reached its outcome, after its final status has been set.
+            ///
+            /// Must be written to under `output_lock` protection, and must be
+            /// reset and recycled along with the associated output epollfd when
+            /// the future is liberated.
+            //
+            // TODO: Windows version, based on NT semaphores?
+            int eventfd;
+        } join;
+
+        /// Unordered future state and result
+        ///
+        /// This union variant corresponds to \ref TYPE_UNORDERED. It tracks the
+        /// state needed to await and signal a collective final state and store
+        /// the associated result.
+        struct {
+            /// Set of upstream futures awaited by this collective future
+            ///
+            collective_upstream_t upstream;
+
+            /// Result of the asynchronous operation
+            ///
+            /// This result is set before signaling \ref OUTCOME_SUCCESS. It
+            /// indicates which of the upstream futures became ready and how to
+            /// await the rest of the upstream futures.
+            ///
+            /// Must be written under `output_lock` protection.
+            udipe_unordered_payload_t payload;
+
+            /// Inner epollfd that contains the set of upstream futures, which
+            /// is awaited by the output epollfd
+            ///
+            /// This epollfd indirection is used to easily migrate the waiting
+            /// set to successor unordered futures without affecting clients of
+            /// this specific unordered future.
+            ///
+            /// Must be awaited under `output_lock` protection, and detached
+            /// from the output epollfd and attached to the successor future (if
+            /// any) once a result is ready. Must be reset by detaching all
+            /// remaining upstream fds then recycled when the future is
+            /// liberated.
+            //
+            // TODO: Windows version, based on NT service threads?
+            int upstream_epollfd;
+
+            /// eventfd used to mark this future as permanently ready once it
+            /// has reached its final outcome
+            ///
+            /// Must be written to under `output_lock` protection, and must be
+            /// reset and recycled alongside the associated output epollfd when
+            /// the future is liberated.
+            //
+            // TODO: Windows version, based on NT semaphores?
+            int eventfd;
+        } unordered;
+
+        /// Repeating timer state
+        ///
+        /// This union variant corresponds to \ref TYPE_TIMER_REPEAT. It tracks
+        /// the state needed to signal the final state and store the associated
+        /// result, which enables awaiting subsequent timer ticks.
+        struct {
+            /// Result of the asynchronous operation
+            ///
+            /// This field is set before signaling \ref OUTCOME_SUCCESS. It
+            /// indicates how many clock ticks were missed and how to await
+            /// further clock ticks if desired.
+            udipe_timer_repeat_payload_t payload;
+
+            /// timerfd which the output epollfd is awaiting
+            ///
+            /// This epollfd indirection is used to easily migrate the timerfd
+            /// to successor unordered futures without affecting clients of this
+            /// specific unordered future.
+            ///
+            /// Must be read under `output_lock` protection, and detached from
+            /// the output epollfd then attached to the successor future's
+            /// output epollfd when a result is ready. Must be destroyed when
+            /// the future is liberated, for now. May switch to disarming and
+            /// recycling if timerfd creation/destruction ever becomes a
+            /// bottleneck, but that seems unlikely under correct usage since
+            /// recuring timerfds largely void the need for repeatedly creating
+            /// and destroying lots of one-shot timerfds.
+            //
+            // TODO: Windows version, based on NT timer threads?
+            int timerfd;
+
+            /// eventfd used to mark this future as permanently ready once it
+            /// has reached its final outcome
+            ///
+            /// Must be written to under `output_lock` protection, and must be
+            /// reset and recycled alongside the output epollfd when the future
+            /// is liberated.
+            //
+            // TODO: Windows version, based on NT semaphores?
+            int eventfd;
+        } timer_repeat;
+    } specific;
 
     /// Status word
     ///
@@ -553,6 +744,11 @@ struct udipe_future_s {
     /// it must be requested first by setting the `notify_address` field of the
     /// status word, before beginning the wait for status changes via
     /// wait_for_address().
+    ///
+    /// As status changes are often preceded by other future state changes, bear
+    /// in mind that changes to `status_word` must often be carried out with
+    /// `memory_order_release` and status word readouts must often be carried
+    /// out with `memory_order_acquire`.
     _Atomic uint32_t status_word;
 
     /// Output file descriptor
@@ -565,12 +761,14 @@ struct udipe_future_s {
     /// Check the `type` field of the status word to know more about which
     /// variant of this union you are dealing with, then read the associated
     /// description for more info.
+    //
+    // TODO: Windows version, based on NT semaphores?
     union {
         /// eventfd in non-semaphore mode, used for eager futures
         ///
         /// This output file descriptor type is used for "eager" future types
         /// where the asynchronous operation is processed by a dedicated thread,
-        /// currently \ref TYPE_NETWORK and \ref TYPE_CUSTOM.
+        /// namely network and custom operation futures.
         ///
         /// Because these futures can also signal completion via a futex or even
         /// via a mere atomic RMW operation when no one is waiting for
@@ -583,6 +781,8 @@ struct udipe_future_s {
         /// which will mark it as ready for all threads that are monitoring it.
         /// These threads will then proceed to read the outcome in the status
         /// word, completing the synchronization transaction.
+        ///
+        /// Must be reset via readout and recycled when the future is liberated.
         int event;
 
         /// epollfd with a cancelation eventfd, used for collective futures and
@@ -600,30 +800,31 @@ struct udipe_future_s {
         ///
         /// - Join futures use a single epollfd that encompasses all fds of
         ///   interest. Dependency fds use their index in the array of
-        ///   dependencies as user metadata, while the outcome availability
+        ///   dependencies as epoll metadata, while the outcome availability
         ///   eventfd uses an easily identifiable invalid index.
         /// - Unordered futures use a cascaded pair of epollfds. Their
         ///   dependencies are attached to an "inner" epollfd with index-based
         ///   signaling as before, but this "inner" epollfd is in turn attached
         ///   to an "outer" epollfd which is additionally attached to the
         ///   outcome availability eventfd. This curious cascading epollfd
-        ///   structure makes it tractable to migrate the inner epollfd from an
+        ///   structure makes it easy to migrate the inner epollfd from an
         ///   unordered future to the next future in the unordered chain, while
         ///   leaving the original epollfd attached only to a signaled eventfd
         ///   which is left in a perpetually signaled state to advertise that
         ///   the outcome is now available.
         /// - Repeating timers handle multiple output futures using the same
         ///   trick, except instead of cascading epollfds they instead simply
-        ///   have an epollfd output which is connected to a timerfd (that
+        ///   have an output epollfd which is connected to a timerfd (that
         ///   performs time-based signaling and can be detached and migrated to
         ///   the next future in the chain) and an eventfd (that eventually
-        ///   remains attached to the epollfd in a perpetually signal state to
-        ///   broadcast the information that a final outcome is available).
+        ///   remains attached to the epollfd in a perpetually signaled state to
+        ///   broadcast the information that the final outcome is available).
         ///
         /// Because epoll's API design is not very friendly to multi-threaded
         /// use, `epoll_wait()` transactions on the inner epollfds are guarded
         /// by the `output_fd_lock` bit of `status_word`, which effectively acts
-        /// as a mutex to control access to the epollfd.
+        /// as a mutex to control access to the epollfd and associated future
+        /// state.
         ///
         /// Whenever `epoll_wait()` output indicates that a particular upstream
         /// future has underwent a status change or this future has been
@@ -635,6 +836,10 @@ struct udipe_future_s {
         /// known, whether successful or unsuccessful, its availability must be
         /// signaled via the dedicated eventfd if at least one other future
         /// awaits this future, as indicated by `downstream_count`.
+        ///
+        /// Must be reset by detaching all remaining fds except for the outcome
+        /// signaling eventfd, then recycled alongside said eventfd when the
+        /// future is liberated.
         int epoll;
 
         /// timerfd, used for single-shot timer futures
@@ -643,15 +848,15 @@ struct udipe_future_s {
         /// futures that become ready once the system clock reaches a certain
         /// time point.
         ///
-        /// When this file descriptor becomes ready, the `output_fd_lock` lock
-        /// of `status_word` must be taken, then the timerfd must be read, the
-        /// fields of this collective future must be updated according to the
-        /// result of the read, and finally state change waiters must be
-        /// notified via wake_by_address_all().
+        /// When this file descriptor becomes ready, \ref OUTCOME_SUCCESS must
+        /// be signaled by one of the thread which observes this status to be
+        /// unset, without reading the timerfd. The timerfd will therefore stay
+        /// ready and thus remain effective as a downstream readiness signal.
         ///
-        /// If `downstream_count` indicates that the timerfd should stay
-        /// signaled at the end, this is achieved by reseting the timer with a
-        /// 1ns single-shot relative deadline.
+        /// Must be destroyed when the future is liberated, for now. May switch
+        /// to disarming and recycling if timerfd creation/destruction ever
+        /// becomes a bottleneck, but that seems unlikely under correct usage
+        /// since recuring timerfds are a thing.
         int timer;
     } output_fd;
 };

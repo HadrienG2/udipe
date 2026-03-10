@@ -57,14 +57,20 @@ typedef size_t word_t;
 
 /// Broadcast a boolean value to all bits of a \ref word_t
 ///
-/// Returns a \ref word_t where all bits are set to the given `value`.
+/// \param value is a boolean whose bitwise value will be broadcasted to all
+///              bits of the result.
+///
+/// \returns a \ref word_t where all bits are set to the given `value`.
 static inline word_t bit_broadcast(bool value) {
     return value ? WORD_MAX : 0;
 }
 
 /// Count the number of trailing zeros in a \ref word_t
 ///
-/// \param word must not be zero
+/// \param word must be a nonzero machine word or something that's convertible
+///             to it.
+///
+/// \returns the number of trailing zeros in `word`.
 static inline size_t count_trailing_zeros(word_t word) {
     assert(word != (size_t)0);
     #ifdef __GNUC__
@@ -78,6 +84,8 @@ static inline size_t count_trailing_zeros(word_t word) {
 }
 
 /// Count the number of bits that are set to 1 in a \ref word_t
+///
+/// \param word must be a machine word or something that's convertible to it.
 ///
 /// \returns the word's population count aka Hamming weight
 static inline size_t population_count(word_t word) {
@@ -197,8 +205,8 @@ bool add_with_carry_u64(bool carry,
 ///
 /// \param carry is the carry flag from the previous operation, or
 ///              `false` is there was no previous operation.
-/// \param x is the first addend.
-/// \param y is the second addend.
+/// \param minuend is the number from which `subtrahend` will be subtracted.
+/// \param subtrahend is the number that will be subtracted from `minuend`.
 /// \param out is the location where the result will be stored.
 ///
 /// \returns the carry flag to be used for the next operation (if any)

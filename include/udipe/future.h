@@ -22,6 +22,7 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 
 /// Asynchronous operation future
@@ -466,7 +467,7 @@ void udipe_join(udipe_context_t* context,
     udipe_future_t* future = udipe_start_join(context, futures, num_futures);
     assert(future);
     udipe_result_t result = udipe_finish(future);
-    assert(result.command_id == UDIPE_JOIN);
+    assert(result.type == UDIPE_JOIN);
 }
 
 /// Start waiting for multiple asynchronous operations to terminate, returning a
@@ -527,11 +528,11 @@ void udipe_join(udipe_context_t* context,
 /// \param num_futures must match the length of the `futures` array, and thus be
 ///                    at least one.
 ///
-/// \returns a future that will terminate and yield a result of type (TODO
-///          link to output type once added) as soon as **one** of the input
+/// \returns a future that will terminate and yield a result with payload type
+///          \ref udipe_unordered_payload_t as soon as **one** of the input
 ///          futures have terminated. This result will tell you which of the
 ///          input futures has terminated, so that you can then non-blockingly
-///          fetch its result with udipe_finish(). Along with that indes, you
+///          fetch its result with udipe_finish(). Along with that index, you
 ///          will also get another future, which lets you wait for the next
 ///          operation to complete, until all operations have completed.
 //

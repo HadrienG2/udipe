@@ -62,8 +62,8 @@ udipe_connect_result_t udipe_connect(udipe_context_t* context,
     udipe_future_t* future = udipe_start_connect(context, options);
     assert(future);
     udipe_result_t result = udipe_finish(future);
-    assert(result.command_id == UDIPE_CONNECT);
-    return result.payload.connect;
+    assert(result.type == UDIPE_CONNECT);
+    return result.payload.network.connect;
 }
 
 // TODO: document and implement
@@ -83,8 +83,8 @@ udipe_disconnect_result_t udipe_disconnect(udipe_context_t* context,
     udipe_future_t* future = udipe_start_disconnect(context, options);
     assert(future);
     udipe_result_t result = udipe_finish(future);
-    assert(result.command_id == UDIPE_DISCONNECT);
-    return result.payload.connect;
+    assert(result.type == UDIPE_DISCONNECT);
+    return result.payload.network.connect;
 }
 
 // TODO: Add and implement
@@ -109,8 +109,8 @@ udipe_send_result_t udipe_send(udipe_context_t* context,
     udipe_future_t* future = udipe_start_send(context, options);
     assert(future);
     udipe_result_t result = udipe_finish(future);
-    assert(result.command_id == UDIPE_SEND);
-    return result.payload.send;
+    assert(result.type == UDIPE_SEND);
+    return result.payload.network.send;
 }
 
 // TODO: document and implement
@@ -135,6 +135,6 @@ udipe_recv_result_t udipe_recv(udipe_context_t* context,
     udipe_future_t* future = udipe_start_recv(context, options);
     assert(future);
     udipe_result_t result = udipe_finish(future);
-    assert(result.command_id == UDIPE_RECV);
-    return result.payload.recv;
+    assert(result.type == UDIPE_RECV);
+    return result.payload.network.recv;
 }*/

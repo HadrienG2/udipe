@@ -66,36 +66,27 @@
 /// supported CPU architectures. As of 2025, all high-performance CPU
 /// architectures have a cache line size of 64B or larger.
 typedef struct command_s {
-    /// Completion future, to be filled up and signaled upon command completion
-    ///
-    /// This pointer cannot be `NULL`.
-    alignas(FALSE_SHARING_GRANULARITY) udipe_future_t* completion;
-
     /// Parameters that are appropriate for this command type
     ///
     /// The value of `id` indicates which of this union's variants is valid.
-    union {
+    alignas(FALSE_SHARING_GRANULARITY) union {
         udipe_connect_options_t* connect;
         udipe_disconnect_options_t disconnect;
         // TODO: Add and implement
         /*udipe_send_options_t send;
         udipe_recv_options_t recv;*/
-    };
+    } options;
+
+    /// Result future, to be filled up and signaled upon command completion
+    ///
+    /// Also indicates what kind of command you are dealing with.
+    ///
+    /// This pointer cannot be `NULL`.
+    udipe_future_t* future;
 
     // TODO: Consider some kind of QoS infrastructure so that e.g. IPBus slow
     //       control avoids using the same threads as acquisition. Can this just
     //       be a connection option, or does it need to be more?
-
-    /// Type of work that was requested from the worker thread
-    ///
-    /// It is initially set to \ref UDIPE_COMMAND_INVALID (possibly via
-    /// zero-initialization), set to a valid command ID when a command is sent
-    /// to a worker thread, and reset to \ref UDIPE_COMMAND_INVALID after the
-    /// command has been processed.
-    ///
-    /// Worker threads should check that this command ID does not take any
-    /// sentinel values, at least in Debug builds.
-    udipe_command_id_t id;
 } command_t;
 static_assert(alignof(command_t) == FALSE_SHARING_GRANULARITY,
               "Each command may originate from a different client thread and "
@@ -103,7 +94,7 @@ static_assert(alignof(command_t) == FALSE_SHARING_GRANULARITY,
 static_assert(sizeof(command_t) == FALSE_SHARING_GRANULARITY,
               "Shouldn't need more than one false sharing granule per command");
 static_assert(
-    offsetof(command_t, id) + sizeof(udipe_command_id_t) <= CACHE_LINE_SIZE,
+    offsetof(command_t, future) + sizeof(udipe_future_t*) <= CACHE_LINE_SIZE,
     "Should fit on a single cache line for optimal memory access performance "
     "on CPUs where the FALSE_SHARING_GRANULARITY upper bound is pessimistic"
 );
