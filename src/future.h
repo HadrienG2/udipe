@@ -500,20 +500,23 @@ typedef union future_status_word_u {
             /// in charge of performing the asynchronous work. Instead they get
             /// lazily updated, usually at the point where a user thread starts
             /// directly or indirectly waiting for their output epollfd to
-            /// signal a status change. At time of writing, this is true of
-            /// collective and repeating timer futures.
+            /// signal a status change.
             ///
             /// Because these future types may be concurrently awaited by
             /// multiple threads, access to their lazily updated internal state
-            /// must be synchronized somehow. This is ensured by using this flag
-            /// as a lock. When such a future needs to be polled...
+            /// must be synchronized somehow. For collective and repeating timer
+            /// futures, which have complex internal state that cannot be
+            /// updated in a single atomic RMW operation, this is ensured by
+            /// using this flag as a lock. When such a future's output fd
+            /// becomes ready, indicating a possible state change, the thread
+            /// that gets awakened as a result must...
             ///
             /// - Check if this locking flag is already set.
             ///     - If so, another thread is already in the process of
             ///       querying the file descriptor, and this thread can do
-            ///       nothing but wait for the results. To do this we set the
-            ///       `notify_address` flag if it is not set yet, then we use
-            ///       a wait_on_address() loop to wait for the other thread that
+            ///       nothing but wait for the results. To do this set the
+            ///       `notify_address` flag if it is not set yet, then use a
+            ///       wait_on_address() loop to wait for the other thread that
             ///       arrived first to report the final state (or release the
             ///       lock in some other way).
             ///     - If not, attempt to set this flag, and if successful
@@ -529,12 +532,13 @@ typedef union future_status_word_u {
             /// "Eager" futures support address-based signaling, in contrast to
             /// "lazy" futures which only support file descriptor signaling.
             /// Therefore eager futures do not always need to signal changes
-            /// through their output eventfd, and require a flag to enable it.
+            /// through their output eventfd, and require a flag to enable this
+            /// form of signaling.
             ///
-            /// For eager futures, this flag works just like `notify_address`:
-            /// initially unset, set the first time a thread expresses interest
-            /// in receiving updates through the file descriptor path, cannot be
-            /// unset afterwards until the future is destroyed.
+            /// This flag works just like `notify_address`: initially unset, set
+            /// the first time a thread expresses interest in receiving updates
+            /// through the file descriptor path, cannot be unset afterwards
+            /// until the future is destroyed.
             bool notify_fd : 1;
         };
 
@@ -836,10 +840,9 @@ struct udipe_future_s {
         ///   broadcast the information that the final outcome is available).
         ///
         /// Because epoll's API design is not very friendly to multi-threaded
-        /// use, `epoll_wait()` transactions on the inner epollfds are guarded
-        /// by the `lazy_update_lock` bit of `status_word`, which effectively
-        /// acts as a mutex to control access to the epollfd and associated
-        /// future state.
+        /// use, `epoll_wait()` on the inner epollfds requires
+        /// `lazy_update_lock` protection, which effectively acts as a mutex to
+        /// control access to the epollfd and associated future state.
         ///
         /// Whenever `epoll_wait()` output indicates that a particular upstream
         /// future has underwent a status change or this future has been
