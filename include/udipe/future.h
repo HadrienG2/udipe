@@ -384,8 +384,8 @@ UDIPE_NON_NULL_ARGS
 bool udipe_cancel(udipe_future_t* future, bool finish);
 
 /// Start waiting for multiple asynchronous operations to terminate, returning a
-/// future that will be marked as successfully completed or canceled once all
-/// upstream operations have terminated or been canceled.
+/// future that will be marked as successfully completed or canceled once
+/// **all** upstream operations have terminated or been canceled.
 ///
 /// This asynchronous operation serves two purposes:
 ///
@@ -410,14 +410,15 @@ bool udipe_cancel(udipe_future_t* future, bool finish);
 /// \param context must point to an \ref udipe_context_t that has been set up
 ///                via udipe_initialize() and hasn't been liberated via
 ///                udipe_finalize() since.
-/// \param futures must point to an array of futures that were all returned by
-///                an asynchronous function (those whose name begins with
-///                `udipe_start_`) and have not been liberated by udipe_finish()
-///                or udipe_cancel() since. The output future will retain a
-///                pointer to this array, which must therefore not be modified
-///                or liberated until the completion of the output future has
-///                been awaited via udipe_finish() or udipe_cancel().
-/// \param num_futures must match the length of the `futures` array.
+/// \param futures must point to an array of at least one futures that were all
+///                returned by an asynchronous function (those whose name begins
+///                with `udipe_start_`) and have not been liberated by
+///                udipe_finish() or udipe_cancel() since. The output future
+///                will retain a pointer to this array, which must therefore not
+///                be modified or liberated until the completion of the output
+///                future has been awaited via udipe_finish() or udipe_cancel().
+/// \param num_futures must match the length of the `futures` array, and thus be
+///                    at least one.
 ///
 /// \returns a future that will terminate with an empty result once all input
 ///          futures have terminated. When this happens, results of `futures`
@@ -425,10 +426,6 @@ bool udipe_cancel(udipe_future_t* future, bool finish);
 ///          udipe_finish() on each of them in a sequence.
 //
 // TODO: Implement.
-// TODO: Make sure that even if some input futures have been canceled, this
-//       future is not marked as completed until all input futures have
-//       terminated in some fashion. This is needed so that clients know when
-//       they can safely modify or liberate the `futures` array.
 // TODO: Add attribute warn_unused_result on GCC/clang.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
@@ -453,11 +450,12 @@ udipe_future_t* udipe_start_join(udipe_context_t* context,
 /// \param context must point to an \ref udipe_context_t that has been set up
 ///                via udipe_initialize() and hasn't been liberated via
 ///                udipe_finalize() since.
-/// \param futures must point to an array of futures that were all returned by
-///                an asynchronous function (those whose name begins with
-///                `udipe_start_`) and have not been liberated by udipe_finish()
-///                or udipe_cancel() since.
-/// \param num_futures must match the length of the `futures` array.
+/// \param futures must point to an array of at least one futures that were all
+///                returned by an asynchronous function (those whose name begins
+///                with `udipe_start_`) and have not been liberated by
+///                udipe_finish() or udipe_cancel() since.
+/// \param num_futures must match the length of the `futures` array, and thus be
+///                    at least one.
 static inline
 UDIPE_NON_NULL_ARGS
 void udipe_join(udipe_context_t* context,
@@ -471,8 +469,80 @@ void udipe_join(udipe_context_t* context,
     assert(result.command_id == UDIPE_JOIN);
 }
 
-// TODO: Add udipe_start_unordered(), don't provide a synchronous version.
+/// Start waiting for multiple asynchronous operations to terminate, returning a
+/// chain of futures that will terminate as the upstream operations terminate
+///
+/// This asynchronous command is somewhat similar to udipe_start_join(), in that
+/// it produces a future that lets you asynchronously wait for multiple futures
+/// to terminate whenever you are ready for it. However, in contrast with
+/// udipe_start_join(), the wait is more fine-grained.
+///
+/// The future that you get out of of udipe_start_unordered() lets you wait for
+/// the **first** upstream operation to complete, then tells you which operation
+/// completed and gives you another future that lets you wait for the second
+/// upstream operation to complete, and so on until all initially specified
+/// operations have completed.
+///
+/// Compared to joined futures, unordered futures have some benefits...
+///
+/// - Unordered execution can be used as a more flexible alternative to
+///   timeouts, as it lets you race any pair of asynchronous operation (not just
+///   time-based ones), pick the output of whichever operation completes first,
+///   and cancel the other operation.
+/// - Unordered execution avoids blocking the CPU for an unnecessarily long time
+///   in concurrent workloads where you can make progress when _any_ upstream
+///   operations terminate, as opposed to needing to wait for _all_ upstream
+///   operations to terminate before making progress.
+///     - It should be noted that this theoretical advantage will only translate
+///       into a concrete performance benefit if your upstream operations take a
+///       meaningfully different amount of time to complete. If that is not the
+///       case, the extra CPU overheads described below will likely dominate and
+///       result in a net performance loss.
+///
+/// ...but unordered execution also has some drawbacks that must be kept in mind
+/// before blindly using it all the time for all purposes.
+///
+/// - Unordered futures are less amenable to chaining work than joined futures
+///   because you can only schedule work after the first operation completes and
+///   you do not know which of the input operations it will be.
+/// - Unordered futures require a lot more thread synchronization and resource
+///   allocation transactions (one per element of the `futures` array), and thus
+///   will cost more CPU time on the client thread than joined futures.
+///
+/// ...which is why you should not be afraid of mixing and matching
+/// udipe_start_join() with udipe_start_unordered() as appropriate, maybe even
+/// using both at the same time on the same set of futures in complex use cases.
+///
+/// \param context must point to an \ref udipe_context_t that has been set up
+///                via udipe_initialize() and hasn't been liberated via
+///                udipe_finalize() since.
+/// \param futures must point to an array of at least one futures that were all
+///                returned by an asynchronous function (those whose name begins
+///                with `udipe_start_`) and have not been liberated by
+///                udipe_finish() or udipe_cancel() since. The output futures
+///                will retain a pointer to this array, which must therefore not
+///                be modified or liberated until the completion of all output
+///                futures has been awaited via udipe_finish() or has been
+///                canceled via udipe_cancel().
+/// \param num_futures must match the length of the `futures` array, and thus be
+///                    at least one.
+///
+/// \returns a future that will terminate and yield a result of type (TODO
+///          link to output type once added) as soon as **one** of the input
+///          futures have terminated. This result will tell you which of the
+///          input futures has terminated, so that you can then non-blockingly
+///          fetch its result with udipe_finish(). Along with that indes, you
+///          will also get another future, which lets you wait for the next
+///          operation to complete, until all operations have completed.
+//
+// TODO: Implement.
 // TODO: Add attribute warn_unused_result on GCC/clang.
+UDIPE_PUBLIC
+UDIPE_NON_NULL_ARGS
+UDIPE_NON_NULL_RESULT
+udipe_future_t* udipe_start_unordered(udipe_context_t* context,
+                                      udipe_future_t* const futures[],
+                                      size_t num_futures);
 
 // TODO: Add udipe_start_timer_once(), udipe_start_timer_repeat(), and
 //       udipe_start_custom()/udipe_set_custom(), warn about the deadlock
