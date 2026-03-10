@@ -494,21 +494,19 @@ typedef union future_status_word_u {
         unsigned type : 4;
 
         union {
-            /// Output fd and internal state lock
+            /// State lock for lazily updated futures
             ///
-            /// Some future types are not eagerly updated by a thread which is
+            /// "Lazy" future types are not eagerly updated by a thread which is
             /// in charge of performing the asynchronous work. Instead they get
             /// lazily updated at the point where a user thread starts directly
             /// or indirectly waiting for their output file descriptor to signal
             /// a status change. At time of writing, this is true of collective
-            /// futures based on epollfd and of timer futures based on timerfd.
+            /// and repeating timer futures.
             ///
-            /// For all of these future types, at the time of writing again,
-            /// file descriptor queries beyond simple readiness checking via
-            /// epoll are thread unsafe and must be carried out by one thread at
-            /// a time. Therefore, a thread that wishes to wait for such a
-            /// future to transition to \ref STATE_RESULT must follow the
-            /// following lock-based protocol:
+            /// Because these future types may be concurrently awaited by
+            /// multiple threads, access to their lazily updated internal state
+            /// must be synchronized somehow. This is ensured by using this flag
+            /// as a lock.
             ///
             /// - Check if this locking flag is already set.
             ///     - If so, another thread is already in the process of
@@ -518,22 +516,20 @@ typedef union future_status_word_u {
             ///       a wait_on_address() loop to wait for the other thread that
             ///       arrived first to report the final state (or release the
             ///       lock in some other way).
-            ///     - If not, attempt to set this flag, and if successful query
-            ///       the fd, adjust future state accordingly finishing with the
-            ///       status word (clearing this lock flag along the way), and
-            ///       signal the status word change via wake_by_address_all() if
-            ///       `notify_address` is set.
-            bool output_lock : 1;
+            ///     - If not, attempt to set this flag, and if successful
+            ///       perform any required state update operation finishing with
+            ///       the status word (clearing this lock flag along the way),
+            ///       then signal the status word change via
+            ///       wake_by_address_all() if `notify_address` is set.
+            bool lazy_update_lock : 1;
 
             /// Truth that changes to this status word should be signaled via
-            /// its output file descriptor
+            /// the output `eventfd`
             ///
-            /// This flag only applies to "eager" futures which support
-            /// address-based signaling, as opposed to "lazy" futures which only
-            /// support file descriptor signaling. The latter have no way to
-            /// signal status changes other than their file descriptor, so they
-            /// will always signal changes through their file descriptor and
-            /// therefore don't need a flag to turn such signaling on.
+            /// "Eager" futures support address-based signaling, in contrast to
+            /// "lazy" futures which only support file descriptor signaling.
+            /// Therefore eager futures do not always need to signal changes
+            /// through their output eventfd, and require a flag to enable it.
             ///
             /// For eager futures, this flag works just like `notify_address`:
             /// initially unset, set the first time a thread expresses interest
@@ -591,9 +587,9 @@ typedef struct collective_upstream_s {
 /// read by clients and can thus remain in the perpetually ready unread state,
 /// which acts as that future type's output readiness notification.
 ///
-/// These eventfds must be written to under `output_lock` protection, and must
-/// be reset and recycled along with the associated output epollfd at the time
-/// where the associated future is liberated.
+/// These eventfds must be written to under `lazy_update_lock` protection, and
+/// must be reset and recycled along with the associated output epollfd at the
+/// time where the associated future is liberated.
 //
 // TODO: Windows version, based on NT semaphores?
 typedef int outcome_eventfd_t;
@@ -639,7 +635,10 @@ struct udipe_future_s {
         /// Joined future state
         ///
         /// This union variant corresponds to \ref TYPE_JOIN. It tracks the
-        /// state needed to await and signal a collective final state.
+        /// state needed to wait for all specified upstream futures to reach
+        /// \ref OUTCOME_SUCCESS or at least one of them to reach a failing
+        /// outcome. And when this happens, it makes it possible to signal
+        /// availability of the final status after it has been set.
         struct {
             /// Set of upstream futures awaited by this collective future
             ///
@@ -651,7 +650,7 @@ struct udipe_future_s {
             /// If this number reaches 0, then this future can switch to \ref
             /// STATE_RESULT with \ref OUTCOME_SUCCESS.
             ///
-            /// Must be read and written under `output_lock` protection.
+            /// Must be read and written under `lazy_update_lock` protection.
             size_t remaining;
 
             /// eventfd used to mark this future as permanently ready after it
@@ -664,8 +663,10 @@ struct udipe_future_s {
         /// Unordered future state and result
         ///
         /// This union variant corresponds to \ref TYPE_UNORDERED. It tracks the
-        /// state needed to await and signal a collective final state and store
-        /// the associated result.
+        /// state needed to wait for at least one of the specified upstream
+        /// futures to reach its final outcome. And when this happens, it makes
+        /// it possible to report which future got ready and how to await
+        /// subsequent futures (if any).
         struct {
             /// Set of upstream futures awaited by this collective future
             ///
@@ -677,7 +678,7 @@ struct udipe_future_s {
             /// indicates which of the upstream futures became ready and how to
             /// await the rest of the upstream futures.
             ///
-            /// Must be written under `output_lock` protection.
+            /// Must be written under `lazy_update_lock` protection.
             udipe_unordered_payload_t payload;
 
             /// Inner epollfd that contains the set of upstream futures, which
@@ -687,11 +688,11 @@ struct udipe_future_s {
             /// set to successor unordered futures without affecting clients of
             /// this specific unordered future.
             ///
-            /// Must be awaited under `output_lock` protection, and detached
-            /// from the output epollfd and attached to the successor future (if
-            /// any) once a result is ready. Must be reset by detaching all
-            /// remaining upstream fds then recycled when the future is
-            /// liberated.
+            /// Must be awaited under `lazy_update_lock` protection, and
+            /// detached from the output epollfd and attached to the successor
+            /// future (if any) once a result is ready. Must be reset by
+            /// detaching all remaining upstream fds then recycled when the
+            /// future is liberated.
             //
             // TODO: Windows version, based on NT service threads?
             int upstream_epollfd;
@@ -706,8 +707,8 @@ struct udipe_future_s {
         /// Repeating timer state
         ///
         /// This union variant corresponds to \ref TYPE_TIMER_REPEAT. It tracks
-        /// the state needed to signal the final state and store the associated
-        /// result, which enables awaiting subsequent timer ticks.
+        /// the state needed to report how many timer ticks were need and how to
+        /// await subsequent timer ticks.
         struct {
             /// Result of the asynchronous operation
             ///
@@ -722,8 +723,8 @@ struct udipe_future_s {
             /// to successor unordered futures without affecting clients of this
             /// specific unordered future.
             ///
-            /// Must be read under `output_lock` protection, and detached from
-            /// the output epollfd then attached to the successor future's
+            /// Must be read under `lazy_update_lock` protection, and detached
+            /// from the output epollfd then attached to the successor future's
             /// output epollfd when a result is ready. Must be destroyed when
             /// the future is liberated, for now. May switch to disarming and
             /// recycling if timerfd creation/destruction ever becomes a
@@ -744,11 +745,10 @@ struct udipe_future_s {
 
     /// Status word
     ///
-    /// This innocent-looking machine word actually contains most of the
-    /// synchronization-critical state of a future, bitpacked via the `as_word`
-    /// variant of a \ref future_status_word_t so that it can be used for atomic
-    /// read-modify-write operations. See that union's `as_bitfield` variant for
-    /// more information about what information is stored there.
+    /// This innocent-looking 32-bit word actually contains most of the
+    /// synchronization-critical state of a future, bitpacked via \ref
+    /// future_status_word_t::as_word so that it can be used for atomic
+    /// read-modify-write operations and futex syscalls.
     ///
     /// A future's status word does double duty as a futex that can sometimes
     /// (but not always) be awaited with wait_for_address() to await
@@ -756,6 +756,9 @@ struct udipe_future_s {
     /// it must be requested first by setting the `notify_address` field of the
     /// status word, before beginning the wait for status changes via
     /// wait_for_address().
+    ///
+    /// Please refer to \ref future_status_word_t::as_bitfield for more
+    /// information about what information is stored into this word.
     ///
     /// As status changes are often preceded by other future state changes, bear
     /// in mind that changes to `status_word` must often be carried out with
@@ -834,9 +837,9 @@ struct udipe_future_s {
         ///
         /// Because epoll's API design is not very friendly to multi-threaded
         /// use, `epoll_wait()` transactions on the inner epollfds are guarded
-        /// by the `output_fd_lock` bit of `status_word`, which effectively acts
-        /// as a mutex to control access to the epollfd and associated future
-        /// state.
+        /// by the `lazy_update_lock` bit of `status_word`, which effectively
+        /// acts as a mutex to control access to the epollfd and associated
+        /// future state.
         ///
         /// Whenever `epoll_wait()` output indicates that a particular upstream
         /// future has underwent a status change or this future has been
