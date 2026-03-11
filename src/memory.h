@@ -7,6 +7,7 @@
 //! management primitives of supported operating systems.
 
 #include <udipe/pointer.h>
+#include <udipe/visibility.h>
 
 #include "arch.h"
 #include "bits.h"
@@ -31,7 +32,7 @@
 /// This variable is constant after initialization, but you must call
 /// expect_system_config() before accessing it in order to ensure that it is
 /// initialized in a thread-safe manner.
-extern pow2_t system_page_size_pow2;
+UDIPE_PUBLIC extern pow2_t system_page_size_pow2;
 
 /// Prepare to read the `system_` variables
 ///

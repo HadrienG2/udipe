@@ -98,7 +98,7 @@ static void read_system_config(void) {
     system_allocation_granularity_pow2 = pow2_encode(allocation_granularity);
 }
 
-DEFINE_PUBLIC void expect_system_config() {
+void expect_system_config() {
     static once_flag config_was_read = ONCE_FLAG_INIT;
     call_once(&config_was_read, &read_system_config);
 }
