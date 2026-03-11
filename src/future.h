@@ -86,30 +86,15 @@ typedef enum future_state_e /* : _BitInt(3) */ {
     /// other pending asynchronous operations, obviously).
     STATE_RESULT,
 
-    /// Liberation-in-progress state
-    ///
-    /// A future reaches this state after udipe_finish() has been called, if its
-    /// downstream_count is not zero at that time. This means that other futures
-    /// still have this future registered as a dependency and have not looked up
-    /// its final status yet, and will therefore come back to check its status.
-    /// In this case, liberation is deferred until all downstream futures are
-    /// done observing this future's final state and guaranteed to never access
-    /// this future again.
-    ///
-    /// Any user attempt to use a future that is in \ref STATE_LIBERATING in any
-    /// manner is a use-after-free error that should trigger a program abort in
-    /// debug builds.
-    STATE_LIBERATING,
-
     // NOTE: If this enum gets more than 8 variants, reallocate the bit budget
     //       of the `state` field of the future_status_word_t accordingly.
 } future_state_t;
 
 /// Future execution outcome
 ///
-/// After a future enters \ref STATE_CANCELING, \ref STATE_RESULT or \ref
-/// STATE_LIBERATING, this enum tracks whether the associated asynchronous
-/// operation completed successfully or errored out in some fashion.
+/// After a future enters \ref STATE_CANCELING or \ref STATE_RESULT, this enum
+/// tracks whether the associated asynchronous operation completed successfully
+/// or errored out in some fashion.
 ///
 /// The switch from \ref OUTCOME_UNKNOWN to another outcome only occurs once in
 /// the lifetime of a particular future, after which the outcome remains fixed
@@ -126,7 +111,7 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
     /// Outcome is not (yet) known
     ///
     /// Futures keep this outcome until their \ref future_state_t reaches \ref
-    /// STATE_CANCELING, \ref STATE_RESULT or \ref STATE_LIBERATING where the
+    /// STATE_CANCELING or \ref STATE_RESULT, which is the state where the
     /// outcome of the associated asynchronous operation is actually known.
     /// After being liberated, futures go back to this dummy state.
     OUTCOME_UNKNOWN = 0,
@@ -305,8 +290,8 @@ typedef enum future_type_e /* : _BitInt(4) */ {
     ///   epollfd's interest list. Join future successful completion happens
     ///   once the pending dep counter reaches 0. When this happens, status word
     ///   moves to \ref STATE_RESULT with \ref OUTCOME_SUCCESS, and if
-    ///   downstream_count indicates the presence of any waiters other than the
-    ///   active one or the caller is not the final one (i.e. wait() not
+    ///   `downstream_count` indicates the presence of any waiters other than
+    ///   the active one or the caller is not the final one (i.e. wait() not
     ///   finish() was used), outcome availability eventfd is signaled, marking
     ///   the output epollfd as permanently ready and thus ensuring that all
     ///   downstream clients will eventually take notice of the status change.
@@ -322,7 +307,7 @@ typedef enum future_type_e /* : _BitInt(4) */ {
     ///   counter and epollfd interest list accordingly.
     /// - Cancelation handled by switching to \ref STATE_RESULT with \ref
     ///   OUTCOME_FAILURE_CANCELED then signaling clients with the outcome
-    ///   availability eventfd if downstream_count + state indicates that at
+    ///   availability eventfd if `downstream_count` + state indicates that at
     ///   least one downstream future monitors the epollfd.
     /// - Liberation drains the cancelation eventfd as described for \ref
     ///   TYPE_NETWORK_START, if canceled unregisters fds of all dependencies
@@ -421,14 +406,43 @@ typedef union future_status_word_u {
         /// Number of threads or downstream futures that have expressed interest
         /// in this future's final state and have not processed it yet
         ///
-        /// This reference count is used to enforce deferred liberation in
-        /// scenarios where udipe_finish() is called on a future that still has
-        /// dependents that have not checked its final state yet. Futures that
-        /// only support fd-based signaling can also use it in tandem with
-        /// `state` to know if other futures or threads are awaiting their
-        /// output fd besides the worker that is currently operating them, or
-        /// might come up later on, enabling eventfd signaling elision
-        /// optimizations when that is not the case.
+        /// This reference count is initialized to 1 at the time where a future
+        /// is created. It is incremented when...
+        ///
+        /// - This future is registered as a dependency to another future,
+        ///   either via an `after` option or the array parameter to a
+        ///   collective operation.
+        /// - A thread enters a udipe_wait() for this future.
+        ///
+        /// ...and it is decremented when it is guaranteed that the
+        /// aforementioned waiter will not be accessing this future anymore. For
+        /// example when...
+        ///
+        /// - A thread exists a udipe_wait() for this future.
+        /// - A network operation scheduled after this future has read and
+        ///   processed its final status, and either was canceled or started
+        ///   executing as a result.
+        /// - A joined future that awaited this future is liberated via
+        ///   udipe_finish() or canceled via udipe_cancel().
+        /// - The last future in an unordered chain is liberated via
+        ///   udipe_finish() or any future in the chain is canceled via
+        ///   udipe_cancel().
+        /// - udipe_finish() is done reading out this future's final state and
+        ///   will not touch its internal state again.
+        ///
+        /// The decrement that happens when this future is passed to
+        /// udipe_finish() is expected to take its `downstream_count` from 1 to
+        /// 0, and thus trigger the immediate liberation of the future. Any
+        /// nonzero remainder indicates that some kind of use-after-free or
+        /// reference counting bug is going on, and will therefore lead the
+        /// application to terminate with a fatal error log.
+        ///
+        /// Futures that only support fd-based signaling can additionally use
+        /// this counter in tandem with `state` to know if other futures or
+        /// threads are awaiting their output fd besides the worker that is
+        /// currently operating them. This can enabling eventfd signal elision
+        /// optimizations when that is not the case (TODO decide if this
+        /// optimization is worthwhile).
         ///
         /// As this half-word is located in the leading bits of the bitfield, it
         /// can be incremented by incrementing the whole 32-bit word on little
@@ -853,7 +867,7 @@ struct udipe_future_s {
         /// be notified via wake_by_address_all(). Once the future outcome is
         /// known, whether successful or unsuccessful, its availability must be
         /// signaled via the dedicated eventfd if at least one other future
-        /// awaits this future, as indicated by `downstream_count`.
+        /// awaited this future, as indicated by `downstream_count`.
         ///
         /// Must be reset by detaching all remaining fds except for the outcome
         /// signaling eventfd, then recycled alongside said eventfd when the

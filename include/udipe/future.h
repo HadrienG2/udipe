@@ -32,29 +32,32 @@
 /// `udipe_future_t` is the heart of the asynchronous API of udipe, which itself
 /// is the recommended default API that you should consider using in all
 /// circumstances where you don't precisely know the performance requirements of
-/// your application and want to get a good balance between ergonomics and
-/// flexibility/performance.
+/// your application and want to get a good balance between ergonomics,
+/// flexibility and performance.
 ///
-/// Every asynchronous `libudipe` command (those functions in the public API
-/// whose name begins with `udipe_start_`) returns to its caller as quickly as
-/// possible, usually before the associated operation has completed. As opposed
-/// to returning the operation's result, like a synchronous function does, an
+/// Every `libudipe` function whose name starts with `udipe_start_` is an
+/// asynchronous function. It returns to its caller as quickly as possible,
+/// usually before the associated operation has completed. As opposed to
+/// returning the operation's result, like a synchronous function does, an
 /// asynchronous function returns a pointer to a future object, which can be
 /// used to interact with the associated asynchronous operation in the ways that
 /// are described below.
 ///
-/// During normal program execution, every future **must** eventually be passed
-/// to udipe_finish(), which is the point at which the operation's result or
-/// errors will be reported, and associated resources will be liberated. This
-/// operation is blocking by nature, though we will later see that when the
-/// situation demands it, it is possible to have extra flexibility in how the
-/// associated waiting is carried out..
+/// During normal program execution, each of these futures **must** eventually
+/// be passed to udipe_finish(), which is the point at which the operation's
+/// result or errors will be reported, and associated resources will be
+/// liberated. This operation is blocking by nature, though we will later see
+/// that when the situation demands it, it is possible to have extra flexibility
+/// in how the associated waiting is carried out.
 ///
 /// Once a future has been passed to udipe_finish(), the ressources associated
-/// with it have been liberated, and it must not be used again.
+/// with it should be considered liberated (even though the actual liberation
+/// may not occur immediately), and it must not be used again.
 ///
-/// The content of a future is an opaque implementation detail of `libudipe`
-/// that you should not attempt to read or modify in any way.
+/// As a general rule, multithreaded programs must be careful not to call
+/// udipe_finish() at a time where other threads might still be using the future
+/// in any manner. This is true of all uses of a future including waiting for
+/// its completion with udipe_wait().
 ///
 /// # Collective operations
 ///
@@ -76,7 +79,7 @@
 ///   to await multiple operations than to simply await said operations one by
 ///   one. This optimization potential is exposed by the udipe_join() collective
 ///   wait function, which also comes with a udipe_start_join() asynchronous
-///   version whose use will be explained in the next section.
+///   version whose uses will be explained below.
 ///
 /// # Chaining and associated restrictions
 ///
@@ -216,7 +219,7 @@ typedef struct udipe_future_s udipe_future_t;
 /// treated as liberated. In other words, udipe_finish() cannot be called until
 /// all previous calls to the udipe API that involve this future have returned,
 /// and this future cannot be passed to any other udipe function by any thread
-/// after the point where udipe_finish() has started being called.
+/// anymore after the point where udipe_finish() has started being called.
 ///
 /// One consequence of this rule is that the future which has been passed to
 /// udipe_finish() cannot be passed to udipe_cancel(), and thus the implicit
@@ -232,7 +235,7 @@ typedef struct udipe_future_s udipe_future_t;
 ///   asynchronous operation was started will not be accessed anymore. So the
 ///   memory targeted by such pointers can safely be modified, liberated, etc.
 /// - The liberation of any udipe state associated with the asynchronous
-///   operation has been at least scheduled (it may not have completed yet).
+///   operation has been scheduled (though it may not have happened yet).
 ///
 /// \param future must be a future that was returned by an asynchronous function
 ///               (those whose name begins with `udipe_start_`) and has not been
