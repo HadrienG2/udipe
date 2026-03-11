@@ -350,7 +350,7 @@ void* realtime_allocate(size_t size) {
                               size,
                               MEM_COMMIT | MEM_RESERVE,
                               PAGE_READWRITE);
-        win32_exit_on_zero(result);
+        win32_exit_on_zero(result, "Failed to allocate memory pages");
         tracef("Allocated memory pages at virtual location %p.", result);
         assert((size_t)result % page_size == 0);
 
