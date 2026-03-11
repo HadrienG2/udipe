@@ -36,7 +36,7 @@
 /// satisfactory system utilization on typical server, so it is okay to block
 /// client threads for a little while until some of the ongoing connection
 /// requests have been processed;
-#define NUM_CONNECT_OPTIONS ((size_t)32)
+#define NUM_CONNECT_OPTIONS 32
 static_assert(NUM_CONNECT_OPTIONS <= 32,
               "Imposed by Linux futex limitations + simple bit array design");
 
