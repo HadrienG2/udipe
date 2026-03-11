@@ -11,6 +11,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// x86_64 on Windows
+#ifdef _M_X64
+    #include <intrin.h>
+#endif
+
 
 /// Upper bound on the CPU's memory access granularity in bytes
 ///
@@ -231,8 +236,10 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
     /// \returns a start timestamp that should be paired with an end timestamp
     ///          measured using x86_timer_end().
     static inline x86_timestamp_start x86_timer_start(bool strict) {
-        uint32_t eax_out, ecx_out, edx_out;
+        uint32_t ecx_out;
+        x86_instant ticks;
         #ifdef __GNUC__
+            uint32_t eax_out, edx_out;
             // In both modes we use CPUID before RDTSC to maximally shield the
             // timed region from preceding benchmark harness instructions.
             if (strict) {
@@ -259,31 +266,21 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
                                   :
                                   : "ebx");
             }
+            ticks = (x86_instant)edx_out << 32 | eax_out;
         #elif defined(_MSC_VER)
+            int cpu_info[4];
+            __cpuid(cpu_info, 0);
+            ticks = __rdtscp(&ecx_out);
             if (strict) {
-                __asm {
-                    cpuid;
-                    rdtscp;
-                    mov eax_out eax;
-                    mov ecx_out ecx;
-                    mov edx_out edx;
-                    cpuid;
-                }
+                __cpuid(cpu_info, 0);
             } else {
-                __asm {
-                    cpuid;
-                    rdtscp;
-                    lfence;
-                    mov eax_out eax;
-                    mov ecx_out ecx;
-                    mov edx_out edx;
-                }
+                _mm_lfence();
             }
         #else
             #error "Sorry, we don't support your compiler yet. Please file a bug report about it!"
         #endif
         return (x86_timestamp_start){
-            .ticks = (x86_instant)edx_out << 32 | eax_out,
+            .ticks = ticks,
             .cpu_id = ecx_out,
         };
     }
@@ -329,8 +326,10 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
     ///          you're done with time measurements then perform all analysis at
     ///          the end, discarding "bad" data points as necessary.
     static inline x86_timestamp_end x86_timer_end(bool strict) {
-        uint32_t eax_out, ecx_out, edx_out;
+        uint32_t ecx_out;
+        x86_instant ticks;
         #ifdef __GNUC__
+            uint32_t eax_out, edx_out;
             // In both modes we use CPUID after RDTSC to maximally shield the
             // timed region from subsequent benchmark harness instructions. This
             // requires us to save eax, ecx and edx beforehand as the RDTSC
@@ -360,30 +359,19 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
                                   :
                                   : "eax", "ebx", "ecx", "edx");
             }
+            ticks = (x86_instant)edx_out << 32 | eax_out;
         #elif defined(_MSC_VER)
+            int cpu_info[4];
             if (strict) {
-                __asm {
-                    cpuid;
-                    rdtscp;
-                    mov eax_out eax;
-                    mov ecx_out ecx;
-                    mov edx_out edx;
-                    cpuid;
-                }
-            } else {
-                __asm {
-                    rdtscp;
-                    mov eax_out eax;
-                    mov ecx_out ecx;
-                    mov edx_out edx;
-                    cpuid;
-                }
+                __cpuid(cpu_info, 0);
             }
+            ticks = __rdtscp(&ecx_out);
+            __cpuid(cpu_info, 0);
         #else
             #error "Sorry, we don't support your compiler yet. Please file a bug report about it!"
         #endif
         return (x86_timestamp_start){
-            .ticks = (x86_instant)edx_out << 32 | eax_out,
+            .ticks = ticks,
             .cpu_id = ecx_out,
         };
     }
