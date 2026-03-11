@@ -1,6 +1,7 @@
 #include "log.h"
 
 #include "error.h"
+#include "memory.h"
 #include "thread_name.h"
 #include "visibility.h"
 

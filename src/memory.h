@@ -13,6 +13,10 @@
 
 #include <stddef.h>
 
+#ifdef _WIN32
+    #include <malloc.h>
+#endif
+
 
 /// \name Implementation details
 /// \{
@@ -45,7 +49,18 @@ void expect_system_config();
 /// \}
 
 
-/// \name Memory management
+/// \name Stack management
+/// \{
+
+#if defined(_WIN32) && !defined(alloca)
+    /// Use the standard name for the alloca() stack allocation function
+    #define alloca _alloca
+#endif
+
+/// \}
+
+
+/// \name Heap management
 /// \{
 
 /// Page size used for memory allocations

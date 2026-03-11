@@ -3,6 +3,7 @@
 #include "error.h"
 
 #include "log.h"
+#include "memory.h"
 
 #include <assert.h>
 #include <errno.h>
