@@ -10,7 +10,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 
 /// Initial value of \ref connect_options_allocator_t::availability
