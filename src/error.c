@@ -11,6 +11,9 @@
 #include <string.h>
 
 #ifdef _WIN32
+    // Must be included first
+    #include <windows.h>
+
     #include <errhandlingapi.h>
 #endif
 
