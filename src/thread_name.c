@@ -282,7 +282,7 @@ const char* get_thread_name() {
                                    WC_ERR_INVALID_CHARS,
                                    name_utf16,
                                    size,
-                                   &thread_name->bytes,
+                                   thread_name->bytes,
                                    thread_name->capacity,
                                    NULL,
                                    NULL);
