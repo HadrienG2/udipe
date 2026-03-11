@@ -51,7 +51,9 @@ typedef struct thread_name_s {
     /// Bytes of storage
     ///
     /// Aligned enough to store strings in any reasonable format.
-    alignas(max_align_t) char bytes[];
+    //
+    // FIXME: Switch back to max_align_t once MSVC supports it
+    alignas(/* max_align_t */ size_t) char bytes[];
 } thread_name_t;
 
 /// Thread-local storage key used to retrieve this thread's \ref thread_name_t
