@@ -10,12 +10,16 @@
 
 #include "time.h"
 
-// TODO: Check if this is the right include for windows, else add ifdef
-#include <netinet/in.h>
 #include <stdbool.h>
 #include <stdint.h>
-// TODO: Check if this is the right include for windows, else add ifdef
-#include <sys/socket.h>
+
+#ifdef __unix__
+    #include <netinet/in.h>
+    #include <sys/socket.h>
+#elif defined(_WIN32)
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+#endif
 
 
 /// Communication direction(s)
