@@ -223,8 +223,8 @@ void ensure_comparison_failure(const char* format_template,
 /// - Log this error message then die with `exit(EXIT_FAILURE)`.
 #define ensure_comparison(op_name, x, op, y)  \
     do {  \
-        typeof(x) udipe_x = (x);  \
-        typeof(y) udipe_y = (y);  \
+        __typeof__(x) udipe_x = (x);  \
+        __typeof__(y) udipe_y = (y);  \
         if (!(udipe_x op udipe_y)) {  \
             ensure_comparison_failure(  \
                 "ensure_" op_name "() failed at %%s:%%u.\n"  \
