@@ -28,7 +28,11 @@
 #ifdef __GNUC__
     #define UDIPE_PUBLIC __attribute__((visibility("default")))
 #elif defined(_MSC_VER)
-    #define UDIPE_PUBLIC __declspec(dllimport)
+    #ifdef BUILDING_UDIPE
+        #define UDIPE_PUBLIC __declspec(dllexport)
+    #else
+        #define UDIPE_PUBLIC __declspec(dllimport)
+    #endif
 #else
     #define UDIPE_PUBLIC
 #endif

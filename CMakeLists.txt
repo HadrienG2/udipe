@@ -166,6 +166,9 @@ target_compile_features(udipe PUBLIC c_std_${C_STANDARD_VERSION}
                                      c_function_prototypes
                                      c_static_assert
                                      c_variadic_macros)
+if (WIN32)
+    target_compile_definitions(udipe PRIVATE BUILDING_UDIPE)
+endif()
 if (UDIPE_BUILD_TESTS)
     target_compile_definitions(udipe PUBLIC UDIPE_BUILD_BENCHMARKS)
 endif()
