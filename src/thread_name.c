@@ -17,6 +17,9 @@
     #include <linux/prctl.h>
     #include <sys/prctl.h>
 #elif defined(_WIN32)
+    // Must be included first
+    #include <windows.h>
+
     #include <errhandlingapi.h>
     #include <processthreadsapi.h>
     #include <stringapiset.h>
