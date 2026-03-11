@@ -20,6 +20,9 @@
     #include <sys/resource.h>
     #include <unistd.h>
 #elif defined(_WIN32)
+    // Must be included first
+    #include <windows.h>
+
     #include <memoryapi.h>
     #include <processthreadsapi.h>
     #include <sysinfoapi.h>
