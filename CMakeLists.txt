@@ -167,7 +167,11 @@ target_compile_features(udipe PUBLIC c_std_${C_STANDARD_VERSION}
                                      c_static_assert
                                      c_variadic_macros)
 if (WIN32)
+    # Correct usage of dllimport/dllexport without duplicates/conditions
     target_compile_definitions(udipe PRIVATE BUILDING_UDIPE)
+    # Prevents windows.h include from bringing in random junk that will break other
+    # Windows headers like winsock2.h.
+    target_compile_definitions(udipe PRIVATE WIN32_LEAN_AND_MEAN)
 endif()
 if (UDIPE_BUILD_TESTS)
     target_compile_definitions(udipe PUBLIC UDIPE_BUILD_BENCHMARKS)
