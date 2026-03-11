@@ -54,7 +54,7 @@ static pow2_t system_allocation_granularity_pow2 = { 0 };
 /// should not be called directly as it is not thread-safe.
 ///
 /// This function must be called within the scope of with_logger().
-static void read_system_config() {
+static void read_system_config(void) {
     debug("Reading OS configuration...");
 
     trace("Reading memory management properties...");
@@ -143,7 +143,7 @@ static size_t allocation_size(size_t size) {
 static mtx_t mlock_budget_mutex;
 
 /// Initialize mlock_budget_mutex (implementation detail of try_increase_mlock_budget)
-static void mlock_budget_mutex_initialize() {
+static void mlock_budget_mutex_initialize(void) {
     debug("Initializing mlock_budget_mutex");
     const int result = mtx_init(&mlock_budget_mutex, mtx_plain);
     if (result == thrd_success) return;

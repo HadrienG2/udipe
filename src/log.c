@@ -71,7 +71,7 @@ static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
 static struct timespec startup;
 
 /// Record the application startup time
-void record_startup_time() {
+void record_startup_time(void) {
     // WARNING: This function is called before the logger is ready and must
     //          therefore not perform any logging. Normal events and non-fatal
     //          errors should not be signaled at all, fatal errors should be
