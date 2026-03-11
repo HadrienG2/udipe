@@ -86,7 +86,7 @@ static void thread_name_finalize(void* thread_name) {
 ///
 /// Note that this only sets up a TLS pointer, and actual storage allocatin will
 /// happen during set_thread_name() and/or get_thread_name().
-static void thread_name_initialize() {
+static void thread_name_initialize(void) {
     // WARNING: This function is called by the logger implementation and must
     //          therefore not perform any logging. Normal events and non-fatal
     //          errors should not be signaled at all, fatal errors should be
