@@ -22,7 +22,10 @@ endif()
 
 include(GNUInstallDirs)
 
-if(NOT WIN32)
+if(WIN32)
+    # ...because MSVC C11 support ships in a broken state by default, as of 2026
+    add_compile_options(/experimental:c11atomics)
+else()
     # Rationale for disabling some warnings:
     #
     # - unused-parameter doesn't work when some function parameters are only
