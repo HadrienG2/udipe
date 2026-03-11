@@ -40,7 +40,7 @@ void warn_on_errno() {
     const char header[] = "Got errno value ";
     const char trailer[] = ".";
 
-    #ifdef _GNU_SOURCE
+    #if defined(_GNU_SOURCE) && !defined(_WIN32)
         // Get the symbolic name of this errno value i.e. "EPERM" if it's EPERM.
         const char* name = strerrorname_np(initial_errno);
         if (!name) {
