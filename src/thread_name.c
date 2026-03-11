@@ -242,7 +242,7 @@ const char* get_thread_name() {
     #elif defined(_WIN32)
         // On Windows, we first get a UTF-16 thread description...
         PWSTR name_utf16 = NULL;
-        HRESULT hr = GetThreadDescription(GetCurrentThread(), &PWSTR);
+        HRESULT hr = GetThreadDescription(GetCurrentThread(), &name_utf16);
         if (FAILED(hr)) {
             // Can't log, this is used in the logger implementation.
             fprintf(stderr,
