@@ -5,7 +5,6 @@
 #include "unit_tests.h"
 
 #include <assert.h>
-#include <pthread.h>
 #include <stdalign.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -17,13 +16,13 @@
 #ifdef __linux__
     #include <linux/prctl.h>
     #include <sys/prctl.h>
-#endif
-
-#ifdef _WIN32
+#elif defined(_WIN32)
     #include <errhandlingapi.h>
     #include <processthreadsapi.h>
     #include <stringapiset.h>
     #include <winerror.h>
+#else
+    #include <pthread.h>
 #endif
 
 
