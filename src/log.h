@@ -314,7 +314,7 @@ static inline bool log_enabled(udipe_log_level_t level);
             do __VA_ARGS__ while(false);  \
         } while(false)
 #elif defined(_MSC_VER)
-    #define with_logger(logger_ptr, ...)  \
+    #define with_log_level(level, ...)  \
         do {  \
             const udipe_log_level_t udipe_prev_log_level  \
                 = udipe_thread_log_level;  \
