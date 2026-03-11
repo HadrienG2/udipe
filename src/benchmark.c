@@ -226,7 +226,9 @@
 
         #ifdef _WIN32
             debug("Obtaining Windows performance counter frequency...");
-            oclock.win32_frequency = QueryPerformanceFrequency().QuadPart;
+            LARGE_INTEGER win32_frequency;
+            QueryPerformanceFrequency(&win32_frequency);
+            oclock.win32_frequency = win32_frequency.QuadPart;
         #endif
 
         debug("Allocating timestamp buffer and duration distribution...");
