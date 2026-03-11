@@ -10,7 +10,7 @@
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
+#include <string.h>
 #include <time.h>
 
 #ifdef __unix__
@@ -198,15 +198,15 @@ logger_t logger_initialize(udipe_log_config_t config) {
     case UDIPE_DEFAULT_LOG_LEVEL:
         const char* level_str = getenv("UDIPE_LOG");
         if (level_str) {
-            if (strcasecmp(level_str, "ERROR") == 0) {
+            if ((strcmp(level_str, "ERROR") | strcmp(level_str, "error")) == 0) {
                 config.min_level = UDIPE_ERROR;
-            } else if (strcasecmp(level_str, "WARNING") == 0) {
+            } else if ((strcmp(level_str, "WARNING") | strcmp(level_str, "warning")) == 0) {
                 config.min_level = UDIPE_WARN;
-            } else if (strcasecmp(level_str, "INFO") == 0) {
+            } else if ((strcmp(level_str, "INFO") | strcmp(level_str, "info")) == 0) {
                 config.min_level = UDIPE_INFO;
-            } else if (strcasecmp(level_str, "DEBUG") == 0) {
+            } else if ((strcmp(level_str, "DEBUG") | strcmp(level_str, "debug")) == 0) {
                 config.min_level = UDIPE_DEBUG;
-            } else if (strcasecmp(level_str, "TRACE") == 0) {
+            } else if ((strcmp(level_str, "TRACE") | strcmp(level_str, "trace")) == 0) {
                 config.min_level = UDIPE_TRACE;
             } else {
                 // Cannot log before logger is initialized
