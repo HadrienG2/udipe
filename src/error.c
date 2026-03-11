@@ -36,54 +36,67 @@ void warn_on_errno() {
     // allocate a string to hold the error description is a bad move...
     static thread_local char output[255] = "";
 
-    // Get the symbolic name of this errno value i.e. "EPERM" if it's EPERM.
-    const char* name = strerrorname_np(initial_errno);
-    if (!name) {
-        // If this fails, just use the integer value + highlight the failure
-        int out_chars = snprintf(output,
-                                 sizeof(output),
-                                 "Got invalid errno value %d!",
-                                 initial_errno);
-        assert(("Integer snprintf should never fail", out_chars > 0));
-        assert(("Output buffer should be large enough to hold an integer",
-                (unsigned)out_chars < sizeof(output)));
-        warn(output);
-        errno = 0;
-        return;
-    }
-
-    // Basic description that includes the symbolic name only
+    // Description header and trailer
     const char header[] = "Got errno value ";
     const char trailer[] = ".";
-    const size_t min_output_size = strlen(header) + strlen(name) + strlen(trailer) + 1;
 
-    // Full description that includes the human-readable description too
-    const char separator[] = ": ";
-    const char* description = strerrordesc_np(initial_errno);
-    assert(("strerrorname_np() and strerrordesc_np() "
-            "should agree on errno validation",
-            description));
-    const size_t full_output_size = min_output_size + strlen(separator) + strlen(description);
+    #ifdef _GNU_SOURCE
+        // Get the symbolic name of this errno value i.e. "EPERM" if it's EPERM.
+        const char* name = strerrorname_np(initial_errno);
+        if (!name) {
+            // If this fails, just use the integer value + highlight the failure
+            int out_chars = snprintf(output,
+                                     sizeof(output),
+                                     "Got invalid errno value %d!",
+                                     initial_errno);
+            assert(("Integer snprintf should never fail", out_chars > 0));
+            assert(("Output buffer should be large enough to hold an integer",
+                    (unsigned)out_chars < sizeof(output)));
+            warn(output);
+            errno = 0;
+            return;
+        }
 
-    // Pick the description that fits in the output buffer
-    int result;
-    if (sizeof(output) >= full_output_size) {
-        // Ideally everything...
-        result = snprintf(output,
-                          sizeof(output),
-                          "%s%s%s%s%s",
-                          header, name, separator, description, trailer);
-    } else {
-        // ...but if there's not enough room, just the basics. Do warn about it.
-        warn("Internal output buffer is too small for a full errno "
-             "description and should be enlarged!");
+        // Size of a basic description that includes the symbolic name only
+        const size_t min_output_size = strlen(header) + strlen(name) + strlen(trailer) + 1;
+
+        // Full description that includes the human-readable description too
+        const char separator[] = ": ";
+        const char* description = strerrordesc_np(initial_errno);
+        assert(("strerrorname_np() and strerrordesc_np() "
+                "should agree on errno validation",
+                description));
+        const size_t full_output_size = min_output_size + strlen(separator) + strlen(description);
+
+        // Pick the description that fits in the output buffer
+        int result;
+        if (sizeof(output) >= full_output_size) {
+            // Ideally everything...
+            result = snprintf(output,
+                              sizeof(output),
+                              "%s%s%s%s%s",
+                              header, name, separator, description, trailer);
+        } else {
+            // ...but if there's not enough room, just the basics. Do warn about it.
+            warn("Internal output buffer is too small for a full errno "
+                 "description and should be enlarged!");
+            assert(("Buffer should be large enough to hold an errorname",
+                    sizeof(output) >= min_output_size));
+            result = snprintf(output,
+                              sizeof(output),
+                              "%s%s%s",
+                              header, name, trailer);
+        }
+    #else
+        const char* name = strerror(initial_errno);
+        const size_t min_output_size = strlen(header) + strlen(name) + strlen(trailer) + 1;
         assert(("Buffer should be large enough to hold an errorname",
                 sizeof(output) >= min_output_size));
         result = snprintf(output,
                           sizeof(output),
                           "%s%s%s",
                           header, name, trailer);
-    }
+    #endif
     assert(("String snprintf should never fail!", result > 0));
     warn(output);
     errno = 0;
