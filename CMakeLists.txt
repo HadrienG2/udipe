@@ -161,7 +161,7 @@ target_sources(udipe
                        src/unit_tests.c
                        src/unit_tests.h
                        src/visibility.h)
-# ...because MSVC is too stupid to live without
+# MSVC doesn't understand C_STANDARD and needs an extra hint
 target_compile_features(udipe PUBLIC c_std_${C_STANDARD_VERSION}
                                      c_function_prototypes
                                      c_static_assert

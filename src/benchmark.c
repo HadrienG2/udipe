@@ -222,11 +222,11 @@
         //
         // This is a valid (if incorrect) value for some fields but not all of
         // them. We will take care of the missing fields later on.
-        os_clock_t clock = { 0 };
+        os_clock_t oclock = { 0 };
 
         #ifdef _WIN32
             debug("Obtaining Windows performance counter frequency...");
-            clock.win32_frequency = QueryPerformanceFrequency().QuadPart;
+            oclock.win32_frequency = QueryPerformanceFrequency().QuadPart;
         #endif
 
         debug("Allocating timestamp buffer and duration distribution...");
@@ -234,8 +234,8 @@
         if (max_runs < SIGNAL_NRUNS) max_runs = SIGNAL_NRUNS;
         if (max_runs < AFFINE_NRUNS) max_runs = AFFINE_NRUNS;
         const size_t timestamps_size = 2*max_runs * sizeof(os_timestamp_t);
-        clock.timestamps = realtime_allocate(timestamps_size);
-        clock.num_durations = max_runs;
+        oclock.timestamps = realtime_allocate(timestamps_size);
+        oclock.num_durations = max_runs;
 
         debug("Measuring the clock resolution and minimal duration...");
         debug("- Measuring a loop with 1 iteration...");
@@ -245,7 +245,7 @@
             distribution_builder_t builder =
                 distribution_pool_request(distribution_pool);
             prev_durations = os_clock_measure(
-                &clock,
+                &oclock,
                 empty_loop,
                 &num_iters,
                 THRESHOLD_WARMUP,
@@ -270,7 +270,7 @@
             debugf("- Measuring a loop with %zu iterations...", num_iters);
             distribution_builder_t builder =
                 distribution_pool_request(distribution_pool);
-            curr_durations = os_clock_measure(&clock,
+            curr_durations = os_clock_measure(&oclock,
                                               empty_loop,
                                               &num_iters,
                                               THRESHOLD_WARMUP,
@@ -334,10 +334,10 @@
         //   quantization error.
 
         ensure_ge(num_iters, (size_t)2);
-        clock.dither_iters = num_iters / 2;
+        oclock.dither_iters = num_iters / 2;
         debugf("Configured a clock dithering loop of "
                "[%zu; %zu] iterations.",
-               clock.dither_iters, num_iters);
+               oclock.dither_iters, num_iters);
 
         debug("Optimizing signal-noise ratio...");
         const double mean_quantization_limit = MIN_QUANTIZATION_SNR * clock_resolution;
@@ -353,7 +353,7 @@
             prev_durations = curr_durations;
             distribution_builder_t builder =
                 distribution_pool_request(distribution_pool);
-            curr_durations = os_clock_measure(&clock,
+            curr_durations = os_clock_measure(&oclock,
                                               empty_loop,
                                               &num_iters,
                                               SIGNAL_WARMUP,
@@ -401,7 +401,7 @@
             debugf("- Measuring a loop with %zu iterations...", num_iters);
             distribution_builder_t builder =
                 distribution_pool_request(distribution_pool);
-            curr_durations = os_clock_measure(&clock,
+            curr_durations = os_clock_measure(&oclock,
                                               empty_loop,
                                               &num_iters,
                                               SIGNAL_WARMUP,
@@ -479,9 +479,9 @@
                         debug("  * This is our best slope estimate so far!");
                         best_slope_estimate = curr_slope_estimate;
                         best_slope_estimate_dispersion = slope_estimate_dispersion;
-                        clock.best_empty_iters = num_iters / 2;
-                        distribution_pool_recycle(distribution_pool, &clock.best_empty_changes);
-                        clock.best_empty_changes = distribution_clone(&curr_changes);
+                        oclock.best_empty_iters = num_iters / 2;
+                        distribution_pool_recycle(distribution_pool, &oclock.best_empty_changes);
+                        oclock.best_empty_changes = distribution_clone(&curr_changes);
                     } else {
                         debug("  * This is not an improvement over previous estimates...");
                     }
@@ -499,14 +499,14 @@
                     best_slope_estimate = curr_slope_estimate;
                     best_slope_estimate_dispersion =
                         relative_dispersion(curr_slope_estimate);
-                    clock.best_empty_iters = num_iters / 2;
-                    clock.best_empty_changes = distribution_clone(&curr_changes);
+                    oclock.best_empty_iters = num_iters / 2;
+                    oclock.best_empty_changes = distribution_clone(&curr_changes);
                     continue;
                 }
             }
         } while(true);
         debugf("Computed best slope estimate with num_iters pair (%zu, %zu).",
-               clock.best_empty_iters, 2*clock.best_empty_iters);
+               oclock.best_empty_iters, 2*oclock.best_empty_iters);
         log_estimate(UDIPE_DEBUG,
                      "- Best slope estimate",
                      best_slope_estimate,
@@ -517,7 +517,7 @@
         distribution_pool_recycle(distribution_pool, &curr_durations);
         distribution_pool_recycle(distribution_pool, &curr_changes);
 
-        return clock;
+        return oclock;
     }
 
     /// compute_duration_distribution() callback used by os_clock_measure()
@@ -525,16 +525,16 @@
     /// `context` must be a pointer to the associated \ref os_clock_t.
     static inline int64_t compute_os_duration(void* context,
                                               size_t run) {
-        const os_clock_t* clock = (os_clock_t*)context;
-        assert(run < clock->num_durations);
-        return os_duration(clock,
-                           clock->timestamps[2*run],
-                           clock->timestamps[2*run+1]);
+        const os_clock_t* oclock = (os_clock_t*)context;
+        assert(run < oclock->num_durations);
+        return os_duration(oclock,
+                           oclock->timestamps[2*run],
+                           oclock->timestamps[2*run+1]);
     }
 
     UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
     distribution_t os_clock_measure(
-        os_clock_t* clock,
+        os_clock_t* oclock,
         void (*workload)(void*),
         void* context,
         udipe_duration_ns_t warmup,
@@ -542,39 +542,39 @@
         outlier_filter_t* outlier_filter,
         distribution_builder_t* empty_builder
     ) {
-        if (num_runs > clock->num_durations) {
+        if (num_runs > oclock->num_durations) {
             trace("Reallocating storage from %zu to %zu durations...");
             realtime_liberate(
-                clock->timestamps,
-                2 * clock->num_durations * sizeof(os_timestamp_t)
+                oclock->timestamps,
+                2 * oclock->num_durations * sizeof(os_timestamp_t)
             );
-            clock->num_durations = num_runs;
-            clock->timestamps =
+            oclock->num_durations = num_runs;
+            oclock->timestamps =
                 realtime_allocate(2 * num_runs * sizeof(os_timestamp_t));
         }
 
         trace("Warming up...");
-        os_timestamp_t* timestamps = clock->timestamps;
+        os_timestamp_t* timestamps = oclock->timestamps;
         udipe_duration_ns_t elapsed = 0;
         os_timestamp_t start = os_now();
         do {
             size_t num_dither_iters =
-                clock->dither_iters + rand() % (clock->dither_iters + 1);
+                oclock->dither_iters + rand() % (oclock->dither_iters + 1);
             empty_loop(&num_dither_iters);
             workload(context);
             os_timestamp_t now = os_now();
-            elapsed = os_duration(clock, start, now);
+            elapsed = os_duration(oclock, start, now);
         } while(elapsed < warmup);
 
         tracef("Performing %zu timed runs...", num_runs);
-        ensure_ge((size_t)RAND_MAX, clock->dither_iters);
+        ensure_ge((size_t)RAND_MAX, oclock->dither_iters);
         for (size_t run = 0; run < num_runs; ++run) {
             // To avoid systematic measurement error caused by clock tick
             // quantization, we empty a dithering trick wherein random
             // busy-sleep is used to ensure that every measurement starts and
             // ends at a random position within a clock tick.
             size_t num_dither_iters =
-                clock->dither_iters + rand() % (clock->dither_iters + 1);
+                oclock->dither_iters + rand() % (oclock->dither_iters + 1);
             empty_loop(&num_dither_iters);
 
             UDIPE_ASSUME_READ(timestamps);
@@ -590,29 +590,29 @@
 
         trace("Computing duration distribution...");
         return compute_duration_distribution(compute_os_duration,
-                                             (void*)clock,
+                                             (void*)oclock,
                                              num_runs,
                                              outlier_filter,
                                              empty_builder);
     }
 
     UDIPE_NON_NULL_ARGS
-    void os_clock_finalize(os_clock_t* clock) {
+    void os_clock_finalize(os_clock_t* oclock) {
         debug("Liberating and poisoning timestamp storage...");
-        realtime_liberate(clock->timestamps,
-                          (clock->num_durations+1) * sizeof(os_timestamp_t));
-        clock->timestamps = NULL;
-        clock->num_durations = 0;
+        realtime_liberate(oclock->timestamps,
+                          (oclock->num_durations+1) * sizeof(os_timestamp_t));
+        oclock->timestamps = NULL;
+        oclock->num_durations = 0;
 
         debug("Destroying duration distributions...");
-        distribution_finalize(&clock->best_empty_changes);
+        distribution_finalize(&oclock->best_empty_changes);
 
         debug("Poisoning the rest of the OS clock...");
         #ifdef _WIN32
-            clock->win32_frequency = 0;
+            oclock->win32_frequency = 0;
         #endif
-        clock->dither_iters = SIZE_MAX;
-        clock->best_empty_iters = SIZE_MAX;
+        oclock->dither_iters = SIZE_MAX;
+        oclock->best_empty_iters = SIZE_MAX;
     }
 
 
@@ -628,16 +628,16 @@
             //
             // This is a valid (if incorrect) value for some fields but not all
             // of them. We will take care of the missing fields later on.
-            x86_clock_t clock = { 0 };
+            x86_clock_t xclock = { 0 };
 
             debug("Allocating timestamp and duration distribution...");
             const size_t max_runs = AFFINE_NRUNS;
             const size_t instants_size = 2 * max_runs * sizeof(x86_instant);
-            clock.instants = realtime_allocate(instants_size);
-            clock.num_durations = max_runs;
+            xclock.instants = realtime_allocate(instants_size);
+            xclock.num_durations = max_runs;
 
             debug("Propagating dithering configuration from OS clock...");
-            clock.dither_iters = os->dither_iters;
+            xclock.dither_iters = os->dither_iters;
 
             // TODO: Investigate paired benchmarking techniques as a more robust
             //       alternative to reducing the delay between these two
@@ -654,7 +654,7 @@
             distribution_builder_t builder =
                 distribution_pool_request(distribution_pool);
             distribution_t base_ticks = x86_clock_measure(
-                &clock,
+                &xclock,
                 empty_loop,
                 &num_iters,
                 AFFINE_WARMUP,
@@ -666,7 +666,7 @@
             debugf("- At double iteration count %zu...", num_iters);
             builder = distribution_pool_request(distribution_pool);
             distribution_t double_ticks = x86_clock_measure(
-                &clock,
+                &xclock,
                 empty_loop,
                 &num_iters,
                 AFFINE_WARMUP,
@@ -700,7 +700,7 @@
 
             info("Deducing TSC tick frequency...");
             builder = distribution_pool_request(distribution_pool);
-            clock.frequencies = distribution_scaled_div(
+            xclock.frequencies = distribution_scaled_div(
                 &builder,
                 &change_ticks,
                 UDIPE_SECOND,
@@ -709,13 +709,13 @@
             log_statistics(UDIPE_INFO,
                            "- TSC frequency",
                            "  *",
-                           analyzer_apply(analyzer, &clock.frequencies),
+                           analyzer_apply(analyzer, &xclock.frequencies),
                            "ticks/sec");
 
             debug("Deducing best loop duration...");
             builder = distribution_pool_request(distribution_pool);
             const statistics_t change_nanosecs_stats = x86_duration(
-                &clock,
+                &xclock,
                 &builder,
                 &change_ticks,
                 analyzer
@@ -735,13 +735,13 @@
                          "",
                          "ns/iter");
 
-            return clock;
+            return xclock;
         }
 
         /// compute_duration_distribution() context used by x86_clock_measure()
         ///
         typedef struct x86_measure_context_s {
-            const x86_clock_t* clock;  ///< x86 clock used for the measurement
+            const x86_clock_t* xclock;  ///< x86 clock used for the measurement
             size_t num_runs;  ///< Number of benchmark runs
         } x86_measure_context_t;
 
@@ -752,10 +752,10 @@
         static inline int64_t compute_x86_duration(void* context,
                                                    size_t run) {
             const x86_measure_context_t* measure = (x86_measure_context_t*)context;
-            const x86_clock_t* clock = measure->clock;
+            const x86_clock_t* xclock = measure->xclock;
             assert(run < measure->num_runs);
-            assert(measure->num_runs < clock->num_durations);
-            const x86_instant* starts = clock->instants;
+            assert(measure->num_runs < xclock->num_durations);
+            const x86_instant* starts = xclock->instants;
             const x86_instant* ends = starts + measure->num_runs;
             return ends[run] - starts[run];
         }
@@ -836,7 +836,7 @@
 
             trace("Computing duration distribution...");
             x86_measure_context_t measure_context = {
-                .clock = xclock,
+                .xclock = xclock,
                 .num_runs = num_runs
             };
             return compute_duration_distribution(compute_x86_duration,
@@ -847,7 +847,7 @@
         }
 
         UDIPE_NON_NULL_ARGS
-        statistics_t x86_duration(const x86_clock_t* clock,
+        statistics_t x86_duration(const x86_clock_t* xclock,
                                   distribution_builder_t* tmp_builder,
                                   const distribution_t* ticks,
                                   analyzer_t* analyzer) {
@@ -855,25 +855,25 @@
                 distribution_scaled_div(tmp_builder,
                                         ticks,
                                         UDIPE_SECOND,
-                                        &clock->frequencies);
+                                        &xclock->frequencies);
             const statistics_t result = analyzer_apply(analyzer, &tmp_durations);
             *tmp_builder = distribution_reset(&tmp_durations);
             return result;
         }
 
         UDIPE_NON_NULL_ARGS
-        void x86_clock_finalize(x86_clock_t* clock) {
+        void x86_clock_finalize(x86_clock_t* xclock) {
             debug("Liberating and poisoning timestamp storage...");
-            realtime_liberate(clock->instants,
-                              2 * clock->num_durations * sizeof(x86_instant));
-            clock->instants = NULL;
-            clock->num_durations = 0;
+            realtime_liberate(xclock->instants,
+                              2 * xclock->num_durations * sizeof(x86_instant));
+            xclock->instants = NULL;
+            xclock->num_durations = 0;
 
             debug("Destroying offset and frequency distributions...");
-            distribution_finalize(&clock->frequencies);
+            distribution_finalize(&xclock->frequencies);
 
             debug("Poisoning remaining clock state...");
-            clock->dither_iters = SIZE_MAX;
+            xclock->dither_iters = SIZE_MAX;
         }
 
     #endif  // X86_64
@@ -884,34 +884,34 @@
         //
         // This is a valid (if incorrect) value for some fields but not all of
         // them. We will take care of the missing fields later on.
-        benchmark_clock_t clock = { 0 };
+        benchmark_clock_t bclock = { 0 };
 
         debug("Setting up distribution pool...");
-        clock.distribution_pool = distribution_pool_initialize();
+        bclock.distribution_pool = distribution_pool_initialize();
 
         debug("Setting up outlier filtering...");
-        clock.outlier_filter = outlier_filter_initialize();
+        bclock.outlier_filter = outlier_filter_initialize();
 
         debug("Setting up the statistical analyzer...");
-        clock.analyzer = analyzer_initialize();
+        bclock.analyzer = analyzer_initialize();
 
         info("Setting up the OS clock...");
-        clock.os = os_clock_initialize(&clock.distribution_pool,
-                                       &clock.outlier_filter,
-                                       &clock.analyzer);
+        bclock.os = os_clock_initialize(&bclock.distribution_pool,
+                                        &bclock.outlier_filter,
+                                        &bclock.analyzer);
 
         #ifdef X86_64
             info("Setting up the TSC clock...");
-            clock.x86 = x86_clock_initialize(&clock.distribution_pool,
-                                             &clock.outlier_filter,
-                                             &clock.analyzer,
-                                             &clock.os);
+            bclock.x86 = x86_clock_initialize(&bclock.distribution_pool,
+                                              &bclock.outlier_filter,
+                                              &bclock.analyzer,
+                                              &bclock.os);
         #endif
-        return clock;
+        return bclock;
     }
 
     UDIPE_NON_NULL_ARGS
-    void benchmark_clock_recalibrate(benchmark_clock_t* clock) {
+    void benchmark_clock_recalibrate(benchmark_clock_t* bclock) {
         // TODO: Check if clock calibration still seems correct, recalibrate if
         //       needed.
         // TODO: This should probably be implemented by implementing recalibrate
@@ -921,24 +921,24 @@
     }
 
     UDIPE_NON_NULL_ARGS
-    void benchmark_clock_finalize(benchmark_clock_t* clock) {
+    void benchmark_clock_finalize(benchmark_clock_t* bclock) {
 
         #ifdef X86_64
             debug("Destroying the TSC clock...");
-            x86_clock_finalize(&clock->x86);
+            x86_clock_finalize(&bclock->x86);
         #endif
 
         debug("Destroying the OS clock...");
-        os_clock_finalize(&clock->os);
+        os_clock_finalize(&bclock->os);
 
         debug("Destroying the statistical analyzer...");
-        analyzer_finalize(&clock->analyzer);
+        analyzer_finalize(&bclock->analyzer);
 
         debug("Destroying the outlier filter...");
-        outlier_filter_finalize(&clock->outlier_filter);
+        outlier_filter_finalize(&bclock->outlier_filter);
 
         debug("Destroying the distribution pool...");
-        distribution_pool_finalize(&clock->distribution_pool);
+        distribution_pool_finalize(&bclock->distribution_pool);
     }
 
 
@@ -995,7 +995,7 @@
                              "Failed to pin the timing thread");
 
             // Set up the benchmark clock
-            benchmark->clock = benchmark_clock_initialize();
+            benchmark->bclock = benchmark_clock_initialize();
         });
         return benchmark;
     }
@@ -1021,7 +1021,7 @@
                 runnable(context, benchmark);
 
                 trace("Recalibrating benchmark clock...");
-                benchmark_clock_recalibrate(&benchmark->clock);
+                benchmark_clock_recalibrate(&benchmark->bclock);
             }
         });
         return name_matches;
@@ -1035,7 +1035,7 @@
             info("All benchmarks executed successfully!");
 
             debug("Finalizing the benchmark clock...");
-            benchmark_clock_finalize(&(*benchmark)->clock);
+            benchmark_clock_finalize(&(*benchmark)->bclock);
 
             debug("Freeing and poisoning the timing thread cpuset...");
             hwloc_bitmap_free((*benchmark)->timing_cpuset);

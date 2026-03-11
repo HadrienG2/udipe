@@ -31,6 +31,7 @@
         #include <time.h>
         #include <unistd.h>
     #elif defined(_WIN32)
+        #include <BaseTsd.h>
         #include <profileapi.h>
     #endif
 
@@ -307,8 +308,9 @@
     /// time that elapsed between the end of the call to os_now() that returned
     /// `start` and the beginning of the call to os_now() that returned `end`.
     ///
-    /// \param clock is a set of clock parameters that were previously measured
-    ///              via os_clock_initialize() and haven't been finalized yet.
+    /// \param oclock is a set of OS clock parameters that were previously
+    ///               measured via os_clock_initialize() and haven't been
+    ///               finalized yet.
     /// \param start is the timestamp that was measured using os_now() at the
     ///              start of the time span of interest.
     /// \param end is the timestamp that was measured using os_now() at the end
@@ -317,7 +319,7 @@
     /// \returns an estimate of the amount of time that elapsed between `start`
     ///          and `end`, in nanoseconds.
     UDIPE_NON_NULL_ARGS
-    static inline signed_duration_ns_t os_duration(const os_clock_t* clock,
+    static inline signed_duration_ns_t os_duration(const os_clock_t* oclock,
                                                    os_timestamp_t start,
                                                    os_timestamp_t end) {
         assert(os_timestamp_le(start, end));
@@ -327,8 +329,8 @@
             duration_ns = secs * UDIPE_SECOND;
             duration_ns += (int64_t)end.tv_nsec - (int64_t)start.tv_nsec;
         #elif defined(_WIN32)
-            assert(clock->win32_frequency > 0);
-            duration_ns = (end.QuadPart - start.QuadPart) * UDIPE_SECOND / clock->win32_frequency;
+            assert(oclock->win32_frequency > 0);
+            duration_ns = (end.QuadPart - start.QuadPart) * UDIPE_SECOND / oclock->win32_frequency;
         #else
             #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
         #endif
@@ -362,11 +364,11 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param clock is the benchmark clock that is going to be used. This
-    ///              routine can be used before said clock is fully initialized,
-    ///              but it must be at minimum initialized enough to allow for
-    ///              basic clock measurements (i.e. on Windows `win32_frequency`
-    ///              must have been queried already).
+    /// \param oclock is the benchmark clock that is going to be used. This
+    ///               routine can be used before said clock is fully
+    ///               initialized, but it must be at minimum initialized enough
+    ///               to allow for basic clock measurements (i.e. on Windows
+    ///               `win32_frequency` must have been queried already).
     /// \param workload is the workload whose duration should be measured.
     /// \param context encodes the parameters that should be passed to
     ///                `workload`, if any.
@@ -389,7 +391,7 @@
     /// \returns the distribution of measured execution times in nanoseconds
     UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
     distribution_t os_clock_measure(
-        os_clock_t* clock,
+        os_clock_t* oclock,
         void (*workload)(void*),
         void* context,
         udipe_duration_ns_t warmup,
@@ -402,11 +404,11 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param clock is a system clock that has been previously set up
-    ///              via os_clock_initialize() and hasn't been destroyed via
-    ///              os_clock_finalize() yet
+    /// \param oclock is a system clock that has been previously set up
+    ///               via os_clock_initialize() and hasn't been destroyed via
+    ///               os_clock_finalize() yet
     UDIPE_NON_NULL_ARGS
-    void os_clock_finalize(os_clock_t* clock);
+    void os_clock_finalize(os_clock_t* oclock);
 
     /// \}
 
@@ -515,8 +517,9 @@
         ///
         /// This function must be called within the scope of with_logger().
         ///
-        /// \param clock mostly works as in os_clock_measure(), except it wants
-        ///              a TSC clock context not an OS clock context
+        /// \param xclock mostly works like `oclock` in os_clock_measure(),
+        ///               except it wants a TSC clock context not an OS clock
+        ///               context
         /// \param workload works as in os_clock_measure()
         /// \param context works as in os_clock_measure()
         /// \param warmup works as in os_clock_measure()
@@ -539,9 +542,9 @@
         /// Estimate real time duration statistics from a TSC clock ticks
         /// distribution
         ///
-        /// \param clock must be a TSC clock context that was initialized
-        ///              with x86_clock_initialize() and hasn't been finalized
-        ///              with x86_clock_finalize() yet
+        /// \param xclock must be a TSC clock context that was initialized
+        ///               with x86_clock_initialize() and hasn't been finalized
+        ///               with x86_clock_finalize() yet
         /// \param tmp_builder is a distribution builder within which duration
         ///                    data will be temporarily stored. It should
         ///                    initially be empty (either freshly built via
@@ -560,7 +563,7 @@
         ///          `ticks` corresponds to, in nanoseconds, with a confidence
         ///          interval given by `analyzer`.
         UDIPE_NON_NULL_ARGS
-        statistics_t x86_duration(const x86_clock_t* clock,
+        statistics_t x86_duration(const x86_clock_t* xclock,
                                   distribution_builder_t* tmp_builder,
                                   const distribution_t* ticks,
                                   analyzer_t* analyzer);
@@ -569,11 +572,11 @@
         ///
         /// This function must be called within the scope of with_logger().
         ///
-        /// \param clock is a TSC clock context that has been previously set up
-        ///              via x86_clock_initialize() and hasn't been destroyed
-        ///              via x86_clock_finalize() yet
+        /// \param xclock is a TSC clock context that has been previously set up
+        ///               via x86_clock_initialize() and hasn't been destroyed
+        ///               via x86_clock_finalize() yet
         UDIPE_NON_NULL_ARGS
-        void x86_clock_finalize(x86_clock_t* clock);
+        void x86_clock_finalize(x86_clock_t* xclock);
 
         /// \}
     #endif  // X86_64
@@ -655,11 +658,11 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param clock must be a benchmark clock configuration that was
-    ///              initialized with benchmark_clock_initialize() and hasn't
-    ///             been destroyed with benchmark_clock_finalize() yet.
+    /// \param bclock must be a benchmark clock configuration that was
+    ///               initialized with benchmark_clock_initialize() and hasn't
+    ///               been destroyed with benchmark_clock_finalize() yet.
     UDIPE_NON_NULL_ARGS
-    void benchmark_clock_recalibrate(benchmark_clock_t* clock);
+    void benchmark_clock_recalibrate(benchmark_clock_t* bclock);
 
     /// Destroy the benchmark clock
     ///
@@ -667,11 +670,11 @@
     ///
     /// This function must be called within the scope of with_logger().
     ///
-    /// \param clock must be a benchmark clock configuration that was
-    ///              initialized with benchmark_clock_initialize() and hasn't
-    ///             been destroyed with benchmark_clock_finalize() yet.
+    /// \param ,clock must be a benchmark clock configuration that was
+    ///               initialized with benchmark_clock_initialize() and hasn't
+    ///               been destroyed with benchmark_clock_finalize() yet.
     UDIPE_NON_NULL_ARGS
-    void benchmark_clock_finalize(benchmark_clock_t* clock);
+    void benchmark_clock_finalize(benchmark_clock_t* bclock);
 
     /// \}
 
@@ -708,7 +711,7 @@
         ///
         /// Used in the adjustment of benchmark parameters and interpretation of
         /// benchmark results.
-        benchmark_clock_t clock;
+        benchmark_clock_t bclock;
     };
 
 

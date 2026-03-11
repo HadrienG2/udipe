@@ -13,6 +13,9 @@
     #include <sys/syscall.h>
     #include <unistd.h>
 #elif defined(_WIN32)
+    // Must be included first
+    #include <windows.h>
+
     #include <synchapi.h>
     #include <winerror.h>
 #endif
