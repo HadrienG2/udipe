@@ -33,6 +33,7 @@
     #elif defined(_WIN32)
         #include <BaseTsd.h>
         #include <profileapi.h>
+        #include <winnt.h>
     #endif
 
 
@@ -142,7 +143,7 @@
     #ifdef _POSIX_TIMERS
         typedef struct timespec os_timestamp_t;
     #elif defined(_WIN32)
-        typedef LONG_INTEGER os_timestamp_t;
+        typedef LARGE_INTEGER os_timestamp_t;
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
