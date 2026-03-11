@@ -80,6 +80,8 @@ static inline size_t count_trailing_zeros(word_t word) {
             if (word & (size_t)1) return bit;
             word >>= 1;
         }
+        // This code path should never be reached, but MSVC doesn't understand
+        return 0;
     #endif
 }
 
