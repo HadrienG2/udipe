@@ -21,8 +21,12 @@
 /// valid availability mask.
 static inline
 uint32_t initial_availability_mask() {
-    return NUM_CONNECT_OPTIONS == 32 ? UINT32_MAX
-                                     : ((uint32_t)1 << NUM_CONNECT_OPTIONS) - 1;
+    assert(NUM_CONNECT_OPTIONS <= 32);
+    #if NUM_CONNECT_OPTIONS == 32
+        return UINT32_MAX;
+    #else
+        return ((uint32_t)1 << NUM_CONNECT_OPTIONS) - 1;
+    #endif
 }
 
 connect_options_allocator_t

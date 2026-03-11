@@ -40,6 +40,7 @@ void warn_on_errno() {
     const char header[] = "Got errno value ";
     const char trailer[] = ".";
 
+    int result;
     #if defined(_GNU_SOURCE) && !defined(_WIN32)
         // Get the symbolic name of this errno value i.e. "EPERM" if it's EPERM.
         const char* name = strerrorname_np(initial_errno);
@@ -69,7 +70,6 @@ void warn_on_errno() {
         const size_t full_output_size = min_output_size + strlen(separator) + strlen(description);
 
         // Pick the description that fits in the output buffer
-        int result;
         if (sizeof(output) >= full_output_size) {
             // Ideally everything...
             result = snprintf(output,

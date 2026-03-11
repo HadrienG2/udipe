@@ -470,6 +470,7 @@
         for (size_t length = 0; length <= 3 * BITS_PER_WORD; ++length) {
             if (is_interesting_input(length)) {
                 debugf("Testing with a bit array of length %zu.", length);
+                // FIXME: Rewrite without VLAs as MSVC doesn't digest them
                 INLINE_BIT_ARRAY(bit_array, length);
                 test_bit_array(bit_array, length);
             }
