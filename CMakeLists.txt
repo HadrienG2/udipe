@@ -12,7 +12,8 @@ project(Udipe
         HOMEPAGE_URL https://hadrieng2.github.io/udipe
         LANGUAGES C)
 
-set_property(GLOBAL PROPERTY C_STANDARD 11)
+set(C_STANDARD_VERSION 11)
+set_property(GLOBAL PROPERTY C_STANDARD ${C_STANDARD_VERSION})
 set_property(GLOBAL PROPERTY C_STANDARD_REQUIRED ON)
 set_property(GLOBAL PROPERTY C_EXTENSIONS ON)
 if(NOT WIN32)
@@ -157,6 +158,11 @@ target_sources(udipe
                        src/unit_tests.c
                        src/unit_tests.h
                        src/visibility.h)
+# ...because MSVC is too stupid to live without
+target_compile_features(udipe PUBLIC c_std_${C_STANDARD_VERSION}
+                                     c_function_prototypes
+                                     c_static_assert
+                                     c_variadic_macros)
 if (UDIPE_BUILD_TESTS)
     target_compile_definitions(udipe PUBLIC UDIPE_BUILD_BENCHMARKS)
 endif()
