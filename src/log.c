@@ -90,7 +90,7 @@ void record_startup_time(void) {
 ///
 /// This is the \ref udipe_log_config_t::callback that is used when the user
 /// does not specify one. It logs to `stderr` with basic formatting.
-static void default_log_callback(void* /* context */,
+static void default_log_callback(void* _context,
                                  udipe_log_level_t level,
                                  const char location[],
                                  const char message[]) {
