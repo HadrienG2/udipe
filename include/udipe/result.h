@@ -10,6 +10,7 @@
 #include "connect.h"
 
 #include <stdalign.h>
+#include <stddef.h>
 
 
 /// Result payloads from network futures

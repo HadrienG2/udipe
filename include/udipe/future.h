@@ -14,6 +14,7 @@
 //! in the submission and scheduling of I/O-related work. See the documentation
 //! of \ref udipe_future_t for more information.
 
+#include "context.h"
 #include "pointer.h"
 #include "result.h"
 #include "time.h"
@@ -460,18 +461,11 @@ udipe_future_t* udipe_start_join(udipe_context_t* context,
 ///                udipe_finish() or udipe_cancel() since.
 /// \param num_futures must match the length of the `futures` array, and thus be
 ///                    at least one.
-static inline
+UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 void udipe_join(udipe_context_t* context,
                 udipe_future_t* const futures[],
-                size_t num_futures) {
-    // TODO: Benchmark on various platforms, use a udipe_wait() loop if it is
-    //       faster on selected platforms.
-    udipe_future_t* future = udipe_start_join(context, futures, num_futures);
-    assert(future);
-    udipe_result_t result = udipe_finish(future);
-    assert(result.type == UDIPE_JOIN);
-}
+                size_t num_futures);
 
 /// Start waiting for multiple asynchronous operations to terminate, returning a
 /// chain of futures that will terminate as the upstream operations terminate

@@ -55,16 +55,10 @@ udipe_future_t* udipe_start_connect(udipe_context_t* context,
 
 // TODO: document
 // TODO: Add attribute warn_unused_result on GCC/clang.
-static inline
+UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 udipe_connect_result_t udipe_connect(udipe_context_t* context,
-                                     udipe_connect_options_t options) {
-    udipe_future_t* future = udipe_start_connect(context, options);
-    assert(future);
-    udipe_result_t result = udipe_finish(future);
-    assert(result.type == UDIPE_CONNECT);
-    return result.payload.network.connect;
-}
+                                     udipe_connect_options_t options);
 
 // TODO: document and implement
 // TODO: Add attribute warn_unused_result on GCC/clang.
@@ -76,19 +70,13 @@ udipe_future_t* udipe_start_disconnect(udipe_context_t* context,
 
 // TODO: document
 // TODO: Add attribute warn_unused_result on GCC/clang.
-static inline
+UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 udipe_disconnect_result_t udipe_disconnect(udipe_context_t* context,
-                                           udipe_disconnect_options_t options) {
-    udipe_future_t* future = udipe_start_disconnect(context, options);
-    assert(future);
-    udipe_result_t result = udipe_finish(future);
-    assert(result.type == UDIPE_DISCONNECT);
-    return result.payload.network.connect;
-}
+                                           udipe_disconnect_options_t options);
 
 // TODO: Add and implement
-/*// TODO: document and implement
+/* // TODO: document and implement
 //
 // TODO: Should have GSO-like semantics, i.e. if you give a large enough buffer
 //       then multiple datagrams may be sent. If GSO is disabled, then it just
@@ -102,16 +90,10 @@ udipe_future_t* udipe_start_send(udipe_context_t* context,
 
 // TODO: document
 // TODO: Add attribute warn_unused_result on GCC/clang.
-static inline
+UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 udipe_send_result_t udipe_send(udipe_context_t* context,
-                               udipe_send_options_t options) {
-    udipe_future_t* future = udipe_start_send(context, options);
-    assert(future);
-    udipe_result_t result = udipe_finish(future);
-    assert(result.type == UDIPE_SEND);
-    return result.payload.network.send;
-}
+                               udipe_send_options_t options);
 
 // TODO: document and implement
 // TODO: Add attribute warn_unused_result on GCC/clang.
@@ -128,13 +110,7 @@ udipe_future_t* udipe_start_recv(udipe_context_t* context,
 //       data telling you how large the inner segments are. If GRO is disabled,
 //       then it just receives a single datagram.
 // TODO: Add attribute warn_unused_result on GCC/clang.
-static inline
+UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 udipe_recv_result_t udipe_recv(udipe_context_t* context,
-                               udipe_recv_options_t options) {
-    udipe_future_t* future = udipe_start_recv(context, options);
-    assert(future);
-    udipe_result_t result = udipe_finish(future);
-    assert(result.type == UDIPE_RECV);
-    return result.payload.network.recv;
-}*/
+                               udipe_recv_options_t options); */

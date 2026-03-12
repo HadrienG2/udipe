@@ -149,6 +149,7 @@ target_sources(udipe
                        src/error.c
                        src/error.h
                        src/format.h
+                       src/future.c
                        src/future.h
                        src/log.c
                        src/log.h
