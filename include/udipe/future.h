@@ -543,8 +543,8 @@ udipe_future_t* udipe_start_unordered(udipe_context_t* context,
                                       size_t num_futures);
 
 // TODO: Add udipe_start_timer_once(), udipe_start_timer_repeat(), and
-//       udipe_start_custom()/udipe_set_custom(), warn about the deadlock
-//       hazards associated with the latter (see future docs) and clarify which
-//       clock is used for the former, it should ideally match some libc-exposed
-//       clock. Handle cancelation in udipe_set_custom().
+//       udipe_start_custom()/udipe_custom_canceled()/udipe_set_custom(), warn
+//       about the deadlock hazards associated with the latter (see future docs)
+//       and clarify which clock is used for the former, it should ideally match
+//       some libc-exposed clock. Handle cancelation in udipe_set_custom().
 // TODO: For all of these, add attribute warn_unused_result on GCC/clang.
