@@ -29,8 +29,9 @@
 #include "udipe/context.h"
 #include "udipe/future.h"
 #include "udipe/log.h"
+#include "udipe/nodiscard.h"
 #include "udipe/pointer.h"
 #include "udipe/result.h"
-// Not including udipe/unit_tests.h as it isn't meant for end user consumption
 #include "udipe/time.h"
+// Not including udipe/unit_tests.h as it isn't meant for end user consumption
 #include "udipe/visibility.h"

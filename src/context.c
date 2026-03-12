@@ -1,5 +1,6 @@
 #include "context.h"
 
+#include <udipe/nodiscard.h>
 #include <udipe/visibility.h>
 
 #include "error.h"
@@ -13,6 +14,7 @@
 
 
 DEFINE_PUBLIC
+UDIPE_NODISCARD
 UDIPE_NON_NULL_RESULT
 udipe_context_t* udipe_initialize(udipe_config_t config) {
     logger_t logger = logger_initialize(config.log);

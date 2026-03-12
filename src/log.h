@@ -7,6 +7,7 @@
 //! various events throughout the library execution lifecycle.
 
 #include <udipe/log.h>
+#include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
 #include <assert.h>
@@ -38,6 +39,7 @@ typedef udipe_log_config_t logger_t;
 ///
 /// \return A logger that can be passed to with_logger() as long as the
 ///         surrounding \ref udipe_context_t has not been finalized.
+UDIPE_NODISCARD
 logger_t logger_initialize(udipe_log_config_t config);
 
 /// Finalize a logger
@@ -71,6 +73,7 @@ void logger_finalize(logger_t* logger);
 /// specified log level is disabled. Otherwise you are at the mercy of compiler
 /// optimizations for this, which are notoriously unreliable in the presence of
 /// memory allocation and system calls.
+UDIPE_NODISCARD
 static inline bool log_enabled(udipe_log_level_t level);
 
 /// Log a message if `level` is above configured logging threshold
@@ -355,6 +358,7 @@ typedef struct logger_state_s {
 /// propagated before the end of the main thread's with_logger() block.
 ///
 /// \returns a backup of the thread-local logger state
+UDIPE_NODISCARD
 logger_state_t logger_backup();
 
 /// Restore the thread-local logger state from a backup
@@ -393,7 +397,8 @@ void logger_restore(const logger_state_t* state);
 /// Extracting it into a macro deduplicates definition/declaration and works
 /// around a bug in the doxygen parser.
 #ifdef __GNUC__
-    #define LOGF_IMPL_ATTRIBUTES __attribute__((format(printf, 3, 4)))
+    #define LOGF_IMPL_ATTRIBUTES __attribute__((format(printf, 3, 4)))  \
+                                 UDIPE_NON_NULL_SPECIFIC_ARGS(2, 3)
 #else
     #define LOGF_IMPL_ATTRIBUTES
 #endif
@@ -422,6 +427,7 @@ extern thread_local logger_t* udipe_thread_logger;
 
 /// Reinterprete the specified log level according to surrounding
 /// with_log_level() scopes
+UDIPE_NODISCARD
 static inline udipe_log_level_t thread_log_level(udipe_log_level_t level) {
     // WARNING: This function is called by the logger implementation and must
     //          therefore not perform any logging. Normal events and non-fatal
@@ -471,6 +477,7 @@ static inline void restore_thread_logger(logger_t* const * prev_logger) {
 ///
 /// See the internal section of the trace_expr() documentation for more
 /// information about what it does.
+UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2)
 void trace_expr_impl(const char* format_template,
                      const char* expr_format,
                      ...);
@@ -479,6 +486,7 @@ void trace_expr_impl(const char* format_template,
 
 
 // Implementation of log_enabled (see docs above)
+UDIPE_NODISCARD
 static inline bool log_enabled(udipe_log_level_t level) {
     // WARNING: This function is called by the logger implementation and must
     //          therefore not perform any logging. Normal events and non-fatal

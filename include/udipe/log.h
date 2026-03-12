@@ -12,6 +12,7 @@
 //! enables `TRACE` logging and leverages a user-defined \ref
 //! udipe_log_callback_t to write logs to a temporary file instead of stderr.
 
+#include "nodiscard.h"
 #include "pointer.h"
 #include "visibility.h"
 
@@ -120,8 +121,9 @@ typedef enum udipe_log_level_e {
 /// user-specified logger.
 ///
 /// \returns The textual name of the log level, as a static string.
-UDIPE_PUBLIC
+UDIPE_NODISCARD
 UDIPE_NON_NULL_RESULT
+UDIPE_PUBLIC
 const char* udipe_log_level_name(udipe_log_level_t level);
 
 /// Logging callback

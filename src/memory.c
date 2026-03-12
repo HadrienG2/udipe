@@ -1,5 +1,6 @@
 #include "memory.h"
 
+#include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
 #include "arch.h"
@@ -106,6 +107,7 @@ void expect_system_config() {
 /// Current system allocation granularity in bytes
 ///
 /// This function must be called within the scope of with_logger().
+UDIPE_NODISCARD
 static inline size_t get_allocation_granularity() {
     expect_system_config();
     return (size_t)pow2_decode(system_allocation_granularity_pow2);
@@ -117,6 +119,7 @@ static inline size_t get_allocation_granularity() {
 ///
 /// The granularity is just the page size on Unix systems, but it can be larger
 /// on other operating systems like Windows.
+UDIPE_NODISCARD
 static size_t allocation_size(size_t size) {
     size_t allocation_granularity = get_allocation_granularity();
     const size_t trailing_bytes = size % allocation_granularity;
@@ -274,8 +277,9 @@ unlock_and_return:
 }
 
 
-UDIPE_NON_NULL_RESULT
 REALTIME_ALLOCATE_ATTRIBUTES
+UDIPE_NODISCARD
+UDIPE_NON_NULL_RESULT
 void* realtime_allocate(size_t size) {
     ensure_gt(size, (size_t)0);
 

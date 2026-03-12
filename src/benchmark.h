@@ -11,6 +11,7 @@
 
     #include <udipe/benchmark.h>
 
+    #include <udipe/nodiscard.h>
     #include <udipe/pointer.h>
     #include <udipe/time.h>
 
@@ -118,6 +119,7 @@
     ///                      producing a result.
     ///
     /// \returns a distribution of timings with outliers filtered out
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t compute_duration_distribution(
         int64_t (*compute_duration)(void* /* context */,
@@ -160,6 +162,7 @@
     /// the days where clocks had a milisecond or microsecond time resolution,
     /// but it may still happen if e.g. one uses the clock() C library function
     /// as the timing backend in a microbenchmarking library.
+    UDIPE_NODISCARD
     static inline bool os_timestamp_eq(os_timestamp_t t1, os_timestamp_t t2) {
         #if defined(_POSIX_TIMERS)
             return t1.tv_sec == t2.tv_sec && t1.tv_nsec == t2.tv_nsec;
@@ -175,6 +178,7 @@
     /// This is a common sanity check in timing code, used to ensure that the
     /// clocks used for benchmarking are monotonic i.e. their timestamps never
     /// go back in time and can only go up (though they may remain constant).
+    UDIPE_NODISCARD
     static inline bool os_timestamp_le(os_timestamp_t t1, os_timestamp_t t2) {
         #if defined(_POSIX_TIMERS)
             return t1.tv_sec < t2.tv_sec
@@ -262,6 +266,7 @@
     ///
     /// \returns a system clock context that must later be finalized using
     ///          os_clock_finalize()
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     os_clock_t os_clock_initialize(distribution_pool_t* distribution_pool,
                                    outlier_filter_t* outlier_filter,
@@ -278,6 +283,7 @@
     /// \returns a timestamp representing the current time at some point between
     ///          the moment where os_now() was called and the moment where the
     ///          call to os_now() returned.
+    UDIPE_NODISCARD
     static inline os_timestamp_t os_now() {
         os_timestamp_t timestamp;
         #if defined(_POSIX_TIMERS)
@@ -319,6 +325,7 @@
     ///
     /// \returns an estimate of the amount of time that elapsed between `start`
     ///          and `end`, in nanoseconds.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline signed_duration_ns_t os_duration(const os_clock_t* oclock,
                                                    os_timestamp_t start,
@@ -390,6 +397,7 @@
     ///                      used after calling this function.
     ///
     /// \returns the distribution of measured execution times in nanoseconds
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
     distribution_t os_clock_measure(
         os_clock_t* oclock,
@@ -493,6 +501,7 @@
         ///
         /// \returns a TSC clock context that must later be finalized using
         ///          x86_clock_finalize()
+        UDIPE_NODISCARD
         UDIPE_NON_NULL_ARGS
         x86_clock_t
         x86_clock_initialize(distribution_pool_t* distribution_pool,
@@ -529,6 +538,7 @@
         /// \param empty_builder works as in os_clock_measure()
         ///
         /// \returns the distribution of measured execution times in TSC ticks
+        UDIPE_NODISCARD
         UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
         distribution_t x86_clock_measure(
             x86_clock_t* xclock,
@@ -563,6 +573,7 @@
         /// \returns estimated statistics over the timing distribution that
         ///          `ticks` corresponds to, in nanoseconds, with a confidence
         ///          interval given by `analyzer`.
+        UDIPE_NODISCARD
         UDIPE_NON_NULL_ARGS
         statistics_t x86_duration(const x86_clock_t* xclock,
                                   distribution_builder_t* tmp_builder,
@@ -644,6 +655,7 @@
     /// \returns a benchmark clock configuration that is meant to be integrated
     ///          into \ref udipe_benchmark_t, and eventually destroyed with
     ///          benchmark_clock_finalize().
+    UDIPE_NODISCARD
     benchmark_clock_t benchmark_clock_initialize();
 
     /// Check if the benchmark clock needs recalibration, if so recalibrate it

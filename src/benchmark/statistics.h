@@ -54,6 +54,7 @@
     //! distribution, and estimating the confidence interval as the
     //! corresponding quantiles of the distribution of resulting statistics.
 
+    #include <udipe/nodiscard.h>
     #include <udipe/pointer.h>
 
     #include "distribution.h"
@@ -343,6 +344,7 @@
     ///                 from some measurements.
     /// \returns the relative magnitude of its dispersion in percentage points
     ///          of the central tendency.
+    UDIPE_NODISCARD
     static inline double relative_dispersion(estimate_t estimate) {
         return (estimate.high - estimate.low) / estimate.sample * 100.0;
     }
@@ -380,6 +382,7 @@
     ///                   `batch_mean`.
     ///
     /// \returns an estimate of the duration of one benchmark loop iteration.
+    UDIPE_NODISCARD
     static inline
     estimate_t estimate_iteration_duration(estimate_t batch_mean,
                                            size_t batch_size) {
@@ -457,6 +460,7 @@
     ///
     /// \returns an \ref analyzer_t that can be used to analyze measurements
     ///          with analyzer_apply().
+    UDIPE_NODISCARD
     analyzer_t analyzer_initialize();
 
     /// Perform statistical analysis of `dist`
@@ -471,6 +475,7 @@
     ///             distribution_build() and hasn't yet been recycled via
     ///             distribution_reset() or destroyed via
     ///             distribution_finalize().
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     statistics_t analyzer_apply(analyzer_t* analyzer,
                                 const distribution_t* dist);
@@ -591,6 +596,7 @@
     ///             distribution_finalize().
     ///
     /// \returns the mean value of `dist`
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     double analyze_mean(analyzer_t* analyzer_t,
                         const distribution_t* dist);

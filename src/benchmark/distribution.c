@@ -2,6 +2,7 @@
 
     #include "distribution.h"
 
+    #include <udipe/nodiscard.h>
     #include <udipe/pointer.h>
 
     #include "../error.h"
@@ -27,6 +28,7 @@
 
     // === Implementation details ===
 
+    UDIPE_NODISCARD
     distribution_t distribution_allocate(size_t capacity) {
         ensure_ne(capacity, (size_t)0);
         void* const allocation = malloc(capacity * DISTRIBUTION_BIN_SIZE);
@@ -118,6 +120,7 @@
 
     // === Building distributions from a stream of values ===
 
+    UDIPE_NODISCARD
     distribution_builder_t distribution_initialize() {
         const size_t capacity = get_page_size() / DISTRIBUTION_BIN_SIZE;
         return (distribution_builder_t){
@@ -125,6 +128,7 @@
         };
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_build(distribution_builder_t* non_empty_builder) {
         trace("Ensuring the distribution is not empty...");
@@ -152,6 +156,7 @@
 
     // === Building distributions from other distributions ===
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_resample(distribution_builder_t* empty_builder,
                                          const distribution_t* dist) {
@@ -168,6 +173,7 @@
         return distribution_build(builder);
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_scale(distribution_builder_t* empty_builder,
                                       int64_t factor,
@@ -222,6 +228,7 @@
         return distribution_build(builder);
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_sub(distribution_builder_t* empty_builder,
                                     const distribution_t* minuend,
@@ -270,6 +277,7 @@
         return distribution_build(builder);
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_scaled_div(distribution_builder_t* empty_builder,
                                            const distribution_t* num,
@@ -333,6 +341,7 @@
 
     // === Querying distributions ===
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     uint64_t distribution_min_difference_with(const distribution_t* d1,
                                               const distribution_t* d2) {
@@ -408,6 +417,7 @@
         return min_difference;
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_clone(distribution_t* dist) {
         tracef("Cloning distribution at location %p...", dist->allocation);
@@ -420,6 +430,7 @@
         return result;
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_builder_t distribution_reset(distribution_t* dist) {
         tracef("Resetting storage at location %p...", dist->allocation);

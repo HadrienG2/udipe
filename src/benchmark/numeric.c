@@ -2,6 +2,9 @@
 
     #include "numeric.h"
 
+    #include <udipe/nodiscard.h>
+    #include <udipe/pointer.h>
+
     #include "../bits.h"
     #include "../error.h"
     #include "../unit_tests.h"
@@ -14,6 +17,7 @@
     #include <string.h>
 
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     double sum_f64(double values[], size_t length) {
         accumulator_t acc = ACCUMULATOR_ZERO;
@@ -129,6 +133,7 @@
         }
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     double accumulator_to_f64(const accumulator_t* acc) {
         // Convert the accumulator into a double precision number
@@ -158,6 +163,7 @@
 
         /// Test the number of set bits within an accumulator's inner words
         ///
+        UDIPE_NODISCARD
         static size_t accumulator_popcount(const accumulator_t* acc) {
             ensure_ge(BITS_PER_WORD, (size_t)64);
             size_t popcount = 0;

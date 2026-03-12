@@ -15,6 +15,7 @@
     //! logging raw data distributions.
 
     #include <udipe/log.h>
+    #include <udipe/nodiscard.h>
     #include <udipe/pointer.h>
 
     #include "distribution.h"
@@ -57,6 +58,7 @@
     ///
     /// Such a manual field width setup is needed when displaying justified
     /// columns of integers that have varying magnitude and sign.
+    UDIPE_NODISCARD
     static inline int printf_width_i64(int64_t i) {
         return (i > 0) ? floor(log10(i)) + 1
                        : (i < 0) ? printf_width_i64(-i) + 1  // +1 for minus sign
@@ -75,6 +77,7 @@
     ///
     /// \returns the number of bytes needed to hold a horizontal textual line of
     ///          up to `max_width` segments.
+    UDIPE_NODISCARD
     size_t line_buffer_size(size_t max_width);
 
     /// Generate texte representing a horizontal line of a certain length
@@ -152,6 +155,7 @@
     ///
     /// \returns the maximal number of abscissa and ordinate data points that
     ///          the plot will be composed of.
+    UDIPE_NODISCARD
     axis_len_t max_plot_axis_len(plot_type_t type);
 
     /// Horizontal or vertical plot coordinate
@@ -190,6 +194,7 @@
     /// \param type is the kind of plot that is being drawn.
     ///
     /// \returns the maximal abscissa range for the plot of interest.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     range_t plot_autoscale_abscissa(const distribution_t* dist,
                                     plot_type_t type);
@@ -270,6 +275,7 @@
     ///            plot_compute_abscissa().
     ///
     /// \returns the full-scale ordinate range for the plot of interest.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     range_t plot_autoscale_ordinate(plot_type_t type,
                                     const coord_t ordinate[],
@@ -335,6 +341,7 @@
     /// \param len is the length of the plot's axes, which can be initialized
     ///            using max_plot_axis_len() and may be shrunk by
     ///            plot_compute_abscissa().
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     plot_layout_t plot_layout(plot_type_t type,
                               const coord_t abscissa[],

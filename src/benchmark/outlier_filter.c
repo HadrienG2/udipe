@@ -2,6 +2,7 @@
 
     #include "outlier_filter.h"
 
+    #include <udipe/nodiscard.h>
     #include <udipe/pointer.h>
 
     #include "distribution.h"
@@ -62,6 +63,7 @@
 
     // === Public API ===
 
+    UDIPE_NODISCARD
     outlier_filter_t outlier_filter_initialize() {
         const size_t bin_capacity = get_page_size() / sizeof(double);
         double* const bin_weights = malloc(bin_capacity * sizeof(double));
@@ -263,6 +265,7 @@
         filter->last_scores.is_built = true;
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     double compute_weight_threshold(const outlier_filter_t* filter) {
         ensure_gt(OUTLIER_THRESHOLD, 0.0);

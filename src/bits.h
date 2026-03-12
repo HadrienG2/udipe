@@ -9,6 +9,7 @@
 //! information at compile time or it is not allowed to perform the optimization
 //! per C language rules).
 
+#include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
 #include <assert.h>
@@ -61,6 +62,7 @@ typedef size_t word_t;
 ///              bits of the result.
 ///
 /// \returns a \ref word_t where all bits are set to the given `value`.
+UDIPE_NODISCARD
 static inline word_t bit_broadcast(bool value) {
     return value ? WORD_MAX : 0;
 }
@@ -71,6 +73,7 @@ static inline word_t bit_broadcast(bool value) {
 ///             to it.
 ///
 /// \returns the number of trailing zeros in `word`.
+UDIPE_NODISCARD
 static inline size_t count_trailing_zeros(word_t word) {
     assert(word != (size_t)0);
     #ifdef __GNUC__
@@ -90,6 +93,7 @@ static inline size_t count_trailing_zeros(word_t word) {
 /// \param word must be a machine word or something that's convertible to it.
 ///
 /// \returns the word's population count aka Hamming weight
+UDIPE_NODISCARD
 static inline size_t population_count(word_t word) {
     #ifdef __GNUC__
         return __builtin_popcountll(word);
@@ -152,6 +156,7 @@ typedef struct pow2_s {
 ///
 /// \param power_of_two must be a power of two
 /// \returns an encoding of the power of two that enabled optimizations
+UDIPE_NODISCARD
 static inline pow2_t pow2_encode(uint32_t power_of_two) {
     assert(population_count(power_of_two) == 1);
     return (pow2_t){
@@ -170,6 +175,7 @@ static inline pow2_t pow2_encode(uint32_t power_of_two) {
 /// \param encoded must be a log2-based encoding of a power of two, which you
 ///                can produce using pow2_encode()
 /// \returns the original power of two
+UDIPE_NODISCARD
 static inline uint32_t pow2_decode(pow2_t encoded) {
     return 1 << encoded.log2;
 }
@@ -189,6 +195,7 @@ static inline uint32_t pow2_decode(pow2_t encoded) {
 /// \param out is the location where the result will be stored.
 ///
 /// \returns the carry flag to be used for the next operation (if any)
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static inline
 bool add_with_carry_u64(bool carry,
@@ -212,6 +219,7 @@ bool add_with_carry_u64(bool carry,
 /// \param out is the location where the result will be stored.
 ///
 /// \returns the carry flag to be used for the next operation (if any)
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static inline
 bool subtract_with_carry_u64(bool carry,

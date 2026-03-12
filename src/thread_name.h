@@ -6,6 +6,7 @@
 //! This code module abstracts away differences between the thread naming
 //! primitives of supported operating systems.
 
+#include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
 #include <stddef.h>

@@ -2,6 +2,7 @@
 
     #include "statistics.h"
 
+    #include <udipe/nodiscard.h>
     #include <udipe/pointer.h>
 
     #include "distribution.h"
@@ -190,6 +191,7 @@
 
     // === Public analyzer_t API ===
 
+    UDIPE_NODISCARD
     analyzer_t analyzer_initialize() {
         debug("Setting up a statistical analyzer...");
         analyzer_t analyzer = { 0 };
@@ -202,6 +204,7 @@
         return analyzer;
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     statistics_t analyzer_apply(analyzer_t* analyzer,
                                 const distribution_t* dist) {
@@ -341,6 +344,7 @@
         return (size_t)len;
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     double analyze_mean(analyzer_t* analyzer,
                         const distribution_t* dist) {
@@ -385,6 +389,7 @@
 
     /// Comparison function for applying qsort() to double[] where it is assumed
     /// that all inner numbers are normal (not NAN)
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline int compare_f64(const void* v1, const void* v2) {
         const double d1 = *((const double*)v1);

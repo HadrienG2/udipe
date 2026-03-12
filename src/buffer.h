@@ -8,6 +8,7 @@
 //! storage for incoming or outgoing datagrams.
 
 #include <udipe/buffer.h>
+#include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
 #include "arch.h"
@@ -84,6 +85,7 @@ typedef struct buffer_allocator_s {
 ///                     configured.
 /// \param topology is an hwloc topology used for the default allocator
 ///                 configuration, which is optimized for L1/L2 cache locality.
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 buffer_allocator_t
 buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
@@ -149,8 +151,9 @@ void buffer_liberate(buffer_allocator_t* allocator, void* buffer);
 ///          #udipe_buffer_config_t::buffer_size
 ///          allocator->config.buffer_size\endlink, or `NULL` if no buffer is
 ///          presently available for use.
-UDIPE_NON_NULL_ARGS
 BUFFER_ALLOCATE_ATTRIBUTES
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
 void* buffer_allocate(buffer_allocator_t* allocator);
 
 

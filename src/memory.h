@@ -6,6 +6,7 @@
 //! This code module abstracts away differences between the low-level memory
 //! management primitives of supported operating systems.
 
+#include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 #include <udipe/visibility.h>
 
@@ -79,6 +80,7 @@ void expect_system_config();
 /// to realtime_allocate() to a multiple of this quantity.
 ///
 /// This function must be called within the scope of with_logger().
+UDIPE_NODISCARD
 static inline size_t get_page_size() {
     expect_system_config();
     return (size_t)pow2_decode(system_page_size_pow2);
@@ -110,10 +112,10 @@ void realtime_liberate(void* buffer, size_t size);
 #ifdef __GNUC__
     #define PAGE_ALLOCATOR_ATTRIBUTES  \
         __attribute__((assume_aligned(MIN_PAGE_ALIGNMENT)  \
-                     , malloc  \
-                     , warn_unused_result))
+                     , malloc))  \
+        UDIPE_NODISCARD
 #else
-    #define PAGE_ALLOCATOR_ATTRIBUTES
+    #define PAGE_ALLOCATOR_ATTRIBUTES UDIPE_NODISCARD
 #endif
 
 /// GNU attributes of the realtime_allocate() functions
@@ -182,8 +184,9 @@ void realtime_liberate(void* buffer, size_t size);
 ///             be higher than what was requested.
 /// \returns a buffer of `size` bytes or more. Failure is handled by aborting
 ///          the host program with exit().
-UDIPE_NON_NULL_RESULT
 REALTIME_ALLOCATE_ATTRIBUTES
+UDIPE_NODISCARD
+UDIPE_NON_NULL_RESULT
 void* realtime_allocate(size_t size);
 
 /// \}

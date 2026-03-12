@@ -1,5 +1,7 @@
 #include "connect.h"
 
+#include <udipe/nodiscard.h>
+
 #include "address_wait.h"
 #include "bits.h"
 #include "error.h"
@@ -19,6 +21,7 @@
 ///
 /// It can also be used in unit tests to turn a random availability mask into a
 /// valid availability mask.
+UDIPE_NODISCARD
 static inline
 uint32_t initial_availability_mask() {
     assert(NUM_CONNECT_OPTIONS <= (size_t)32);
@@ -29,6 +32,7 @@ uint32_t initial_availability_mask() {
     #endif
 }
 
+UDIPE_NODISCARD
 connect_options_allocator_t
 connect_options_allocator_initialize() {
     debug("Zero-initializing the allocator...");
@@ -54,6 +58,7 @@ void connect_options_allocator_finalize(connect_options_allocator_t* allocator) 
           "post-finalization allocation attempts deadlock.");
 }
 
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 udipe_connect_options_t*

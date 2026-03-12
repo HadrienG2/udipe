@@ -6,6 +6,7 @@
 //! Microbenchmarks and unit tests use this code module to let you select which
 //! tests/benchmarks within a set will run.
 
+#include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
 #include <stdbool.h>
@@ -29,6 +30,7 @@ typedef char* name_filter_t;
 ///            only optional positional CLI argument of test and benchmark
 ///            binaries, with "" as the default value.
 /// \returns a name filter that must be liberated with name_filter_liberate()
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 name_filter_t name_filter_initialize(const char* key);
@@ -44,6 +46,7 @@ name_filter_t name_filter_initialize(const char* key);
 ///             tests/benchmarks, it should be the full name including
 ///             parameters, so that only one set of parameters can be run.
 /// \returns the truth that `name` passes `filter` and should execute
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 bool name_filter_matches(name_filter_t filter, const char* name);
 

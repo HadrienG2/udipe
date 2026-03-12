@@ -3,6 +3,7 @@
     #include "distribution_log.h"
 
     #include <udipe/log.h>
+    #include <udipe/nodiscard.h>
     #include <udipe/pointer.h>
 
     #include "distribution.h"
@@ -79,6 +80,7 @@
 
     // === Implementation details ===
 
+    UDIPE_NODISCARD
     size_t line_buffer_size(size_t max_width) {
         const size_t single_segment_size = strlen(SINGLE_SEGMENT);
         const size_t double_segment_size = strlen(DOUBLE_SEGMENT);
@@ -120,6 +122,7 @@
         write_horizontal_line(right_buffer + 1, line_segment, right_width);
     }
 
+    UDIPE_NODISCARD
     axis_len_t max_plot_axis_len(plot_type_t type) {
         // -1 because there is no data on the title line
         const size_t ordinate_len = DISTRIBUTION_HEIGHT - 1;
@@ -142,6 +145,7 @@
         exit_with_error("Control should never reach this point!");
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     range_t plot_autoscale_abscissa(const distribution_t* dist,
                                     plot_type_t type) {
@@ -251,6 +255,7 @@
         }
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     range_t plot_autoscale_ordinate(plot_type_t type,
                                     const coord_t ordinate[],
@@ -276,6 +281,7 @@
         exit_with_error("Control should never reach this point!");
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     plot_layout_t plot_layout(plot_type_t type,
                               const coord_t abscissa[],

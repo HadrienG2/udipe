@@ -26,6 +26,7 @@
     //!   over one of the previously recycled distribution builders for you, or
     //!   allocate a new one if no builder is currently available.
 
+    #include <udipe/nodiscard.h>
     #include <udipe/pointer.h>
 
     #include "distribution.h"
@@ -47,6 +48,7 @@
     ///
     /// \returns a distribution pool that must later be liberated using
     ///          distribution_pool_finalize().
+    UDIPE_NODISCARD
     distribution_pool_t distribution_pool_initialize();
 
     /// Request a distribution builder from a distribution pool
@@ -62,6 +64,7 @@
     ///
     /// \returns an empty \ref distribution_builder_t that can be used as if it
     ///          were freshly allocated by distribution_initialize().
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_builder_t distribution_pool_request(distribution_pool_t* pool);
 

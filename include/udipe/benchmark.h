@@ -9,6 +9,7 @@
     //! is an implementation detail of binaries from the benches/ directory that
     //! you should not use directly. Please run the benchmark binaries instead.
 
+    #include "nodiscard.h"
     #include "pointer.h"
     #include "visibility.h"
 
@@ -40,6 +41,7 @@
     /// \returns a benchmark harness that can be used until it is destroyed with
     ///          benchmark_finalize().
     UDIPE_PUBLIC
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     UDIPE_NON_NULL_RESULT
     udipe_benchmark_t* udipe_benchmark_initialize(int argc, char *argv[]);

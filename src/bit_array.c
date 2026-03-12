@@ -1,8 +1,10 @@
 #ifdef UDIPE_BUILD_TESTS
 
     #include "bit_array.h"
-    #include "bits.h"
 
+    #include <udipe/nodiscard.h>
+
+    #include "bits.h"
     #include "error.h"
     #include "unit_tests.h"
 
@@ -14,6 +16,7 @@
     ///
     /// Experience shows that if an bitwise algorithms works on edges of size
     /// <= 2 from both sides of a machine word, it is likely to work everywhere.
+    UDIPE_NODISCARD
     static inline bool is_interesting_input(size_t length_or_index) {
         const size_t trailing_bits = length_or_index % BITS_PER_WORD;
         return (trailing_bits <= 2 || (BITS_PER_WORD - trailing_bits) <= 2);

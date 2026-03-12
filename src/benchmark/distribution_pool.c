@@ -2,6 +2,8 @@
 
     #include "distribution_pool.h"
 
+    #include <udipe/nodiscard.h>
+
     #include "distribution.h"
 
     #include "../error.h"
@@ -12,6 +14,7 @@
     #include <stdlib.h>
 
 
+    UDIPE_NODISCARD
     distribution_pool_t distribution_pool_initialize() {
         const size_t capacity = get_page_size() / sizeof(distribution_builder_t);
         ensure_ne(capacity, (size_t)0);
@@ -26,6 +29,7 @@
         };
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_builder_t distribution_pool_request(distribution_pool_t* pool) {
         assert(pool->builders);

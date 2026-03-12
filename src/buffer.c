@@ -1,5 +1,7 @@
 #include "buffer.h"
 
+#include <udipe/nodiscard.h>
+
 #include "error.h"
 #include "log.h"
 #include "memory.h"
@@ -13,6 +15,7 @@
 ///
 /// \returns a fair share of the smallest capacity available at the specified
 ///          layer of the cache hierarchy, excluding the use of hyperthreading.
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static size_t smallest_cache_capacity(hwloc_topology_t topology,
                                       hwloc_cpuset_t thread_cpuset,
@@ -152,6 +155,7 @@ static void finish_configuration(udipe_buffer_config_t* config,
     if (thread_cpuset) hwloc_bitmap_free(thread_cpuset);
 }
 
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 buffer_allocator_t
 buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
@@ -258,8 +262,9 @@ void buffer_liberate(buffer_allocator_t* allocator, void* buffer) {
                   true);
 }
 
-UDIPE_NON_NULL_ARGS
 BUFFER_ALLOCATE_ATTRIBUTES
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
 void* buffer_allocate(buffer_allocator_t* allocator) {
     trace("Starting buffer allocation...");
     assert(allocator->config.buffer_count > 0);
@@ -391,6 +396,7 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
 
     /// Configuration callback that applies a predefined configuration
     /// without thread-specific adjustments
+    UDIPE_NODISCARD
     static udipe_buffer_config_t apply_test_configuration(void* context) {
         const udipe_buffer_config_t* config = (udipe_buffer_config_t*)context;
         return *config;

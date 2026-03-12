@@ -15,6 +15,7 @@
 //! of \ref udipe_future_t for more information.
 
 #include "context.h"
+#include "nodiscard.h"
 #include "pointer.h"
 #include "result.h"
 #include "time.h"
@@ -251,9 +252,9 @@ typedef struct udipe_future_s udipe_future_t;
 //       function does not return until the pointer-based inputs of the original
 //       async operation are known to be safe from any access and can therefore
 //       be modified or liberated by the user.
-// TODO: Add attribute warn_unused_result on GCC/clang.
-UDIPE_PUBLIC
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
+UDIPE_PUBLIC
 udipe_result_t udipe_finish(udipe_future_t* future);
 
 /// Wait up to a certain duration for the end of an asynchronous operation
@@ -312,9 +313,9 @@ udipe_result_t udipe_finish(udipe_future_t* future);
 ///          guaranteed to return a result immediately without blocking.
 //
 // TODO: Implement
-// TODO: Add attribute warn_unused_result on GCC/clang.
-UDIPE_PUBLIC
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
+UDIPE_PUBLIC
 bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout);
 
 /// Cancel an asynchronous operation
@@ -383,9 +384,9 @@ bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout);
 ///          downstream operations too.
 //
 // TODO: Implement
-// TODO: Add attribute warn_unused_result on GCC/clang.
-UDIPE_PUBLIC
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
+UDIPE_PUBLIC
 bool udipe_cancel(udipe_future_t* future, bool finish);
 
 /// Start waiting for multiple asynchronous operations to terminate, returning a
@@ -431,10 +432,10 @@ bool udipe_cancel(udipe_future_t* future, bool finish);
 ///          udipe_finish() on each of them in a sequence.
 //
 // TODO: Implement.
-// TODO: Add attribute warn_unused_result on GCC/clang.
-UDIPE_PUBLIC
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
+UDIPE_PUBLIC
 udipe_future_t* udipe_start_join(udipe_context_t* context,
                                  udipe_future_t* const futures[],
                                  size_t num_futures);
@@ -534,10 +535,10 @@ void udipe_join(udipe_context_t* context,
 ///          operation to complete, until all operations have completed.
 //
 // TODO: Implement.
-// TODO: Add attribute warn_unused_result on GCC/clang.
-UDIPE_PUBLIC
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
+UDIPE_PUBLIC
 udipe_future_t* udipe_start_unordered(udipe_context_t* context,
                                       udipe_future_t* const futures[],
                                       size_t num_futures);
@@ -547,4 +548,4 @@ udipe_future_t* udipe_start_unordered(udipe_context_t* context,
 //       about the deadlock hazards associated with the latter (see future docs)
 //       and clarify which clock is used for the former, it should ideally match
 //       some libc-exposed clock. Handle cancelation in udipe_set_custom().
-// TODO: For all of these, add attribute warn_unused_result on GCC/clang.
+// TODO: For all of these, add attribute UDIPE_NODISCARD.

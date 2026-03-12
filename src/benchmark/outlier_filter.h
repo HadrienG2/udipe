@@ -33,6 +33,7 @@
     //! that is sensitive to the density of data points, which can be used to
     //! separate low-density outliers from high-density normal measurements.
 
+    #include <udipe/nodiscard.h>
     #include <udipe/pointer.h>
 
     #include "distribution.h"
@@ -141,6 +142,7 @@
     ///
     /// \returns an \ref outlier_filter_t that can be applied to measurements
     ///          using outlier_filter_apply().
+    UDIPE_NODISCARD
     outlier_filter_t outlier_filter_initialize();
 
     /// Apply an outlier filter to measurements
@@ -185,6 +187,7 @@
     ///
     /// \returns a score distribution that can be used until the next call to
     ///          outlier_filter_apply().
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     UDIPE_NON_NULL_RESULT
     static inline
@@ -206,6 +209,7 @@
     ///
     /// \returns the distribution of rejected value, or `NULL` if no value was
     ///          rejected by the last call to outlier_filter_apply().
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline
     const distribution_t*
@@ -268,6 +272,7 @@
     ///        which should be in range [0.0; 1.0].
     ///
     /// \returns the integral score associated with `rel_weight`.
+    UDIPE_NODISCARD
     static inline int64_t rel_weight_to_score(double rel_weight) {
         assert(rel_weight >= 0.0 && rel_weight <= 1.0);
         const double unbounded_score = round(LOG2_SCALE*log2(rel_weight));
@@ -283,6 +288,7 @@
     ///        weight, which should be negative or zero.
     ///
     /// \returns the relative weight associated with `score`.
+    UDIPE_NODISCARD
     static inline double score_to_rel_weight(int64_t score) {
         assert(score <= 0);
         const double rel_weight = exp2((double)score / LOG2_SCALE);
@@ -329,6 +335,7 @@
     /// \param filter must be an \ref outlier_filter_t that has freshly computed
     ///        scores for some `target` via compute_scores() and has not been
     ///        destroyed or applied to different data since.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     double compute_weight_threshold(const outlier_filter_t* filter);
 

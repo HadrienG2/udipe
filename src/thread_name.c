@@ -1,5 +1,8 @@
 #include "thread_name.h"
 
+#include <udipe/nodiscard.h>
+#include <udipe/pointer.h>
+
 #include "error.h"
 #include "log.h"
 #include "unit_tests.h"
@@ -18,7 +21,7 @@
     #include <sys/prctl.h>
 #elif defined(_WIN32)
     // Must be included first
-    #include <windows.h>
+    #include <Windows.h>
 
     #include <errhandlingapi.h>
     #include <processthreadsapi.h>
@@ -105,6 +108,8 @@ static once_flag thread_name_init = ONCE_FLAG_INIT;
 #define MAX_THREAD_NAME_SIZE (MAX_THREAD_NAME_LEN+1)
 
 /// Ensure that the thread name buffer is allocated with a certain capacity
+UDIPE_NODISCARD
+UDIPE_NON_NULL_RESULT
 thread_name_t* ensure_thread_name_capacity(size_t capacity) {
     // WARNING: This function is called by the logger implementation and must
     //          therefore not perform any logging. Normal events and non-fatal
@@ -216,6 +221,7 @@ void set_thread_name(const char* name) {
     #endif
 }
 
+UDIPE_NODISCARD
 UDIPE_NON_NULL_RESULT
 const char* get_thread_name() {
     // WARNING: This function is called by the logger implementation and must

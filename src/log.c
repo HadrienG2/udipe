@@ -1,5 +1,8 @@
 #include "log.h"
 
+#include <udipe/nodiscard.h>
+#include <udipe/pointer.h>
+
 #include "error.h"
 #include "memory.h"
 #include "thread_name.h"
@@ -26,6 +29,7 @@
 /// #UDIPE_DEFAULT_LOG_LEVEL `DEFAULT`\endlink is a valid input, whereas in the
 /// latter case it is not a valid input. We differentiate between these two
 /// cases using the `allow_default` parameter.
+UDIPE_NODISCARD
 static const char* log_level_name(udipe_log_level_t level, bool allow_default) {
     // WARNING: This function is called by the logger implementation and must
     //          therefore not perform any logging. Normal events and non-fatal
@@ -90,6 +94,7 @@ void record_startup_time(void) {
 ///
 /// This is the \ref udipe_log_config_t::callback that is used when the user
 /// does not specify one. It logs to `stderr` with basic formatting.
+UDIPE_NON_NULL_SPECIFIC_ARGS(3, 4)
 static void default_log_callback(void* _context,
                                  udipe_log_level_t level,
                                  const char location[],
@@ -174,10 +179,13 @@ static void default_log_callback(void* _context,
     }
 }
 
-DEFINE_PUBLIC const char* udipe_log_level_name(udipe_log_level_t level) {
+DEFINE_PUBLIC
+UDIPE_NODISCARD
+const char* udipe_log_level_name(udipe_log_level_t level) {
     return log_level_name(level, true);
 }
 
+UDIPE_NODISCARD
 logger_t logger_initialize(udipe_log_config_t config) {
     // WARNING: This function is called before the logger is ready and must
     //          therefore not perform any logging. Normal events and non-fatal
@@ -313,6 +321,7 @@ void logf_impl(udipe_log_level_t level,
                                     message);
 }
 
+UDIPE_NODISCARD
 logger_state_t logger_backup() {
     return (logger_state_t){
         .logger = udipe_thread_logger,
@@ -355,6 +364,7 @@ thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_INFO;
     }
 #endif  // NDEBUG
 
+UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2)
 void trace_expr_impl(const char* format_template,
                      const char* expr_format,
                      ...) {

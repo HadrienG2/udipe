@@ -1,11 +1,14 @@
 #include "name_filter.h"
 
+#include <udipe/nodiscard.h>
+
 #include "error.h"
 #include "log.h"
 
 #include <string.h>
 
 
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 name_filter_t name_filter_initialize(const char* key) {
@@ -17,6 +20,7 @@ name_filter_t name_filter_initialize(const char* key) {
     return filter;
 }
 
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 bool name_filter_matches(name_filter_t filter, const char* name) {
     bool passed = (bool)strstr(name, filter);

@@ -1,11 +1,14 @@
 #include "command.h"
 
+#include <udipe/nodiscard.h>
+
 #include "error.h"
 #include "log.h"
 #include "visibility.h"
 
 
 /* DEFINE_PUBLIC
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 udipe_connect_result_t udipe_connect(udipe_context_t* context,
                                      udipe_connect_options_t options) {
@@ -19,6 +22,7 @@ udipe_connect_result_t udipe_connect(udipe_context_t* context,
 }
 
 DEFINE_PUBLIC
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 udipe_disconnect_result_t udipe_disconnect(udipe_context_t* context,
                                            udipe_disconnect_options_t options) {
@@ -32,6 +36,7 @@ udipe_disconnect_result_t udipe_disconnect(udipe_context_t* context,
 }
 
 DEFINE_PUBLIC
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 udipe_send_result_t udipe_send(udipe_context_t* context,
                                udipe_send_options_t options) {
@@ -45,6 +50,7 @@ udipe_send_result_t udipe_send(udipe_context_t* context,
 }
 
 DEFINE_PUBLIC
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 udipe_recv_result_t udipe_recv(udipe_context_t* context,
                                udipe_recv_options_t options) {

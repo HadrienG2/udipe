@@ -3,6 +3,7 @@
     #include "benchmark.h"
 
     #include <udipe/log.h>
+    #include <udipe/nodiscard.h>
     #include <udipe/pointer.h>
 
     #include "benchmark/outlier_filter.h"
@@ -168,6 +169,7 @@
     }
 
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t compute_duration_distribution(
         int64_t (*compute_duration)(void* /* context */,
@@ -214,6 +216,7 @@
     }
 
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     os_clock_t os_clock_initialize(distribution_pool_t* distribution_pool,
                                    outlier_filter_t* outlier_filter,
@@ -525,6 +528,7 @@
     /// compute_duration_distribution() callback used by os_clock_measure()
     ///
     /// `context` must be a pointer to the associated \ref os_clock_t.
+    UDIPE_NODISCARD
     static inline int64_t compute_os_duration(void* context,
                                               size_t run) {
         const os_clock_t* oclock = (os_clock_t*)context;
@@ -534,6 +538,7 @@
                            oclock->timestamps[2*run+1]);
     }
 
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
     distribution_t os_clock_measure(
         os_clock_t* oclock,
@@ -620,6 +625,7 @@
 
     #ifdef X86_64
 
+        UDIPE_NODISCARD
         UDIPE_NON_NULL_ARGS
         x86_clock_t
         x86_clock_initialize(distribution_pool_t* distribution_pool,
@@ -751,6 +757,7 @@
         ///
         /// `context` must be a pointer to the associated \ref
         /// x86_measure_context_t.
+        UDIPE_NODISCARD
         static inline int64_t compute_x86_duration(void* context,
                                                    size_t run) {
             const x86_measure_context_t* measure = (x86_measure_context_t*)context;
@@ -762,6 +769,7 @@
             return ends[run] - starts[run];
         }
 
+        UDIPE_NODISCARD
         UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 6)
         distribution_t x86_clock_measure(
             x86_clock_t* xclock,
@@ -848,6 +856,7 @@
                                                  empty_builder);
         }
 
+        UDIPE_NODISCARD
         UDIPE_NON_NULL_ARGS
         statistics_t x86_duration(const x86_clock_t* xclock,
                                   distribution_builder_t* tmp_builder,
@@ -881,6 +890,7 @@
     #endif  // X86_64
 
 
+    UDIPE_NODISCARD
     benchmark_clock_t benchmark_clock_initialize() {
         // Zero out all clock fields initially
         //
@@ -945,6 +955,7 @@
 
 
     DEFINE_PUBLIC
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     UDIPE_NON_NULL_RESULT
     udipe_benchmark_t* udipe_benchmark_initialize(int argc, char *argv[]) {

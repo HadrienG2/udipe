@@ -6,6 +6,8 @@
 //! This code module contains preprocessor defines that encode compile-time
 //! knowledge about supported CPU architectures.
 
+#include <udipe/nodiscard.h>
+
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -235,6 +237,7 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
     ///
     /// \returns a start timestamp that should be paired with an end timestamp
     ///          measured using x86_timer_end().
+    UDIPE_NODISCARD
     static inline x86_timestamp_start x86_timer_start(bool strict) {
         uint32_t ecx_out;
         x86_instant ticks;
@@ -325,6 +328,7 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
     ///          instead do nothing but accumulate timestamps in a loop until
     ///          you're done with time measurements then perform all analysis at
     ///          the end, discarding "bad" data points as necessary.
+    UDIPE_NODISCARD
     static inline x86_timestamp_end x86_timer_end(bool strict) {
         uint32_t ecx_out;
         x86_instant ticks;

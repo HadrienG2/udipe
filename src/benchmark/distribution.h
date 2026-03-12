@@ -145,6 +145,7 @@
     ///
     /// \returns a distribution that must later be liberated using
     ///          distribution_finalize().
+    UDIPE_NODISCARD
     distribution_t distribution_allocate(size_t capacity);
 
     /// Memory layout of a \ref distribution_builder_t or \ref distribution_t
@@ -196,6 +197,7 @@
     ///
     /// \returns layout information that is valid until the point specified in
     ///          the documentation of \ref distribution_layout_t.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline
     distribution_layout_t distribution_layout(const distribution_t* dist) {
@@ -250,6 +252,7 @@
     ///
     /// \returns a bin index or sentinel value computed using the logic
     ///          described above.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline
     ptrdiff_t distribution_bin_by_value(const distribution_t* dist,
@@ -496,6 +499,7 @@
     ///
     /// \returns the largest amount of values in any bin of the distribution
     ///          builder, or 0 if no value has been inserted yet.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline
     size_t distribution_max_count(const distribution_builder_t* builder) {
@@ -513,6 +517,7 @@
     // === Specific to distribution_t ===
 
     // Forward declaration of distribution_len()
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline size_t distribution_len(const distribution_t* dist);
 
@@ -539,6 +544,7 @@
     ///
     /// \returns the position of the bin that contains the `value_rank`-th value
     ///          of `dist` by sorted rank.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline
     size_t distribution_bin_by_rank(const distribution_t* dist,
@@ -626,6 +632,7 @@
     /// \returns a \ref distribution_builder_t that can be filled with values
     ///          via distribution_insert(), then turned into a \ref
     ///          distribution_t via distribution_build().
+    UDIPE_NODISCARD
     distribution_builder_t distribution_initialize();
 
     /// Truth that no value has been inserted into a \ref distribution_builder_t
@@ -636,6 +643,7 @@
     ///
     /// \returns the truth that no value has been inserted into this builder
     ///          since it was last initialized or reset.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline
     bool distribution_empty(const distribution_builder_t* builder) {
@@ -676,6 +684,7 @@
     ///
     /// \returns a \ref distribution_t that can be used to efficiently query
     ///          various statistical properties of previously inserted values.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_build(distribution_builder_t* non_empty_builder);
 
@@ -723,6 +732,7 @@
     /// \param dist is the distribution from which data points are extracted.
     ///
     /// \returns a distribution that is resampled from `dist`.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_resample(distribution_builder_t* empty_builder,
                                          const distribution_t* dist);
@@ -745,6 +755,7 @@
     /// \param dist is the distribution from which data points are extracted.
     ///
     /// \returns the distribution of scaled data points.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_scale(distribution_builder_t* empty_builder,
                                       int64_t factor,
@@ -777,6 +788,7 @@
     ///                   the subtraction will be taken.
     ///
     /// \returns an estimated distribution of `minuend - subtrahend` differences.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_sub(distribution_builder_t* empty_builder,
                                     const distribution_t* minuend,
@@ -809,6 +821,7 @@
     ///
     /// \returns an estimated distribution of `num * factor / denom` scaled
     ///          ratios
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_scaled_div(distribution_builder_t* empty_builder,
                                            const distribution_t* num,
@@ -835,6 +848,7 @@
     /// \returns the number of values that were inserted into the \ref
     ///          distribution_builder_t from which this `distribution_t` was
     ///          built.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline size_t distribution_len(const distribution_t* dist) {
         assert(dist->num_bins >= (size_t)1);
@@ -858,6 +872,7 @@
     ///             `distribution_len(dist)` exclusive.
     ///
     /// \returns the `rank`-th value of `dist` by sorted rank.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline
     int64_t distribution_nth(const distribution_t* dist, size_t rank) {
@@ -887,6 +902,7 @@
     ///
     /// \returns the number of values inside of `dist` that are smaller than
     ///          (and possibly equal to) `value`.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline size_t distribution_count_below(const distribution_t* dist,
                                                   int64_t value,
@@ -921,6 +937,7 @@
     ///
     /// \returns the quantile function of `dist` evaluated at the specified
     ///          `probability`.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline
     int64_t distribution_quantile(const distribution_t* dist,
@@ -942,6 +959,7 @@
     ///             distribution_builder_t or destroyed since.
     ///
     /// \returns the smallest value that was previously inserted into `dist`.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline int64_t distribution_min_value(const distribution_t* dist) {
         assert(dist->num_bins >= 1);
@@ -959,6 +977,7 @@
     ///             distribution_builder_t or destroyed since.
     ///
     /// \returns the largest value that was previously inserted into `dist`.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline int64_t distribution_max_value(const distribution_t* dist) {
         assert(dist->num_bins >= 1);
@@ -978,6 +997,7 @@
     ///          If all inner values are equal or there is no inner value (which
     ///          is in some sense a special case of the former), `UINT64_MAX`
     ///          can be returned. But 0 will never be returned.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline
     uint64_t distribution_min_difference(const distribution_t* dist) {
@@ -1014,6 +1034,7 @@
     ///          some edge cases where only 0 or 1 value is present in d1/d2 and
     ///          any single value is equal, `UINT64_MAX` can be returned. But 0
     ///          will never be returned.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     uint64_t distribution_min_difference_with(const distribution_t* d1,
                                               const distribution_t* d2);
@@ -1034,6 +1055,7 @@
     ///
     /// \returns a randomly picked values amongst those  was previously inserted into the
     ///          distribution via distribution_insert().
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline int64_t distribution_choose(const distribution_t* dist) {
         assert(dist->num_bins >= (size_t)1);
@@ -1057,6 +1079,7 @@
     /// \returns a \ref distribution_t that has the same contents as `dist` but
     ///          uses a different allocation and can/must therefore be liberated
     ///          separately.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_clone(distribution_t* dist);
 
@@ -1076,6 +1099,7 @@
     ///
     /// \returns an empty \ref distribution_builder_t that reuses the former
     ///          storage allocation of `dist`.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_builder_t distribution_reset(distribution_t* dist);
 

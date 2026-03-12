@@ -30,6 +30,8 @@
 //!   other useful compile-time information like e.g. the precise bit value that
 //!   you are setting or searching.
 
+#include <udipe/nodiscard.h>
+
 #include "bits.h"
 
 #include <assert.h>
@@ -90,6 +92,7 @@ typedef struct bit_pos_s {
 /// lookup into some associated array of resources.
 ///
 /// \param bit must be a valid bit location
+UDIPE_NODISCARD
 static inline size_t bit_pos_to_index(bit_pos_t bit) {
     assert(bit.word != SIZE_MAX);
     assert(bit.offset < BITS_PER_WORD);
@@ -102,6 +105,7 @@ static inline size_t bit_pos_to_index(bit_pos_t bit) {
 /// the associated entry within a bit array.
 ///
 /// \param index must be a valid linear index
+UDIPE_NODISCARD
 static inline bit_pos_t index_to_bit_pos(size_t index) {
     assert(index != SIZE_MAX);
     return (bit_pos_t) {
@@ -126,6 +130,7 @@ static inline bit_pos_t index_to_bit_pos(size_t index) {
 /// typical C loops over arrays are controlled by an `i < length` condition.
 ///
 /// See also \ref BIT_ARRAY_START.
+UDIPE_NODISCARD
 static inline bit_pos_t bit_array_end(size_t length) {
     assert(length != SIZE_MAX);
     return index_to_bit_pos(length);
@@ -144,6 +149,7 @@ static inline bit_pos_t bit_array_end(size_t length) {
 /// \param bit_array must be a valid array of `length` bits
 /// \param length must be the number of bits within `bit_array`
 /// \param bit must be a valid bit position inside of `bit_array`
+UDIPE_NODISCARD
 static inline bool bit_array_get(const word_t bit_array[],
                                  size_t length,
                                  bit_pos_t bit) {
@@ -176,6 +182,7 @@ static inline void bit_array_set(word_t bit_array[],
 /// \param bit_array must be a valid array of `length` bits
 /// \param length must be the number of bits within `bit_array`
 /// \param value is the value whose occurences will be counted
+UDIPE_NODISCARD
 static inline size_t bit_array_count(const word_t bit_array[],
                                      size_t length,
                                      bool value) {
@@ -232,6 +239,7 @@ static inline size_t bit_array_count(const word_t bit_array[],
 /// \param value is the bit value that is expected.
 ///
 /// \returns the truth that all bits in range `[start; end[` are set to `value`.
+UDIPE_NODISCARD
 static inline bool bit_array_range_alleq(const word_t bit_array[],
                                          size_t length,
                                          bit_pos_t start,
@@ -386,6 +394,7 @@ static inline void bit_array_range_set(word_t bit_array[],
 /// \param value is the bit value that will be searched within `bit_array`.
 /// \returns The position of the first bit that has the desired value, or
 ///          \ref NO_BIT_POS to indicate absence of the desired value.
+UDIPE_NODISCARD
 static inline bit_pos_t bit_array_find_first(const word_t bit_array[],
                                              size_t length,
                                              bool value) {
@@ -445,6 +454,7 @@ static inline bit_pos_t bit_array_find_first(const word_t bit_array[],
 /// \returns The position of the first bit after `previous` (including possible
 ///          search wraparound) that has the desired value, or \ref NO_BIT_POS
 ///          to indicate absence of the desired value.
+UDIPE_NODISCARD
 static inline bit_pos_t bit_array_find_next(const word_t bit_array[],
                                             size_t length,
                                             bit_pos_t previous,

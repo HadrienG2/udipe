@@ -10,6 +10,7 @@
     //! degradation on larger datasets. This code module provides such
     //! operations.
 
+    #include <udipe/nodiscard.h>
     #include <udipe/pointer.h>
 
     #include "bits.h"
@@ -37,6 +38,7 @@
     /// \param length indicates how many elements of `array` must be summed.
     ///
     /// \returns the sum of the elements of `array`.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     double sum_f64(double array[], size_t length);
 
@@ -135,6 +137,7 @@
 
     /// Bitcast a binary64 number into its representation
     ///
+    UDIPE_NODISCARD
     static inline
     uint64_t bitcast_f64_to_u64(double f) {
         u64_f64_bitcast_t bitcast = { .f64 = f };
@@ -143,6 +146,7 @@
 
     /// Bitcast a binary64 representation into the matching number
     ///
+    UDIPE_NODISCARD
     static inline
     double bitcast_u64_to_f64(uint64_t u) {
         u64_f64_bitcast_t bitcast = { .u64 = u };
@@ -278,6 +282,7 @@
     ///
     /// \returns a word-based representation of a floating point addend that is
     ///          destined to be added into an \ref accumulator_t
+    UDIPE_NODISCARD
     static inline
     unsigned_addend_t compute_unsigned_addend(uint64_t significand,
                                               size_t zero_based_exponent) {
@@ -423,6 +428,7 @@
     ///
     /// \returns the truth that a carry must be propagated to the next
     ///          accumulator word.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline
     bool add_inplace_return_carry(uint64_t* acc_word, uint64_t addend) {
@@ -445,6 +451,7 @@
     ///
     /// \returns the truth that a carry must be propagated to the next
     ///          accumulator word.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline
     bool sub_inplace_return_carry(uint64_t* acc_word, uint64_t subtrahend) {
@@ -518,6 +525,7 @@
     ///
     /// \returns the truth that `acc->words` have a strictly smaller magnitude
     ///          than `subtrahend`.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline
     bool accumulator_lt_nonzero_subtrahend(const accumulator_t* acc,
@@ -678,6 +686,7 @@
     ///
     /// \returns the binary64 translation of the current contents of `acc`,
     ///          which should be correctly rounded down to the last digit.
+    UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     double accumulator_to_f64(const accumulator_t* acc);
 

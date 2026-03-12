@@ -105,6 +105,7 @@ set(udipe_public_headers include/udipe.h
                          include/udipe/context.h
                          include/udipe/future.h
                          include/udipe/log.h
+                         include/udipe/nodiscard.h
                          include/udipe/pointer.h
                          include/udipe/result.h
                          include/udipe/time.h

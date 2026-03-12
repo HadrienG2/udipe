@@ -13,6 +13,7 @@
 //! which is defined here.
 
 #include <udipe/connect.h>
+#include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
 #include "arch.h"
@@ -83,6 +84,7 @@ typedef struct connect_options_allocator_s {
 /// Unfortunately, the C11 atomics specification disallows zero initialization
 /// of atomics, so you must call this function in order to initialize a \ref
 /// connect_options_allocator_t.
+UDIPE_NODISCARD
 connect_options_allocator_t connect_options_allocator_initialize();
 
 /// Finalize a \ref connect_options_allocator_t
@@ -104,6 +106,7 @@ void connect_options_allocator_finalize(connect_options_allocator_t* allocator);
 ///
 /// \returns a \ref udipe_connect_options_t that the target worker thread must
 ///          liberate after use via connect_options_liberate().
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 udipe_connect_options_t*
