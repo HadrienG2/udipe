@@ -3,16 +3,16 @@
 //! \file
 //! \brief Asynchronous operation management
 //!
-//! Asynchronous `libudipe` commands whose name starts with `udipe_start_`, such
-//! as udipe_start_connect(), do not wait for the associated operation to
+//! Asynchronous `libudipe` commands, whose name starts with `udipe_start_`,
+//! such as udipe_start_connect(), do not wait for the associated operation to
 //! complete and return its result. Instead they return a pointer to a \ref
 //! udipe_future_t object that can be used to wait for the result to come up
 //! among other things.
 //!
 //! Adding this intermediary stage where the command has been submitted to
 //! worker threads, but has not been awaited yet, provides a lot of flexibility
-//! in the submission and scheduling of I/O-related work, as described in the
-//! documentation of \ref udipe_future_t.
+//! in the submission and scheduling of I/O-related work. See the documentation
+//! of \ref udipe_future_t for more information.
 
 #include "pointer.h"
 #include "result.h"
@@ -27,21 +27,20 @@
 
 /// Asynchronous operation future
 ///
-/// # Basic principles
+/// # Basic lifecycle
 ///
 /// `udipe_future_t` is the heart of the asynchronous API of udipe, which itself
-/// is the recommended default API that you should consider using in all
-/// circumstances where you don't precisely know the performance requirements of
-/// your application and want to get a good balance between ergonomics,
-/// flexibility and performance.
+/// is the recommended "default" API for situations where you don't precisely
+/// know the performance requirements of your application and want to get a good
+/// balance between ergonomics, flexibility and performance.
 ///
 /// Every `libudipe` function whose name starts with `udipe_start_` is an
 /// asynchronous function. It returns to its caller as quickly as possible,
 /// usually before the associated operation has completed. As opposed to
-/// returning the operation's result, like a synchronous function does, an
-/// asynchronous function returns a pointer to a future object, which can be
-/// used to interact with the associated asynchronous operation in the ways that
-/// are described below.
+/// returning the operation's result, like a synchronous function would, an
+/// asynchronous function instead returns a pointer to a future object, which
+/// can be used to interact with the associated asynchronous operation in the
+/// ways that are described below.
 ///
 /// During normal program execution, each of these futures **must** eventually
 /// be passed to udipe_finish(), which is the point at which the operation's
@@ -81,25 +80,26 @@
 ///   wait function, which also comes with a udipe_start_join() asynchronous
 ///   version whose uses will be explained below.
 ///
-/// # Chaining and associated restrictions
+/// # Operation chaining
 ///
 /// Network commands come with a `udipe_future_t* after` option. By setting this
 /// option to point to the future associated with another asynchronous
-/// operation, you can schedule the command of interest to execute after that
-/// asynchronous operation.
+/// operation, you can schedule the network transaction of interest to only
+/// execute after that asynchronous operation has successfully completed.
 ///
 /// When combined with udipe_start_join(), this feature lets you depend on as
 /// many futures as you want, enabling you to express arbitrarily complex
-/// dependency graphs. Sometimes, this can reduce the need for application
-/// threads to constantly block waiting for asynchronous operations.
+/// dependency graphs.
 ///
-/// For example, a basic network packet forwarding task can be expressed as a
-/// chain of network receive and send commands operating on the same buffer,
-/// where the send command is scheduled to execute after the receive command
-/// completes, at which point the application thread can just wait on the final
-/// receive commands in order to wait for the entire task to complete. And if
-/// you have multiple packets to forward, you can just amortize waiting overhead
-/// further by chaining a bunch of (recv, send) futures upfront.
+/// Sometimes, this can reduce the need for application threads to constantly
+/// block waiting for asynchronous operations. For example, a basic network
+/// packet forwarding task can be expressed as a chain of network receive and
+/// send commands operating on the same buffer, where the send command is
+/// scheduled to execute after the receive command completes, at which point the
+/// application thread can just wait on the final receive commands in order to
+/// wait for the entire task to complete. And if you have multiple packets to
+/// forward, you can just amortize waiting overhead further by chaining a bunch
+/// of (recv, send) futures upfront.
 ///
 /// But with that being said, users of other future-based asynchronous
 /// programming frameworks will quickly notice that the asynchronous chaining
@@ -112,10 +112,10 @@
 /// and application threads. On one side, network threads execute tightly
 /// performance-tuned code under a strict soft realtime discipline to minimize
 /// UDP packet loss. On the other side, application threads are free to receive
-/// as much or little performance tuning as the use case demands. Alas, by
-/// forcing network threads to execute arbitrary application code at the time
-/// where they signal some I/O completion, monadic map pokes a hole in this
-/// isolation, and thus has no place in the asynchronous udipe API.
+/// as much or little performance tuning as the use case demands. By forcing
+/// network threads to execute arbitrary application code at the time where they
+/// signal some I/O completion, monadic map pokes a hole in this isolation, and
+/// thus has no place in the asynchronous udipe API.
 ///
 /// Now, performance-conscious users may object that executing very simple data
 /// post-processing callbacks in network threads can have performance benefits
@@ -124,8 +124,8 @@
 /// largely voided by the fact that in the asynchronous udipe API, starting any
 /// network command usually involves a thread synchronization transaction, as
 /// does waiting for said command to finish executing, so this API is not
-/// exactly light on synchronization transactions to begin with. It is just one
-/// area where the asynchronous udipe API trades performance for ergonomics.
+/// exactly light on synchronization transactions to begin with. It is one area
+/// where the asynchronous udipe API trades performance for ergonomics.
 ///
 /// In scenarios where performance becomes the top concern and reduced
 /// ergonomics is an acceptable price to pay for it, it is instead recommended
@@ -142,8 +142,8 @@
 /// sensible at the time where it was initiated, turns out to be unnecessary as
 /// time passes and more information surfaces:
 ///
-/// - Sometimes, faillible users ask you to do something, only to realize
-///   something is wrong and change their mind before the work is over.
+/// - Sometimes, users ask you to do something, only to realize something is
+///   wrong and change their mind before the work is over.
 /// - Sometimes a command is scheduled to execute after an operation that
 ///   errored out, which means it will never be okay to execute it.
 /// - Sometimes latency optimizations force you to speculatively initiate
@@ -203,7 +203,7 @@
 /// While custom futures may seem convenient on paper, prospective users should
 /// be warned that their API is heavily constrained by limitations of the C
 /// programming languages and udipe internals. Custom futures therefore trade
-/// increased flexibility for poor type safety, an inconvenient API, and major
+/// increased flexibility for poor type safety, an inconvenient API, and
 /// deadlock hazards, which is why they should only be used sparingly and in
 /// situations where no native udipe abstraction fits.
 ///
@@ -221,7 +221,7 @@ typedef struct udipe_future_s udipe_future_t;
 /// and this future cannot be passed to any other udipe function by any thread
 /// anymore after the point where udipe_finish() has started being called.
 ///
-/// One consequence of this rule is that the future which has been passed to
+/// One consequence of this rule is that a future which has been passed to
 /// udipe_finish() cannot be passed to udipe_cancel(), and thus the implicit
 /// wait of udipe_finish() cannot be canceled. To achieve cancelable wait or any
 /// kind of concurrent waiting by multiple threads, you will need to use
@@ -264,7 +264,7 @@ udipe_result_t udipe_finish(udipe_future_t* future);
 ///
 /// - Does not fetch the future's result if the operation does complete. It only
 ///   tells you when the result is ready to fetch via udipe_finish(), which
-///   won't block in this case.
+///   becomes nonblocking at this point.
 /// - Supports cancelation and other kinds of concurrent operation on the same
 ///   future by multiple threads, at the expense of a performance hit caused by
 ///   CPU cache contention and thread synchronization overhead.
