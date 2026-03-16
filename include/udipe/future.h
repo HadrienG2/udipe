@@ -25,6 +25,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>
 
 
 /// Asynchronous operation future
@@ -389,11 +390,13 @@ UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
 bool udipe_cancel(udipe_future_t* future, bool finish);
 
-/// Start waiting for multiple asynchronous operations to terminate, returning a
-/// future that will be marked as successfully completed or canceled once
-/// **all** upstream operations have terminated or been canceled.
+/// Start waiting for multiple asynchronous operations to terminate.
 ///
-/// This asynchronous operation serves two purposes:
+/// This function returns a future that will complete with an empty result once
+/// **all** upstream operations have completed, or become canceled if **at least
+/// one** upstream operation is canceled or errors out.
+///
+/// This operation serves several purposes:
 ///
 /// - It simplifies the API of other asynchronous operations by ensuring that
 ///   they only need to support being scheduled after one future, rather than an
@@ -543,8 +546,95 @@ udipe_future_t* udipe_start_unordered(udipe_context_t* context,
                                       udipe_future_t* const futures[],
                                       size_t num_futures);
 
-// TODO: Add udipe_start_timer_once(), udipe_start_timer_repeat(), and
-//       udipe_start_custom()/udipe_custom_canceled()/udipe_set_custom(), warn
+/// Return a one-shot timer future that will complete with no result once a
+/// specific absolute time is reached
+///
+/// The target time is specified in the same format that is output by the C11
+/// [`timespec_get()`](https://en.cppreference.com/w/c/chrono/timespec_get.html)
+/// function in `TIME_UTC` mode. On both Unices and Windows, if the system clock
+/// is set up correctly, this will corresponds to a number of seconds and
+/// nanoseconds elapsed since the Unix epoch (Midnight, January 1, 1970, UTC),
+/// with only approximate handling of leap seconds. This behavior matches that
+/// of the `CLOCK_REALTIME` system clock defined by POSIX's
+/// [`clock_gettime()`](https://pubs.opengroup.org/onlinepubs/9799919799/functions/clock_getres.html).
+///
+/// This future is not normally used in isolation. It is rather chained before
+/// other futures to schedule them for execution at a specific time, or combined
+/// with other futures through udipe_start_unordered() when you need an absolute
+/// timeout rather than a relative one. In this latter role, one notable
+/// property of timer futures is that they can have finer time resolution than
+/// standard operating system timeouts on udipe_wait(), at the expense of being
+/// more expensive to set up.
+///
+/// \param context must point to an \ref udipe_context_t that has been set up
+///                via udipe_initialize() and hasn't been liberated via
+///                udipe_finalize() since.
+/// \param ts must point to a valid `struct timespec` indicating at which time
+///           the wait will complete, following the conventions outlined above.
+///
+/// \returns a future that will terminate with an empty result once the
+///          specified absolute time point has been reached.
+//
+// TODO: Implement.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+UDIPE_NON_NULL_RESULT
+UDIPE_PUBLIC
+udipe_future_t* udipe_start_timer_once(udipe_context_t* context,
+                                       const struct timespec *ts);
+
+/// Return a repeating timer future that will first complete once a specific
+/// absolute time is reached, then yield a chain of other futures that complete
+/// following subsequent timer ticks at a specified time interval.
+///
+/// At udipe_finish() time, each future within the chain will also tell you how
+/// many of the specified timer ticks were missed, which can be used to detect
+/// situations where your application is not keeping up with user-specified
+/// periodicity constraints and should take corrective actions to get back in
+/// the desired performance range.
+///
+/// For example, let's say that you specify an `initial` time 3s into the future
+/// (we'll call that T+3s), then an `interval` of 100ms. This results in a timer
+/// with ticks at T+3s, T+3.1s, T+3.2s, etc.
+///
+/// - The future returned by this function will complete at T+3s.
+///   - If you read its result with udipe_finish() between T+3s and T+3.1s, you
+///     will observe 0 missed timer ticks.
+///   - Between T+3.1s and T+3.2s, you will observe 1 missed timer tick.
+///   - Between T+3.2s and T+3.3s, you will observe 2 missed timer tick, etc.
+/// - No matter at which time you read the result of a given future, subsequent
+///   futures in the chain will keep following the same regular tick cadence. So
+///   if for example you read the initial future at T+3.07s, the next future
+///   will still complete at T+3.1s.
+///
+/// \param context must point to an \ref udipe_context_t that has been set up
+///                via udipe_initialize() and hasn't been liberated via
+///                udipe_finalize() since.
+/// \param initial must point to a valid `struct timespec` indicating at which
+///                time the first yielded future will complete, following the
+///                conventions outlined in the documentation of
+///                udipe_start_timer_once().
+/// \param interval must specify a nonzero number of nanoseconds to await
+///                 between between timer ticks, which subsequent futures in the
+///                 chain will report. There is no \ref UDIPE_DURATION_DEFAULT
+///                 for this function.
+///
+/// \returns a future that will terminate with an empty result once the
+///          `initial` time point has been reached, yielding a number of missed
+///          timer ticks and a chain of other futures that complete following a
+///          regular cadence given by `interval`.
+//
+// TODO: Implement.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+UDIPE_NON_NULL_RESULT
+UDIPE_PUBLIC
+udipe_future_t* udipe_start_timer_repeat(udipe_context_t* context,
+                                         const struct timespec *initial,
+                                         udipe_duration_ns_t interval);
+
+
+// TODO: Add udipe_start_custom()/udipe_custom_canceled()/udipe_set_custom(), warn
 //       about the deadlock hazards associated with the latter (see future docs)
 //       and clarify which clock is used for the former, it should ideally match
 //       some libc-exposed clock. Handle cancelation in udipe_set_custom().
