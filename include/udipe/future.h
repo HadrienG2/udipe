@@ -671,10 +671,10 @@ udipe_future_t* udipe_start_timer_repeat(udipe_context_t* context,
 ///
 /// One less obvious avenue for deadlock, however, is network thread
 /// backpressure. To prevent a client submitting tasks submitting work in a loop
-/// from trashing CPU caches and possibly eventually running out of RAM, network
-/// command submission becomes blocking once the number of waiting tasks reaches
-/// a certain threshold, a basic networking safety feature known as
-/// backpressure. Because of this, the following code pattern is also unsafe:
+/// from trashing CPU caches and eventually running out of RAM, network command
+/// submission becomes blocking once the number of waiting tasks reaches a
+/// certain threshold, a basic networking safety feature known as backpressure.
+/// As a result, the following custom future usage pattern is also unsafe:
 ///
 /// - Create a custom future
 /// - Schedule network operations to start after this custom future completes
@@ -692,10 +692,12 @@ udipe_future_t* udipe_start_timer_repeat(udipe_context_t* context,
 ///   operation that may lead it to wait (directly OR indirectly) for the
 ///   thread that created the custom future to do something.
 ///
-/// …which in practice can often be achieved by segregating your application
-/// threads into threads that schedule/await work and threads that eagerly
-/// perform work (without ever awaiting or scheduling udipe work) then signal
-/// its completion.
+/// …which in practice can often be honored by segregating your application
+/// threads into "udipe" threads on one side that schedule and await udipe work,
+/// and "non-udipe" threads on the other side that eagerly perform work then
+/// signal its completion to the udipe threads, without ever using any udipe
+/// functionality other than creating custom futures, checking for cancelation
+/// and submitting results in the process.
 ///
 /// \returns a future that will terminate at a moment of your choosing and with
 ///          a result of your choosing, via a call to udipe_custom_set_result().
