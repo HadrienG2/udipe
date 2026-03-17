@@ -689,12 +689,13 @@ udipe_future_t* udipe_start_timer_repeat(udipe_context_t* context,
 ///   signaled by another thread before awaiting it or scheduling any work that
 ///   depends on it.
 /// - The thread that is in charge of signaling the future must not perform any
-///   operation that may lead it to wait (directly OR indirectly) for the
-///   thread that created the custom future to do something.
+///   operation that may lead it to wait (directly OR indirectly) for the thread
+///   that is awaiting the custom future or scheduling work based on it to do
+///   something.
 ///
 /// …which in practice can often be honored by segregating your application
-/// threads into "udipe" threads on one side that schedule and await udipe work,
-/// and "non-udipe" threads on the other side that eagerly perform work then
+/// threads into "udipe threads" on one side that schedule and await udipe work,
+/// and "non-udipe threads" on the other side that eagerly perform work then
 /// signal its completion to the udipe threads, without ever using any udipe
 /// functionality other than creating custom futures, checking for cancelation
 /// and submitting results in the process.
