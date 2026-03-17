@@ -633,9 +633,82 @@ udipe_future_t* udipe_start_timer_repeat(udipe_context_t* context,
                                          const struct timespec *initial,
                                          udipe_duration_ns_t interval);
 
+/// Create a custom future that will complete with a result of your choosing
+/// once udipe_set_custom() is called on it.
+///
+/// # Custom future basics
+///
+/// Custom futures enable the asynchronous udipe API to interoperate with other
+/// asynchronous and blocking system APIs, at a price: due to design constraints
+/// from both udipe and the C type system, the resulting API is rather
+/// error-prone. Therefore, if you find yourself using custom futures often, you
+/// should consider contacting the udipe development team to see if your use
+/// case could gain first-class support in udipe.
+///
+/// Custom futures can be passed to all usual future-based APIs (udipe_finish(),
+/// udipe_wait(), udipe_join()...), but in addition they support two extra
+/// operations:
+///
+/// - When your asynchronous operation is completed and its result is ready, you
+///   can set it with udipe_custom_set_result(). This will mark the future as
+///   completed and wake up all threads that were waiting for its completion,
+///   assuming the operation wasn't canceled beforehand.
+/// - If your custom asynchronous operation supports cancelation well enough
+///   that early cancelation can result in concrete time savings, then you
+///   should consider periodically checking udipe_custom_canceled() in order to
+///   be notified when the future is canceled. If you don't do so, you will
+///   still be notified about cancelation upon calling udipe_set_custom().
+///
+/// # Deadlock hazards
+///
+/// By nature, custom futures introduce deadlock hazards. For example, this code
+/// will instantly deadlock for obvious reasons:
+///
+/// ```c
+/// udipe_future_t* custom = udipe_start_custom(context);
+/// udipe_finish(custom);
+/// ```
+///
+/// One less obvious avenue for deadlock, however, is network thread
+/// backpressure. To prevent a client submitting tasks submitting work in a loop
+/// from trashing CPU caches and possibly eventually running out of RAM, network
+/// command submission becomes blocking once the number of waiting tasks reaches
+/// a certain threshold, a basic networking safety feature known as
+/// backpressure. Because of this, the following code pattern is also unsafe:
+///
+/// - Create a custom future
+/// - Schedule network operations to start after this custom future completes
+/// - Set the result of the custom future to get the operations started
+///
+/// These deadlock hazards can often be avoided by following a few principles…
+///
+/// - In all but the most trivial scenarios, custom futures must be awaited by a
+///   thread other than the thread that is destined to signal them with
+///   udipe_custom_set_result().
+/// - The thread that creates the custom future must arrange for it to be
+///   signaled by another thread before awaiting it or scheduling any work that
+///   depends on it.
+/// - The thread that is in charge of signaling the future must not perform any
+///   operation that may lead it to wait (directly OR indirectly) for the
+///   thread that created the custom future to do something.
+///
+/// …which in practice can often be achieved by segregating your application
+/// threads into threads that schedule/await work and threads that eagerly
+/// perform work (without ever awaiting or scheduling udipe work) then signal
+/// its completion.
+///
+/// \returns a future that will terminate at a moment of your choosing and with
+///          a result of your choosing, via a call to udipe_custom_set_result().
+//
+// TODO: Implement.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+UDIPE_NON_NULL_RESULT
+UDIPE_PUBLIC
+udipe_future_t* udipe_start_custom(udipe_context_t* context);
 
-// TODO: Add udipe_start_custom()/udipe_custom_canceled()/udipe_set_custom(), warn
-//       about the deadlock hazards associated with the latter (see future docs)
-//       and clarify which clock is used for the former, it should ideally match
-//       some libc-exposed clock. Handle cancelation in udipe_set_custom().
-// TODO: For all of these, add attribute UDIPE_NODISCARD.
+
+// TODO: Add udipe_custom_canceled()/udipe_custom_set_result(),
+//       warn about the deadlock hazards associated with the latter (see future
+//       docs). Handle cancelation in
+//       udipe_set_custom().
