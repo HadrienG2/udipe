@@ -919,20 +919,6 @@ static_assert(sizeof(udipe_result_t) <= CACHE_LINE_SIZE,
               "Should always be true because future is a superset of result");
 
 
-/// Atomically read a future's current status
-///
-/// This operation has the general semantics of `atomic_load_explicit()`. In
-/// particular, any value from it should be treated as potentially stale.
-UDIPE_NODISCARD
-UDIPE_NON_NULL_ARGS
-static inline future_status_t future_status_load(udipe_future_t* future,
-                                                 memory_order order) {
-    return (future_status_word_t){
-        .as_word = atomic_load_explicit(&future->status_word,
-                                        order)
-    }.as_bitfield;
-}
-
 /// Initialize a future's status word
 ///
 /// This operation is not atomic and must never be called from multiple threads.
@@ -943,17 +929,183 @@ static inline future_status_t future_status_load(udipe_future_t* future,
 /// future is recycled into a thread-local cache and later recalled from said
 /// cache, future_status_store() should be preferred to this function.
 UDIPE_NON_NULL_ARGS
-static inline void future_status_init(udipe_future_t* future,
-                                      future_status_t status) {
+static inline
+void future_status_initialize(udipe_future_t* future,
+                              future_status_t status) {
     atomic_init(&future->status_word,
                 (future_status_word_t){ .as_bitfield = status }.as_word);
 }
 
-// TODO: Add store as a safer alternative to init, with a warning that it is
-//       generally not a thread-safe way to change the state and
-//       read-modify-write operations should be used instead.
-// TODO: Add weak and strong compare_exchange operations
-// TODO: Add faillible refcount fetch_inc and fetch_dec.
+/// Atomically read a future's current status
+///
+/// This operation has the semantics of `atomic_load_explicit()`. In particular,
+/// any value from it should be treated as potentially stale as the future
+/// status continues evolving after readout.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+static inline
+future_status_t future_status_load(udipe_future_t* future,
+                                   memory_order order) {
+    return (future_status_word_t){
+        .as_word = atomic_load_explicit(&future->status_word, order)
+    }.as_bitfield;
+}
+
+/// Atomically change a future's status
+///
+/// This operation has the semantics of `atomic_store_explicit()`. It is mostly
+/// used as a safer alternative to future_status_init() during the process of
+/// recycling a future via the thread-local cache. But it generally cannot be
+/// used for thread synchronization due to the risk of overwriting status
+/// changes caused by other threads since the last readout. You will usually
+/// need `compare_exchange` operations for such use cases.
+UDIPE_NON_NULL_ARGS
+static inline
+void future_status_store(udipe_future_t* future,
+                         future_status_t status,
+                         memory_order order) {
+    atomic_store_explicit(
+        &future->status_word,
+        (future_status_word_t){ .as_bitfield = status }.as_word,
+        order
+    );
+}
+
+/// Atomically change a future's status assuming a certain initial status
+///
+/// This operation has the semantics of
+/// `atomic_compare_exchange_strong_explicit()`. It is the main way through
+/// which a future's status can be changed in a thread-safe manner.
+///
+/// If you can do nothing but call this operation in a loop until the write
+/// succeeds, you should use future_status_compare_exclange_weak() instead.
+///
+/// If the only field you want to change is the `downstream_count`, consider
+/// using `future_downstream_count_` operations as a more efficient alternative.
+///
+/// \param future must be a future that was returned by an asynchronous function
+///               (those whose name begins with `udipe_start_`) and has not been
+///               liberated by udipe_finish() or udipe_cancel() since.
+/// \param expected points to the status that the future is initially expected
+///                 to have. If the future turns out not to have this initial
+///                 status, then the actual status will be read with `failure`
+///                 ordering then stored at this memory location.
+/// \param desired indicates the desired new future status. The future will
+///                switch to this status with `success` ordering if it turns out
+///                that its initial status is indeed `expected`.
+/// \param success is the memory ordering that this operation should have in
+///                case the comparison of the future's status with `expected`
+///                succeeds and its status does change to `desired`.
+/// \param failure is the memory ordering that this operation should have in
+///                case the comparison of the future's status with `expected`
+///                fails and its status does not change (it is only read for the
+///                sake of updating `expected` in a non-atomic fashion).
+///
+/// \returns the truth that the future's status did change to `desired`.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+static inline
+bool future_status_compare_exchange_strong(udipe_future_t* future,
+                                           future_status_t* expected,
+                                           future_status_t desired,
+                                           memory_order success,
+                                           memory_order failure) {
+    future_status_word_t expected_word = (future_status_word_t){
+        .as_bitfield = *expected
+    };
+    bool result = atomic_compare_exchange_strong_explicit(
+        &future->status_word,
+        &expected_word.as_word,
+        (future_status_word_t){ .as_bitfield = desired }.as_word,
+        success,
+        failure
+    );
+    *expected = expected_word.as_bitfield;
+    return result;
+}
+
+/// Atomically change a future's status assuming a certain initial status,
+/// allowing for spurious failure
+///
+/// This operation has the semantics of
+/// `atomic_compare_exchange_weak_explicit()`. It is used as a more efficient
+/// alternative to future_status_compare_exchange_strong() in situations where
+/// it would be called in a loop until the write succeeds.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+static inline
+bool future_status_compare_exchange_weak(udipe_future_t* future,
+                                         future_status_t* expected,
+                                         future_status_t desired,
+                                         memory_order success,
+                                         memory_order failure) {
+    future_status_word_t expected_word = (future_status_word_t){
+        .as_bitfield = *expected
+    };
+    bool result = atomic_compare_exchange_weak_explicit(
+        &future->status_word,
+        &expected_word.as_word,
+        (future_status_word_t){ .as_bitfield = desired }.as_word,
+        success,
+        failure
+    );
+    *expected = expected_word.as_bitfield;
+    return result;
+}
+
+/// Maximal value of a future's `downstream_count`
+///
+/// Attempts to increase a future's downstream count above this should fail and
+/// be rolled back.
+#define MAX_DOWNSTREAM_COUNT  UINT16_MAX
+
+/// Atomically increment a future's downstream count, returning its former
+/// status
+///
+/// This should be done whenever a future is attached to a new downstream
+/// entity, such as a join future.
+///
+/// This operation is faillible. If the former status turned out to have a
+/// downstream count of \ref MAX_DOWNSTREAM_COUNT, then the operation should be
+/// rolled back with future_downstream_count_dec() and error out.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+static inline
+future_status_t future_downstream_count_inc(udipe_future_t* future,
+                                            memory_order order) {
+    return (future_status_word_t){
+        .as_word = atomic_fetch_add_explicit(&future->status_word,
+                                             1,
+                                             order)
+    }.as_bitfield;
+}
+
+/// Atomically decrement a future's downstream count, returning its former
+/// status
+///
+/// This should be done whenever a downstream entity, such as a join future, is
+/// done inspecting the state of this future and will never touch it again.
+///
+/// This operation should never observe a `downstream_count` of 0. If it does,
+/// it indicates a major bug in the reference counting logic of futures that
+/// must be fixed, but is best handled by crashing the app.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+static inline
+future_status_t future_downstream_count_dec(udipe_future_t* future,
+                                            memory_order order) {
+    return (future_status_word_t){
+        .as_word = atomic_fetch_sub_explicit(&future->status_word,
+                                             1,
+                                             order)
+    }.as_bitfield;
+}
 
 
-// TODO: Implement operations, add unit tests
+#ifdef UDIPE_BUILD_TESTS
+    /// Unit tests
+    ///
+    /// This function runs all the unit tests for this module. It must be called
+    /// within the scope of with_logger().
+    void future_unit_tests();
+#endif
