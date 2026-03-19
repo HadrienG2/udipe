@@ -1063,7 +1063,10 @@ bool future_status_compare_exchange_weak(udipe_future_t* future,
 /// status
 ///
 /// This should be done whenever a future is attached to a new downstream
-/// entity, such as a join future.
+/// entity, such as a join future, and no other change to the future status word
+/// are required. If other changes are required, using
+/// `future_status_compare_exchange_` functions is better than first calling
+/// this function then calling `future_status_compare_exchange_`.
 ///
 /// This operation is faillible. If the former status turned out to have a
 /// downstream count of \ref MAX_DOWNSTREAM_COUNT, then the operation should be
