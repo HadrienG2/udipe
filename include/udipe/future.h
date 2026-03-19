@@ -319,13 +319,14 @@ udipe_result_t udipe_finish(udipe_future_t* future);
 ///               liberated by udipe_finish() or udipe_cancel() since.
 /// \param timeout must be a timeout in nanoseconds, after which this function
 ///                will give up and return `false` if the asynchronous operation
-///                has not completed yet. Special value `UDIPE_DURATION_MIN` can
-///                be used if you just want to non-blockingly check if the
+///                has not completed yet. Special value \ref UDIPE_DURATION_MIN
+///                can be used if you just want to non-blockingly check if the
 ///                operation has completed.
 ///
 /// \returns the truth that the operation associated with `future` has
 ///          completed and its result is ready to be fetched. If this function
-///          returns `true`, calling udipe_finish() on the same future is
+///          returns `true` (which is guaranteed when `timeout` is \ref
+///          UDIPE_DURATION_MAX), calling udipe_finish() on the same future is
 ///          guaranteed to return a result immediately without blocking.
 //
 // TODO: Implement
