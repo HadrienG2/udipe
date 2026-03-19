@@ -189,7 +189,7 @@
 /// them with some awaitable event that the asynchronous framework designer did
 /// not think about, and then the eternal suffering begins.
 ///
-/// In an attempt to at least plan ahead for such unexpected use cases, without
+/// In an attempt to at least plan ahead for such use cases, without
 /// over-engineering itself into the corner of supporting arbitrarily complex
 /// and OS-specific operations beyond its intended scope, udipe is able to
 /// interoperate with application-defined events via a purposely minimal API:
@@ -198,10 +198,25 @@
 ///   intents and purposes like an asynchronous operation that has not completed
 ///   yet. Unlike with other udipe-provided futures, however, the result and
 ///   completion signaling of this operation is under your control.
-/// - With udipe_set_custom(), you can set a future previously created via
-///   udipe_start_custom() to a result of your choosing, which will mark the
-///   associated asynchronous operation as completed and trigger the execution
-///   of any work that was previously scheduled to execute after it.
+/// - With udipe_custom_try_set_result(), you can attempt to mark a future
+///   previously created via udipe_start_custom() as completed, with a result of
+///   your choosing. This function will fail if the future was concurrently
+///   canceled, keeping it in the canceled state instead.
+/// - With udipe_custom_canceled(), you can tell if this future was canceled by
+///   the user before you are ready to call udipe_custom_try_set_result(). This
+///   is useful for custom tasks that support being interrupted early before
+///   they are done running to completion. In this case, upon receiving the
+///   udipe_custom_canceled() signal, you can just stop doing what you are
+///   currently doing as quickly as possible, then acknowledge that you are done
+///   cleaning up with udipe_custom_finish_cancel().
+///
+/// By exception to the normal udipe future lifetime rules, custom futures can
+/// be acted upon via `udipe_custom_` functions after they are passed to
+/// udipe_finish(), but before they are passed to either
+/// udipe_custom_try_set_result() or udipe_custom_finish_cancel(). However, in
+/// the interest of interface consistency with other future types, it remains an
+/// error to pass them to any other future-based function after they have been
+/// passed to udipe_finish().
 ///
 /// While custom futures may seem convenient on paper, prospective users should
 /// be warned that their API is heavily constrained by limitations of the C
@@ -650,58 +665,66 @@ udipe_future_t* udipe_start_timer_repeat(udipe_context_t* context,
 /// operations:
 ///
 /// - When your asynchronous operation is completed and its result is ready, you
-///   can set it with udipe_custom_set_result(). This will mark the future as
-///   completed and wake up all threads that were waiting for its completion,
-///   assuming the operation wasn't canceled beforehand.
-/// - If your custom asynchronous operation supports cancelation well enough
-///   that early cancelation can result in concrete time savings, then you
+///   can submit this result with udipe_custom_try_set_result(). This will mark
+///   the future as completed and wake up all threads that were waiting for its
+///   completion, assuming the operation wasn't canceled beforehand. Otherwise
+///   it will just notify you about the cancelation and keep the future in the
+///   canceled state.
+/// - If your custom asynchronous operation supports being interrupted, then you
 ///   should consider periodically checking udipe_custom_canceled() in order to
 ///   be notified when the future is canceled. If you don't do so, you will
-///   still be notified about cancelation upon calling udipe_set_custom().
+///   still be notified about cancelation upon calling
+///   udipe_custom_try_set_result().
 ///
 /// # Deadlock hazards
 ///
 /// By nature, custom futures introduce deadlock hazards. For example, this code
-/// will instantly deadlock for obvious reasons:
+/// will instantly deadlock for hopefully obvious reasons:
 ///
 /// ```c
 /// udipe_future_t* custom = udipe_start_custom(context);
 /// udipe_finish(custom);
+/// // Whoops, too late!
+/// udipe_custom_try_set_result(custom, successful, payload);
 /// ```
 ///
 /// One less obvious avenue for deadlock, however, is network thread
-/// backpressure. To prevent a client submitting tasks submitting work in a loop
-/// from trashing CPU caches and eventually running out of RAM, network command
-/// submission becomes blocking once the number of waiting tasks reaches a
-/// certain threshold, a basic networking safety feature known as backpressure.
-/// As a result, the following custom future usage pattern is also unsafe:
+/// backpressure. To prevent a client submitting work faster than it can be
+/// processed from trashing CPU caches and eventually exhausting system RAM,
+/// network command submission becomes blocking once the number of waiting tasks
+/// reaches a certain threshold. One side-effect of this safety feature is that
+/// the following custom future usage pattern is also unsafe:
 ///
 /// - Create a custom future
 /// - Schedule network operations to start after this custom future completes
 /// - Set the result of the custom future to get the operations started
 ///
-/// These deadlock hazards can often be avoided by following a few principles…
+/// The aforementioned deadlock hazards can often be avoided by following some
+/// relatively simple deadlock safety principles…
 ///
-/// - In all but the most trivial scenarios, custom futures must be awaited by a
-///   thread other than the thread that is destined to signal them with
-///   udipe_custom_set_result().
+/// - In all but the most trivial usage scenarios, custom futures must be
+///   awaited by a thread other than the thread that is destined to signal them
+///   with udipe_custom_try_set_result().
 /// - The thread that creates the custom future must arrange for it to be
 ///   signaled by another thread before awaiting it or scheduling any work that
 ///   depends on it.
 /// - The thread that is in charge of signaling the future must not perform any
-///   operation that may lead it to wait (directly OR indirectly) for the thread
-///   that is awaiting the custom future or scheduling work based on it to do
-///   something.
+///   operation that may lead it to wait (directly OR indirectly) for a thread
+///   that is awaiting the custom future, or scheduling other work that depends
+///   on the custom future. To be more specific, it should not wait for an
+///   action that these threads are destined to take after awaiting the custom
+///   future or scheduling dependent work.
 ///
-/// …which in practice can often be honored by segregating your application
-/// threads into "udipe threads" on one side that schedule and await udipe work,
-/// and "non-udipe threads" on the other side that eagerly perform work then
-/// signal its completion to the udipe threads, without ever using any udipe
-/// functionality other than creating custom futures, checking for cancelation
-/// and submitting results in the process.
+/// In practice, these principles can often be honored by segregating your
+/// application threads into "udipe threads" on one side that schedule and await
+/// udipe work, and "non-udipe threads" on the other side that eagerly perform
+/// work then signal its completion to the udipe threads, without ever using any
+/// udipe functionality other than creating custom futures, checking for
+/// cancelation and submitting results in the process.
 ///
 /// \returns a future that will terminate at a moment of your choosing and with
-///          a result of your choosing, via a call to udipe_custom_set_result().
+///          a result of your choosing, via a call to
+///          udipe_custom_try_set_result().
 //
 // TODO: Implement.
 UDIPE_NODISCARD
@@ -710,8 +733,99 @@ UDIPE_NON_NULL_RESULT
 UDIPE_PUBLIC
 udipe_future_t* udipe_start_custom(udipe_context_t* context);
 
+/// Check if a custom future was canceled via udipe_cancel()
+///
+/// Custom tasks that support being interrupted should periodically check this
+/// function. If it starts returning `true`, they should stop doing what they
+/// are doing as early as possible, then call udipe_custom_finish_cancel() to
+/// acknowledge the cancelation signal.
+///
+/// Custom tasks that do not support being interrupted do not need to bother
+/// with this periodical checking and can simply run to completion then call
+/// udipe_custom_try_set_result() at the end. The call will fail without
+/// changing the future result, which is how they will know that a cancelation
+/// signal has been received.
+///
+/// \param custom must be a custom future that was created with
+///               udipe_start_custom() and hasn't been passed to
+///               udipe_custom_finish_cancel() or udipe_custom_try_set_result()
+///               yet. By exception to the normal udipe future lifetime rules,
+///               it is valid to pass in a future that has already been passed
+///               to udipe_finish().
+//
+// TODO: Implement.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+UDIPE_PUBLIC
+bool udipe_custom_cancelled(udipe_future_t* custom);
 
-// TODO: Add udipe_custom_canceled()/udipe_custom_set_result(),
-//       warn about the deadlock hazards associated with the latter (see future
-//       docs). Handle cancelation in
-//       udipe_set_custom().
+/// Acknowledge the cancelation of a custom future
+///
+/// After receiving the udipe_custom_cancelled() signal, a custom task should
+/// interrupt its work as quickly as possible, then call this function to
+/// acknowledge that it is done canceling itself and will not perform any
+/// further processing related to its initially scheduled task.
+///
+/// This will have the effect of waking up downstream threads that were waiting
+/// for this task to complete, with a notification that it was canceled. At this
+/// point, they should be free of modifying or reallocating any input data
+/// pointer that was passed in at the time where the custom task was created,
+/// without any risk of racing with the thread that implements the custom task. In particular,
+///
+/// It is an error to call this function on a future that was _not_ passed to
+/// udipe_cancel() and therefore never reported being canceled via
+/// udipe_custom_canceled().
+///
+/// \param custom must be a custom future that was created with
+///               udipe_start_custom() and cancelled via udipe_cancel(), but
+///               hasn't been passed to udipe_custom_finish_cancel() or
+///               udipe_custom_try_set_result() yet. By exception to the normal
+///               udipe future lifetime rules, it is valid to pass in a future
+///               that has already been passed to udipe_finish(). But after
+///               being passed to this function, the future must never be passed
+///               to any other `udipe_custom_` function again.
+//
+// TODO: Implement.
+UDIPE_NON_NULL_ARGS
+UDIPE_PUBLIC
+void udipe_custom_finish_cancel(udipe_future_t* custom);
+
+/// Attempt to set the end result of a custom operation
+///
+/// This will normally mark the future as completed with the specified result,
+/// unless it was previously canceled, in which case the operation will fail and
+/// report this failure by returning `false`.
+///
+/// When this happens, the future will still be marked as completed, but without
+/// a result. Instead it will be in a canceled state.
+///
+/// \param custom must be a custom future that was created with
+///               udipe_start_custom() and hasn't been passed to
+///               udipe_custom_finish_cancel() or udipe_custom_try_set_result()
+///               yet. By exception to the normal udipe future lifetime rules,
+///               it is valid to pass in a future that has already been passed
+///               to udipe_finish(). But after being passed to this function,
+///               the future must never be passed to any other `udipe_custom_`
+///               function again.
+/// \param successful indicates whether the custom operation should be
+///                   considered successful, in the sense that other futures
+///                   scheduled after this one should be allowed to start
+///                   executing.
+/// \param payload is a custom data block of your choosing, which encodes the
+///                end result of the custom operation. In case of success, it
+///                can be used to pass down the result of the operation if it
+///                was not transmitted by other means like filling a
+///                user-provided buffer. In case of failure, it should encode
+///                any information to take appropriate error handling action
+///                needed downstream.
+///
+/// \returns the truth that a result was successfully set. Setting a result can
+///          fail if the target future was canceled by its client. In this case
+///          `false` will be returned, otherwise `true` will be returned.
+//
+// TODO: Implement.
+UDIPE_NON_NULL_ARGS
+UDIPE_PUBLIC
+bool udipe_custom_try_set_result(udipe_future_t* custom,
+                                 bool successful,
+                                 const udipe_custom_payload_t* payload);

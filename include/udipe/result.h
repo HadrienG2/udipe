@@ -114,13 +114,18 @@ typedef enum udipe_result_type_e {
     // TODO: Add and implement
     /*UDIPE_SEND,  ///< udipe_start_send()
     UDIPE_RECV,  ///< udipe_start_recv()*/
-    UDIPE_CUSTOM, // TODO udipe_start_custom()
+    UDIPE_CUSTOM, ///< udipe_start_custom()
     UDIPE_JOIN,  ///< udipe_start_join()
     UDIPE_UNORDERED, ///< udipe_start_unordered()
-    UDIPE_TIMER_ONCE, // TODO udipe_start_timer_once()
-    UDIPE_TIMER_REPEAT, // TODO udipe_start_timer_repeat()
+    UDIPE_TIMER_ONCE, ///< udipe_start_timer_once()
+    UDIPE_TIMER_REPEAT, ///< udipe_start_timer_repeat()
 
-    /// Invalid command identifier
+    /// Invalid result type
+    ///
+    /// This result type should never be observed by user code, and its presence
+    /// is a direct indication that either the application or udipe has a bug.
+    ///
+    /// \internal
     ///
     /// Every freshly zero-initialized command identifier gets this sentinel
     /// value and every allocatable struct that contains a command identifier
@@ -137,9 +142,9 @@ typedef enum udipe_result_type_e {
     /// These checks are typically reserved to Debug builds, but for operations
     /// that are not critical to runtime performance they can be performed in
     /// Release builds too.
-    UDIPE_COMMAND_INVALID = 0,
+    UDIPE_RESULT_INVALID = 0,
 
-    // FIXME: Cover more cases
+    // FIXME: Cover more cases, including canceled etc
 } udipe_result_type_t;
 
 /// Generic result type
