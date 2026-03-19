@@ -828,4 +828,4 @@ UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
 bool udipe_custom_try_set_result(udipe_future_t* custom,
                                  bool successful,
-                                 const udipe_custom_payload_t* payload);
+                                 udipe_custom_payload_t payload);
