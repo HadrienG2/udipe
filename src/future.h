@@ -19,6 +19,9 @@
 #include <stdint.h>
 
 
+/// \name Future data structure
+/// \{
+
 /// Future state machine
 ///
 /// This is the core state machine of \ref udipe_future_t, which can be used to
@@ -388,6 +391,12 @@ typedef enum future_type_e /* : _BitInt(4) */ {
     // NOTE: If this enum gets more than 16 variants, reallocate the bit budget
     //       of the `type` field of the future_status_word_t accordingly.
 } future_type_t;
+
+/// Maximal value of a future's `downstream_count`
+///
+/// Attempts to increase a future's downstream count above this should fail and
+/// be rolled back.
+#define MAX_DOWNSTREAM_COUNT  UINT16_MAX
 
 /// Future status bitfield
 ///
@@ -918,6 +927,11 @@ static_assert(
 static_assert(sizeof(udipe_result_t) <= CACHE_LINE_SIZE,
               "Should always be true because future is a superset of result");
 
+/// \}
+
+
+/// \name Future status word manipulation
+/// \{
 
 /// Initialize a future's status word
 ///
@@ -1053,12 +1067,6 @@ bool future_status_compare_exchange_weak(udipe_future_t* future,
     return result;
 }
 
-/// Maximal value of a future's `downstream_count`
-///
-/// Attempts to increase a future's downstream count above this should fail and
-/// be rolled back.
-#define MAX_DOWNSTREAM_COUNT  UINT16_MAX
-
 /// Atomically increment a future's downstream count, returning its former
 /// status
 ///
@@ -1103,6 +1111,8 @@ future_status_t future_downstream_count_dec(udipe_future_t* future,
                                              order)
     }.as_bitfield;
 }
+
+/// \}
 
 
 #ifdef UDIPE_BUILD_TESTS
