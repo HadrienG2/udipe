@@ -9,6 +9,7 @@
 
 #include "connect.h"
 
+#include <limits.h>
 #include <stdalign.h>
 #include <stddef.h>
 
@@ -101,12 +102,17 @@ typedef struct udipe_timer_repeat_payload_s {
 /// Result type
 ///
 /// This enumerated type has one positive value per `libudipe` command. It is
-/// used to build types like \ref udipe_result_t that are generic over multiple
-/// command types.
+/// used to make \ref udipe_result_t generic over all udipe command types.
 ///
-/// It also has sentinel values whose presence should be checked as they
-/// indicate absence of a valid result as a result of some issue. See the
-/// documentation of these sentinel values for more info.
+/// In addition to one code per command, it also has sentinel values whose
+/// presence should be checked as they indicate absence of a valid result as a
+/// result of some issue. See the documentation of these sentinel values for
+/// more information.
+///
+/// Note that absence of a sentinel values does NOT imply that the operation was
+/// successful, only that it ran far enough to produce a result of the intended
+/// type. That result may itself be nothing but an error code. Check
+/// operation-specific result types for more information.
 typedef enum udipe_result_type_e {
     // TODO describe associated payload types
     UDIPE_CONNECT = 1,  ///< udipe_start_connect()
@@ -144,7 +150,33 @@ typedef enum udipe_result_type_e {
     /// Release builds too.
     UDIPE_RESULT_INVALID = 0,
 
-    // FIXME: Cover more cases, including canceled etc
+    /// No result because this operation depends on a failed operation
+    ///
+    /// This result type can be observed for commands that are scheduled to
+    /// execute after other futures complete, such as network commands and
+    /// udipe_start_join().
+    ///
+    /// It is set when such upstream work has failed, and therefore the work
+    /// associated with this future (if any) could not even start executing, let
+    /// alone produce a normal result.
+    UDIPE_FAILURE_DEPENDENCY = INT_MIN,
+
+    /// No result because this operation was canceled
+    ///
+    /// This result type is observed when a future is passed to udipe_cancel().
+    /// In this case, the operation may not run to completion, and is therefore
+    /// not guaranteed to produce a normal result.
+    UDIPE_FAILURE_CANCELED,
+
+    // You will notice that there is no `UDIPE_FAILURE_INTERNAL` or
+    // `UDIPE_FAILURE_SELF` result type for errors that originate from the
+    // operation itself. That is because such errors are not reported via the
+    // result type code, but instead encoded within a normal result payload.
+    //
+    // This way, error types do not need to be generic over all operation types
+    // supported by udipe, they can be specific to each individual operation
+    // type and only cover the error categories that are actually relevant to
+    // the operation of interest.
 } udipe_result_type_t;
 
 /// Generic result type
