@@ -958,7 +958,7 @@ void future_status_initialize(udipe_future_t* future,
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static inline
-future_status_t future_status_load(udipe_future_t* future,
+future_status_t future_status_load(const udipe_future_t* future,
                                    memory_order order) {
     return (future_status_word_t){
         .as_word = atomic_load_explicit(&future->status_word, order)
