@@ -7,9 +7,12 @@
 
 #include <udipe/future.h>
 
+#include <udipe/context.h>
 #include <udipe/nodiscard.h>
 #include <udipe/result.h>
+#include <udipe/time.h>
 
+#include "address_wait.h"
 #include "arch.h"
 
 #include <assert.h>
@@ -635,12 +638,18 @@ typedef int outcome_eventfd_t;
 
 /// \copydoc udipe_future_t
 struct udipe_future_s {
+    /// udipe context which this future belongs to
+    ///
+    /// Used to ensure that future methods do not need an additional context
+    /// parameter after future allocation.
+    alignas(FALSE_SHARING_GRANULARITY) udipe_context_t* context;
+
     /// State that is specific to a particular future type
     ///
     /// At most one of these fields will be set. Which will be set (if any)
     /// depends on the \ref future_type_t that is set inside of the bitpacked
     /// `status_word`.
-    alignas(FALSE_SHARING_GRANULARITY) union {
+    union {
         /// Eager command result
         ///
         /// Eager commands are, as the name suggests, eagerly processed by some
@@ -1067,6 +1076,26 @@ bool future_status_compare_exchange_weak(udipe_future_t* future,
     return result;
 }
 
+/// Wait for a future's status word to change away from a certain value, return
+/// truth that it may have changed (otherwise the wakeup was spurious)
+///
+/// This function has the same semantics as wait_on_address(), but it is meant
+/// to be called and operates on their status word in its decoded bitfield form.
+///
+/// It must be called within the scope of with_logger().
+UDIPE_NON_NULL_ARGS
+static inline
+bool future_status_wait(udipe_future_t* future,
+                        future_status_t expected,
+                        udipe_duration_ns_t timeout) {
+    return wait_on_address(
+        &future->status_word,
+        (future_status_word_t){ .as_bitfield = expected }.as_word,
+        timeout
+    );
+
+}
+
 /// Atomically increment a future's downstream count, returning its former
 /// status
 ///
@@ -1100,7 +1129,6 @@ future_status_t future_downstream_count_inc(udipe_future_t* future,
 /// This operation should never observe a `downstream_count` of 0. If it does,
 /// it indicates a major bug in the reference counting logic of futures that
 /// must be fixed, but is best handled by crashing the app.
-UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static inline
 future_status_t future_downstream_count_dec(udipe_future_t* future,
@@ -1111,6 +1139,22 @@ future_status_t future_downstream_count_dec(udipe_future_t* future,
                                              order)
     }.as_bitfield;
 }
+
+/// \}
+
+
+/// \name Future status word manipulation
+/// \{
+
+/// Backend of udipe_wait() for future types that get eagerly signaled by a
+/// separate thread
+///
+/// Must be called within the scope of with_logger().
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+bool future_wait_eager(udipe_future_t* future,
+                       future_status_t latest_status,
+                       udipe_duration_ns_t timeout);
 
 /// \}
 
