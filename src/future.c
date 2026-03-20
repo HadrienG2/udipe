@@ -60,7 +60,7 @@ bool future_wait_eager(udipe_future_t* future,
             future,
             &latest_status,
             desired_status,
-            memory_order_acquire,  //< No reoredering before downstream_count increment
+            memory_order_acquire,  //< No reordering before downstream_count increment
             memory_order_relaxed
         );
         if (success) {
@@ -70,7 +70,7 @@ bool future_wait_eager(udipe_future_t* future,
         }
         if (latest_status.state == STATE_RESULT) {
             trace("...and failed, but meanwhile the result became available.");
-            atomic_thread_fence(memory_order_acquire);
+            atomic_thread_fence(memory_order_acquire);  // Sync with final state
             return true;
         }
         trace("...and failed because another thread updated the status word or "
@@ -210,7 +210,7 @@ bool future_wait_timer_once(udipe_future_t* future,
                         memory_order_relaxed
                     );
                 } while (!successful);
-                // No need for an acquire barrier, ppoll() already acts as one
+                // No need for an acquire barrier, ppoll() already acted as one
                 return true;
             case 0:
                 trace("Reached timeout before the future became ready");
@@ -245,6 +245,7 @@ bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout) {
     with_logger(&future->context->logger, {
         tracef("Checking initial readiness of future %p...", future);
         future_status_t status = future_status_load(future, memory_order_acquire);
+        // TODO: Replace with generic future status check
         assert(status.downstream_count >= 1);
         assert(!status.downstream_count_overflow);
         switch (status.state) {
@@ -264,6 +265,7 @@ bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout) {
         }
 
         // Determine appropriate waiting strategy
+        // TODO: Replace with generic future status check
         assert(status.outcome == OUTCOME_UNKNOWN || status.state == STATE_CANCELING);
         switch (status.type) {
         case TYPE_NETWORK_CONNECT:
