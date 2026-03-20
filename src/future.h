@@ -14,11 +14,13 @@
 
 #include "address_wait.h"
 #include "arch.h"
+#include "error.h"
+#include "log.h"
 
 #include <assert.h>
 #include <stdalign.h>
-#include <stdbool.h>
 #include <stdatomic.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 
@@ -1096,57 +1098,81 @@ bool future_status_wait(udipe_future_t* future,
 
 }
 
-/// Atomically increment a future's downstream count, returning its former
+/// Atomically increment a future's downstream count, returning its **new**
 /// status
 ///
 /// This should be done whenever a future is attached to a new downstream
 /// entity, such as a join future, and no other change to the future status word
-/// are required. If other changes are required, using
-/// `future_status_compare_exchange_` functions is better than first calling
-/// this function then calling `future_status_compare_exchange_`.
+/// are required. If other changes are required, the downstream count increment
+/// should be batched into a broaded `future_status_compare_exchange_`
+/// operation.
 ///
-/// This operation is faillible. If the former status turned out to have a
-/// downstream count of \ref MAX_DOWNSTREAM_COUNT, then the operation should be
-/// rolled back with future_downstream_count_dec() and error out.
-UDIPE_NODISCARD
+/// But when doing so, you should bear in mind that this operation is faillible.
+/// If the former status turned out to have a downstream count of \ref
+/// MAX_DOWNSTREAM_COUNT, then the operation should be rolled back with
+/// future_downstream_count_dec() and error out.
+///
+/// When this operation is successful, it returns the **final** status word
+/// after the downstream count increment. This is to be contrasted with most
+/// atomic operations, which return the **initial** status word. This unusual
+/// convention was chosen because the initial status word is usually not useful
+/// to callers of this function, and since this function is inline the
+/// computation of the final status word can be optimized out when it is not
+/// used.
+///
+/// This function must be called within the scope of with_logger().
 UDIPE_NON_NULL_ARGS
 static inline
-future_status_t future_downstream_count_inc(udipe_future_t* future,
-                                            memory_order order) {
-    return (future_status_word_t){
+future_status_t future_downstream_count_inc(udipe_future_t* future) {
+    trace("Beginning downstream_count increment...");
+    const future_status_t initial_status = (future_status_word_t){
         .as_word = atomic_fetch_add_explicit(&future->status_word,
                                              1,
-                                             order)
+                                             // No reordering before this increment
+                                             memory_order_acquire)
     }.as_bitfield;
+    if (initial_status.downstream_count == MAX_DOWNSTREAM_COUNT
+        || initial_status.downstream_count_overflow)
+    {
+        errorf("Sorry, the current future implementation does not support "
+               "attaching more than %zd waiters to a future",
+               (size_t)MAX_DOWNSTREAM_COUNT);
+        exit(EXIT_FAILURE);
+    } else {
+        trace("...which succeeded, let's compute the final status accordingly.");
+        future_status_t final_status = initial_status;
+        ++final_status.downstream_count;
+        return final_status;
+    }
 }
 
-/// Atomically decrement a future's downstream count, returning its former
-/// status
+/// Atomically decrement a future's downstream count
 ///
 /// This should be done whenever a downstream entity, such as a join future, is
 /// done inspecting the state of this future and will never touch it again.
 ///
-/// This operation should never observe a `downstream_count` of 0. If it does,
-/// it indicates a major bug in the reference counting logic of futures that
-/// must be fixed, but is best handled by crashing the app.
+/// As with future_downstream_count_inc(), if you need to modify other bits of
+/// the future status word, you should batch these two updates into a single
+/// `future_status_compare_exchange_` transaction.
 UDIPE_NON_NULL_ARGS
 static inline
-future_status_t future_downstream_count_dec(udipe_future_t* future,
-                                            memory_order order) {
-    return (future_status_word_t){
+void future_downstream_count_dec(udipe_future_t* future) {
+    future_status_t result = (future_status_word_t){
         .as_word = atomic_fetch_sub_explicit(&future->status_word,
                                              1,
-                                             order)
+                                             // No reordering after this decrement
+                                             memory_order_release)
     }.as_bitfield;
+    assert(result.downstream_count >= 1);
 }
 
 /// \}
 
 
-/// \name Future status word manipulation
+/// \name Type-specific branches of the future_wait() function
 /// \{
 
-/// Backend of udipe_wait() for future types that get eagerly signaled by a
+/// Backend of udipe_wait() for all future types that get eagerly signaled by a
 /// separate thread
 ///
 /// Must be called within the scope of with_logger().
@@ -1155,6 +1181,20 @@ UDIPE_NON_NULL_ARGS
 bool future_wait_eager(udipe_future_t* future,
                        future_status_t latest_status,
                        udipe_duration_ns_t timeout);
+
+// TODO future_wait_join()
+// TODO future_wait_unordered()
+
+/// Backend of udipe_wait() for \ref TYPE_TIMER_ONCE
+///
+/// Must be called within the scope of with_logger().
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+bool future_wait_timer_once(udipe_future_t* future,
+                            future_status_t latest_status,
+                            udipe_duration_ns_t timeout);
+
+// TODO future_wait_timer_repeat()
 
 /// \}
 

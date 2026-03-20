@@ -328,8 +328,6 @@ udipe_result_t udipe_finish(udipe_future_t* future);
 ///          returns `true` (which is guaranteed when `timeout` is \ref
 ///          UDIPE_DURATION_MAX), calling udipe_finish() on the same future is
 ///          guaranteed to return a result immediately without blocking.
-//
-// TODO: Implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
