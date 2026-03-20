@@ -32,6 +32,7 @@ bool future_wait_eager(udipe_future_t* future,
                        future_status_t latest_status,
                        udipe_duration_ns_t timeout) {
     // Readiness and early exit should be handled upstream
+    // TODO: Replace with a generic status consistency check
     assert(latest_status.downstream_count >= 1);
     assert(!latest_status.downstream_count_overflow);
     assert(latest_status.state != STATE_RESULT);
@@ -133,7 +134,14 @@ UDIPE_NON_NULL_ARGS
 bool future_wait_timer_once(udipe_future_t* future,
                             future_status_t latest_status,
                             udipe_duration_ns_t timeout) {
+    // TODO: Replace with a generic status consistency check
+    assert(latest_status.downstream_count >= 1);
+    assert(!latest_status.downstream_count_overflow);
+    assert(desired_status.state == STATE_PROCESSING);
+    assert(latest_status.outcome == OUTCOME_UNKNOWN);
+    assert(!latest_status.notify_address);
     assert(latest_status.type == TYPE_TIMER_ONCE);
+    assert(!latest_status.lazy_update_lock);
 
     trace("Recording wait start time...");
     struct timespec start_time;
@@ -180,6 +188,7 @@ bool future_wait_timer_once(udipe_future_t* future,
                 bool successful;
                 do {
                     future_status_t desired_status = latest_status;
+                    // TODO: Replace with a generic status consistency check
                     assert(desired_status.downstream_count >= 1);
                     assert(!desired_status.downstream_count_overflow);
                     assert(desired_status.state == STATE_PROCESSING
@@ -236,6 +245,8 @@ bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout) {
     with_logger(&future->context->logger, {
         tracef("Checking initial readiness of future %p...", future);
         future_status_t status = future_status_load(future, memory_order_acquire);
+        assert(status.downstream_count >= 1);
+        assert(!status.downstream_count_overflow);
         switch (status.state) {
         case STATE_RESULT:
             trace("Future is already in STATE_RESULT at the start of udipe_wait(): wait succeeded.");
@@ -253,6 +264,7 @@ bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout) {
         }
 
         // Determine appropriate waiting strategy
+        assert(status.outcome == OUTCOME_UNKNOWN || status.state == STATE_CANCELING);
         switch (status.type) {
         case TYPE_NETWORK_CONNECT:
         case TYPE_NETWORK_DISCONNECT:
