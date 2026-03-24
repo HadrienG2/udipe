@@ -45,11 +45,9 @@ bool future_wait_eager(udipe_future_t* future,
     struct timespec start_time;
     timespec_get(&start_time, TIME_UTC);
 
-    // Request futex notifications from upstream if no one else did, performing
-    // the downstream count increment along the way.
-    bool downstream_count_incremented = false;
-    while (!latest_status.notify_address) {
-        trace("Trying to enable futex notifications + incrementing downstream_count...");
+    // Increment downstream count + enable futex notifications
+    trace("Trying to enable futex notifications + incrementing downstream_count...");
+    do {
         future_status_t desired_status = latest_status;
         desired_status.notify_address = true;
         ensure_lt((size_t)desired_status.downstream_count,
@@ -65,7 +63,7 @@ bool future_wait_eager(udipe_future_t* future,
         );
         if (success) {
             trace("Done enabling futex + registering ourself as a waiter.");
-            downstream_count_incremented = true;
+            latest_status = desired_status;
             break;
         }
         if (latest_status.state == STATE_RESULT) {
@@ -75,13 +73,7 @@ bool future_wait_eager(udipe_future_t* future,
         }
         trace("...and failed because another thread updated the status word or "
               "weak compare_exchange failed spuriously. Let's try again.");
-    }
-
-    // Increment the downstream count if that was not done as part of the
-    // previous operation...
-    if (!downstream_count_incremented) {
-        latest_status = future_downstream_count_inc(future);
-    }
+    } while(true);
 
     do {
         trace("Waiting for a futex-signaled status change...");
@@ -137,7 +129,7 @@ bool future_wait_timer_once(udipe_future_t* future,
     // TODO: Replace with a generic status consistency check
     assert(latest_status.downstream_count >= 1);
     assert(!latest_status.downstream_count_overflow);
-    assert(desired_status.state == STATE_PROCESSING);
+    assert(latest_status.state == STATE_PROCESSING);
     assert(latest_status.outcome == OUTCOME_UNKNOWN);
     assert(!latest_status.notify_address);
     assert(latest_status.type == TYPE_TIMER_ONCE);

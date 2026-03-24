@@ -1098,6 +1098,31 @@ bool future_status_wait(udipe_future_t* future,
 
 }
 
+/// Attempt to increment a future's downstream count as preparation for
+/// awaiting its result
+///
+/// This should be done in situations where...
+///
+/// - An application thread has observed that a future is not ready yet, and
+///   is getting ready to wait for that future's state to change to
+///   \ref STATE_RESULT.
+/// - No other change to the future status word is necessary.
+///
+/// If you need to perform other changes to the future's status word, then you
+/// should batch up all these changes into a single
+/// `future_status_compare_exchange_` loop, as it will be more efficient.
+///
+/// For optimal results, `latest_status` should be initially set to the latest
+/// known future status at the time where this function is called.
+///
+/// If the future switches to \ref STATE_RESULT as this change is being
+/// performed, then this function will revert the change and return `false`,
+/// setting `latest_status` to the updated future status. Otherwise it will
+/// return `true`. In the latter case the output value of `latest_status`
+/// cannot be relied upon.
+///
+/// TODO: Finish revising doc then impl
+///
 /// Atomically increment a future's downstream count, returning its **new**
 /// status
 ///
@@ -1121,10 +1146,13 @@ bool future_status_wait(udipe_future_t* future,
 /// used.
 ///
 /// This function must be called within the scope of with_logger().
+UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static inline
-future_status_t future_downstream_count_inc(udipe_future_t* future) {
+bool future_downstream_count_try_inc(udipe_future_t* future,
+                                     future_status_t* latest_status) {
     trace("Beginning downstream_count increment...");
+    // TODO: Use CAS to detect concurrent switch to the RESULT state
     const future_status_t initial_status = (future_status_word_t){
         .as_word = atomic_fetch_add_explicit(&future->status_word,
                                              1,

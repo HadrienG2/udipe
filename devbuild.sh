@@ -25,6 +25,7 @@ function separator() {
 cd build-test
 if [[ ! -e CMakeCache.txt ]]; then
     cmake -DCMAKE_BUILD_TYPE=Debug  \
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON  \
           -DUDIPE_BUILD_DOXYGEN=ON  \
           -DUDIPE_BUILD_DOXYGEN_INTERNAL=ON  \
           -DUDIPE_BUILD_EXAMPLES=ON  \
