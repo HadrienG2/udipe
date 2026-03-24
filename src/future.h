@@ -1098,100 +1098,120 @@ bool future_status_wait(udipe_future_t* future,
 
 }
 
+/// Atomically decrement a future's downstream count, return the new future
+/// status
+///
+/// This should be done whenever a downstream entity, such as a join future, is
+/// done inspecting the state of this future and will never touch it again.
+///
+/// As with future_downstream_count_try_inc(), if you need to modify other
+/// fields of the future status word, you should batch these two updates into a
+/// single `future_status_compare_exchange_` transaction.
+///
+/// \param future must be a future that was returned by an asynchronous function
+///               (those whose name begins with `udipe_start_`) and has not been
+///               liberated by udipe_finish() or udipe_cancel() since.
+/// \param order is the memory ordering associated with the downstream count
+///              decrement. To ensure that no future operation is reordered
+///              before the manipulation of said decrement, this ordering should
+///              almost always be `release` or stronger (`acq_rel`, `seq_cst`).
+///
+/// \returns the future status word after this operations has been applied
+UDIPE_NON_NULL_ARGS
+static inline
+future_status_t future_downstream_count_dec(udipe_future_t* future,
+                                            memory_order order) {
+    future_status_t result = (future_status_word_t){
+        .as_word = atomic_fetch_sub_explicit(&future->status_word,
+                                             1,
+                                             order)
+    }.as_bitfield;
+    assert(result.downstream_count >= 1);
+    --result.downstream_count;
+    return result;
+}
+
 /// Attempt to increment a future's downstream count as preparation for
 /// awaiting its result
 ///
 /// This should be done in situations where...
 ///
 /// - An application thread has observed that a future is not ready yet, and
-///   is getting ready to wait for that future's state to change to
-///   \ref STATE_RESULT.
+///   is getting ready to wait for that future to reach \ref STATE_RESULT.
 /// - No other change to the future status word is necessary.
 ///
 /// If you need to perform other changes to the future's status word, then you
-/// should batch up all these changes into a single
-/// `future_status_compare_exchange_` loop, as it will be more efficient.
-///
-/// For optimal results, `latest_status` should be initially set to the latest
-/// known future status at the time where this function is called.
+/// should batch up all desired changes into a single
+/// `future_status_compare_exchange_` loop, as it will be more efficient than
+/// performing multiple RMW operations on the future status word.
 ///
 /// If the future switches to \ref STATE_RESULT as this change is being
-/// performed, then this function will revert the change and return `false`,
-/// setting `latest_status` to the updated future status. Otherwise it will
-/// return `true`. In the latter case the output value of `latest_status`
-/// cannot be relied upon.
+/// performed, then this function will either revert the `downstream_count`
+/// change or refrain from performing it at all, then return `false`. Otherwise
+/// it will return `true` and keep the `downstream_count` change in.
 ///
-/// TODO: Finish revising doc then impl
+/// In both cases, the status word manipulations have acquire ordering:
 ///
-/// Atomically increment a future's downstream count, returning its **new**
-/// status
+/// - If the increment is successfully performed, this is necessary to ensure
+///   that no operation on the future state is reordered before the
+///   downstream_count increment, thus maximizing the odds that overly early
+///   calls to udipe_finish() and similar can be detected.
+/// - If the increment is not performed due to a switch to \ref STATE_RESULT,
+///   this is necessary to fully synchronize with the final future state.
 ///
-/// This should be done whenever a future is attached to a new downstream
-/// entity, such as a join future, and no other change to the future status word
-/// are required. If other changes are required, the downstream count increment
-/// should be batched into a broaded `future_status_compare_exchange_`
-/// operation.
-///
-/// But when doing so, you should bear in mind that this operation is faillible.
-/// If the former status turned out to have a downstream count of \ref
-/// MAX_DOWNSTREAM_COUNT, then the operation should be rolled back with
-/// future_downstream_count_dec() and error out.
-///
-/// When this operation is successful, it returns the **final** status word
-/// after the downstream count increment. This is to be contrasted with most
-/// atomic operations, which return the **initial** status word. This unusual
-/// convention was chosen because the initial status word is usually not useful
-/// to callers of this function, and since this function is inline the
-/// computation of the final status word can be optimized out when it is not
-/// used.
+/// In both cases, `latest_status`, which should initially be set to the latest
+/// known future status, will be updated to the new future status.
 ///
 /// This function must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by an asynchronous function
+///               (those whose name begins with `udipe_start_`) and has not been
+///               liberated by udipe_finish() or udipe_cancel() since.
+/// \param latest_status should be initially set to the latest known future
+///                      status. It will be updated to the final future status
+///                      after all operations have been performed.
+///
+/// \returns the truth that the downstream_count was incremented. The increment
+///          will either not be carried out or be rolled back (depending on
+///          which is fastest/most scalable on the host CPU) if the future
+///          concurrently switches to \ref STATE_RESULT.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static inline
 bool future_downstream_count_try_inc(udipe_future_t* future,
                                      future_status_t* latest_status) {
-    trace("Beginning downstream_count increment...");
-    // TODO: Use CAS to detect concurrent switch to the RESULT state
-    const future_status_t initial_status = (future_status_word_t){
+    trace("Incrementing downstream_count...");
+    future_status_t pre_op_status = (future_status_word_t){
+        // Acquire ordering needed because subsequent operations on the future
+        // should not be reordered before this downstream_count increment.
         .as_word = atomic_fetch_add_explicit(&future->status_word,
                                              1,
-                                             // No reordering before this increment
                                              memory_order_acquire)
     }.as_bitfield;
-    if (initial_status.downstream_count == MAX_DOWNSTREAM_COUNT
-        || initial_status.downstream_count_overflow)
+    if (pre_op_status.downstream_count == MAX_DOWNSTREAM_COUNT
+        || pre_op_status.downstream_count_overflow)
     {
         errorf("Sorry, the current future implementation does not support "
-               "attaching more than %zd waiters to a future",
+               "attaching more than %zu waiters to a future",
                (size_t)MAX_DOWNSTREAM_COUNT);
         exit(EXIT_FAILURE);
-    } else {
-        trace("...which succeeded, let's compute the final status accordingly.");
-        future_status_t final_status = initial_status;
-        ++final_status.downstream_count;
-        return final_status;
+    } else if (pre_op_status.state == STATE_RESULT) {
+        trace("Future concurrently switched to STATE_RESULT, reverting...");
+        // This is a rare case where the decrement does not need release
+        // ordering because it directly follows the acquire increment, without
+        // any other manipulation of the future meanwhile. An acquire barrier is
+        // not necessary either because the result was observed through the
+        // previous increment operation.
+        *latest_status = future_downstream_count_dec(future,
+                                                     memory_order_relaxed);
+        assert(latest_status->state == STATE_RESULT);
+        return false;
+    } {
+        trace("Updating latest_status after successful increment...");
+        *latest_status = pre_op_status;
+        ++(latest_status->downstream_count);
+        return true;
     }
-}
-
-/// Atomically decrement a future's downstream count
-///
-/// This should be done whenever a downstream entity, such as a join future, is
-/// done inspecting the state of this future and will never touch it again.
-///
-/// As with future_downstream_count_inc(), if you need to modify other bits of
-/// the future status word, you should batch these two updates into a single
-/// `future_status_compare_exchange_` transaction.
-UDIPE_NON_NULL_ARGS
-static inline
-void future_downstream_count_dec(udipe_future_t* future) {
-    future_status_t result = (future_status_word_t){
-        .as_word = atomic_fetch_sub_explicit(&future->status_word,
-                                             1,
-                                             // No reordering after this decrement
-                                             memory_order_release)
-    }.as_bitfield;
-    assert(result.downstream_count >= 1);
 }
 
 /// \}

@@ -45,8 +45,8 @@ bool future_wait_eager(udipe_future_t* future,
     struct timespec start_time;
     timespec_get(&start_time, TIME_UTC);
 
-    // Increment downstream count + enable futex notifications
-    trace("Trying to enable futex notifications + incrementing downstream_count...");
+    trace("Enabling futex notifications + incrementing downstream_count...");
+    bool success;
     do {
         future_status_t desired_status = latest_status;
         desired_status.notify_address = true;
@@ -54,11 +54,13 @@ bool future_wait_eager(udipe_future_t* future,
                   (size_t)MAX_DOWNSTREAM_COUNT);
         ensure(!desired_status.downstream_count_overflow);
         ++desired_status.downstream_count;
-        const bool success = future_status_compare_exchange_weak(
+        success = future_status_compare_exchange_weak(
             future,
             &latest_status,
             desired_status,
-            memory_order_acquire,  //< No reordering before downstream_count increment
+            // Subsequent future operations should not be reordered before the
+            // downstream_count increment.
+            memory_order_acquire,
             memory_order_relaxed
         );
         if (success) {
@@ -77,20 +79,19 @@ bool future_wait_eager(udipe_future_t* future,
 
     do {
         trace("Waiting for a futex-signaled status change...");
-        bool not_spurious = future_status_wait(future,
-                                               latest_status,
-                                               timeout);
+        success = future_status_wait(future, latest_status, timeout);
 
-        if (not_spurious) {
-            trace("...and succeeded, now let's check the new state...");
+        if (success) {
+            trace("Checking the new state...");
             latest_status = future_status_load(future, memory_order_relaxed);
             if (latest_status.state == STATE_RESULT) {
+                // No acquire barrier here because there's another load below
                 trace("Future result is now available: we're done.");
-                atomic_thread_fence(memory_order_acquire);  // Sync with final state
-                future_downstream_count_dec(future);
-                return true;
+                break;
             }
-            trace("Future didn't reach its final state yet.");
+            trace("Future didn't reach its final state yet!");
+        } else {
+            trace("Wait failed due to timeout or other cause (signal etc).");
         }
 
         trace("Measuring elapsed time since last clock check...");
@@ -107,15 +108,21 @@ bool future_wait_eager(udipe_future_t* future,
         }
 
         if (elapsed_time >= timeout) {
-            trace("Timeout reached without observing STATE_RESULT: admit defeat.");
-            future_downstream_count_dec(future);
-            return false;
+            trace("Timeout reached without observing STATE_RESULT.");
+            break;
         } else {
             trace("Updating timer for the next round of waiting...");
             timeout -= elapsed_time;
             start_time = current_time;
         }
     } while(true);
+
+    trace("Decrementing downstream_count and assessing final status...");
+    // Need at least release to ensure no previous operation get reordered after
+    // the downstream_count decrement. Putting the acquire barrier here lets us
+    // handle last-minute switches to STATE_RESULT correctly.
+    latest_status = future_downstream_count_dec(future, memory_order_acq_rel);
+    return latest_status.state == STATE_RESULT;
 }
 
 // TODO future_wait_join()
@@ -139,13 +146,18 @@ bool future_wait_timer_once(udipe_future_t* future,
     struct timespec start_time;
     timespec_get(&start_time, TIME_UTC);
 
+    trace("Registering as a waiter...");
+    bool success = future_downstream_count_try_inc(future, &latest_status);
+    if (!success) {
+        assert(latest_status.state == STATE_RESULT);
+        trace("Future reached STATE_RESULT before we started waiting");
+        return true;
+    }
+
     #ifdef __linux__
 
         // TODO: Extract commonalities wrt other fd waits
         // TODO: Add logging
-
-        // Register ourself as a waiter
-        latest_status = future_downstream_count_inc(future);
 
         // Indicate which fd we want to poll (TODO: generalize for other fd waits)
         struct pollfd timer = (struct pollfd){
@@ -177,7 +189,6 @@ bool future_wait_timer_once(udipe_future_t* future,
             case 1:
                 trace("timerfd is now ready. Will now propagate the good news "
                       "while decrementing our downstream_count");
-                bool successful;
                 do {
                     future_status_t desired_status = latest_status;
                     // TODO: Replace with a generic status consistency check
@@ -194,14 +205,17 @@ bool future_wait_timer_once(udipe_future_t* future,
                         desired_status.outcome = OUTCOME_SUCCESS;
                     }
 
-                    successful = future_status_compare_exchange_weak(
+                    success = future_status_compare_exchange_weak(
                         future,
                         &latest_status,
                         desired_status,
-                        memory_order_release,  // No reordering after downstream_count decrement
+                        // Must use release ordering when decrementing
+                        // downstream_count, so that previous operations cannot
+                        // be reordered afterwards.
+                        memory_order_release,
                         memory_order_relaxed
                     );
-                } while (!successful);
+                } while (!success);
                 // No need for an acquire barrier, ppoll() already acted as one
                 return true;
             case 0:
@@ -211,7 +225,7 @@ bool future_wait_timer_once(udipe_future_t* future,
                 switch (errno) {
                     case EINTR:
                         // TODO: Update the timeout and resume the wait
-
+                        exit(EXIT_FAILURE);
                     case EFAULT:  // No such fd
                     case EINVAL:  // nfds too high or timeout is negative
                     case ENOMEM:  // Unable to allocate kernel memory
@@ -313,6 +327,9 @@ void udipe_join(udipe_context_t* context,
 
     future_status_t random_status() {
         return (future_status_word_t){ .as_word = rand() }.as_bitfield;
+        // TODO: Ensure that all fields can only take valid values, possibly
+        //       using modulo. Or just generate fields one by one.
+        exit(EXIT_FAILURE);
     }
 
     uint32_t status_to_u32(future_status_t status) {
@@ -415,24 +432,36 @@ void udipe_join(udipe_context_t* context,
     }
 
     void check_future_downstream_count_inc_dec(udipe_future_t* future) {
-        future_status_t initial_status;
-        do {
-            initial_status = random_status();
-        } while (initial_status.downstream_count == MAX_DOWNSTREAM_COUNT);
-        initial_status.downstream_count_overflow = false;
-        future_status_store(future, initial_status, memory_order_relaxed);
+        for (int i = 0; i < 2; ++i) {
+            const bool has_result = (bool)(i % 2);
+            future_status_t initial_status;
+            do {
+                initial_status = random_status();
+            } while (initial_status.downstream_count == MAX_DOWNSTREAM_COUNT
+                     && (!has_result && initial_status.state == STATE_RESULT));
+            initial_status.downstream_count_overflow = false;
+            if (has_result) initial_status.state = STATE_RESULT;
+            future_status_store(future, initial_status, memory_order_relaxed);
 
-        const future_status_t new_status =
-            future_downstream_count_inc(future);
-        ensure_eq((size_t)new_status.downstream_count,
-                  (size_t)(initial_status.downstream_count + 1));
-        ensure(!new_status.downstream_count_overflow);
+            future_status_t latest_status = initial_status;
+            const bool success =
+                future_downstream_count_try_inc(future, &latest_status);
+            ensure_eq(success, initial_status.state != STATE_RESULT);
+            if (success) {
+                ensure_eq((size_t)latest_status.downstream_count,
+                          (size_t)(initial_status.downstream_count + 1));
+                ensure(!latest_status.downstream_count_overflow);
+            } else {
+                ensure_status_eq(latest_status, initial_status);
+                return;
+            }
 
-        future_downstream_count_dec(future);
-        ensure_status_eq(
-            future_status_load(future, memory_order_relaxed),
-            initial_status
-        );
+            future_downstream_count_dec(future, memory_order_release);
+            ensure_status_eq(
+                future_status_load(future, memory_order_relaxed),
+                initial_status
+            );
+        }
     }
 
     void future_unit_tests() {
