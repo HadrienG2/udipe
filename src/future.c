@@ -28,9 +28,79 @@
 
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
-bool future_wait_eager(udipe_future_t* future,
-                       future_status_t latest_status,
-                       udipe_duration_ns_t timeout) {
+DEFINE_PUBLIC
+bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout) {
+    with_logger(&future->context->logger, {
+        return future_wait(future, timeout).state == STATE_RESULT;
+    });
+}
+
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_status_t future_wait(udipe_future_t* future,
+                            udipe_duration_ns_t timeout) {
+    tracef("Checking initial readiness of future %p...", future);
+    future_status_t status = future_status_load(future, memory_order_acquire);
+    // TODO: Replace with generic future status check
+    assert(status.downstream_count >= 1);
+    assert(!status.downstream_count_overflow);
+    switch (status.state) {
+    case STATE_RESULT:
+        trace("Future is already in STATE_RESULT at the start of udipe_wait(): wait succeeded.");
+        return status;
+    case STATE_WAITING:
+    case STATE_PROCESSING:
+    case STATE_CANCELING:
+        trace("Future is not in STATE_RESULT yet, but may require manual status word updates.");
+        break;
+    case STATE_UNINITIALIZED:
+    default:
+        assert(future->context);
+        errorf("Observed invalid future state %d", status.state);
+        exit(EXIT_FAILURE);
+    }
+
+    // Determine appropriate waiting strategy
+    // TODO: Replace with generic future status check
+    assert(status.outcome == OUTCOME_UNKNOWN || status.state == STATE_CANCELING);
+    switch (status.type) {
+    case TYPE_NETWORK_CONNECT:
+    case TYPE_NETWORK_DISCONNECT:
+    case TYPE_NETWORK_SEND:
+    case TYPE_NETWORK_RECV:
+    case TYPE_CUSTOM:
+        // Eager futures that are actively driven by a dedicated thread
+        // enjoy the most efficient futex-based synchronization mechanism.
+        if (timeout == UDIPE_DURATION_MIN) {
+            // The status word is guaranteed to be kept up to date, so
+            // waits with a minimal timeout can end instantly...
+            trace("Eager future not in STATE_RESULT + no wait = wait failed.");
+            return status;
+        } else {
+            // ...and the waiting logic is independent of the eager type
+            // that one is dealing with (only the result fetching differs)
+            return future_wait_eager(future, status, timeout);
+        }
+    case TYPE_JOIN:
+        return future_wait_join(future, status, timeout);
+    case TYPE_UNORDERED:
+        return future_wait_unordered(future, status, timeout);
+    case TYPE_TIMER_ONCE:
+        return future_wait_timer_once(future, status, timeout);
+    case TYPE_TIMER_REPEAT:
+        return future_wait_timer_repeat(future, status, timeout);
+    case TYPE_INVALID:
+    default:
+        errorf("Observed invalid future type %d", status.type);
+        exit(EXIT_FAILURE);
+    }
+}
+
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_status_t future_wait_eager(udipe_future_t* future,
+                                  future_status_t latest_status,
+                                  udipe_duration_ns_t timeout) {
     // Readiness and early exit should be handled upstream
     // TODO: Replace with a generic status consistency check
     assert(latest_status.downstream_count >= 1);
@@ -71,7 +141,7 @@ bool future_wait_eager(udipe_future_t* future,
         if (latest_status.state == STATE_RESULT) {
             trace("...and failed, but meanwhile the result became available.");
             atomic_thread_fence(memory_order_acquire);  // Sync with final state
-            return true;
+            return latest_status;
         }
         trace("...and failed because another thread updated the status word or "
               "weak compare_exchange failed spuriously. Let's try again.");
@@ -121,8 +191,7 @@ bool future_wait_eager(udipe_future_t* future,
     // Need at least release to ensure no previous operation get reordered after
     // the downstream_count decrement. Putting the acquire barrier here lets us
     // handle last-minute switches to STATE_RESULT correctly.
-    latest_status = future_downstream_count_dec(future, memory_order_acq_rel);
-    return latest_status.state == STATE_RESULT;
+    return future_downstream_count_dec(future, memory_order_acq_rel);
 }
 
 // TODO future_wait_join()
@@ -130,9 +199,9 @@ bool future_wait_eager(udipe_future_t* future,
 
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
-bool future_wait_timer_once(udipe_future_t* future,
-                            future_status_t latest_status,
-                            udipe_duration_ns_t timeout) {
+future_status_t future_wait_timer_once(udipe_future_t* future,
+                                       future_status_t latest_status,
+                                       udipe_duration_ns_t timeout) {
     // TODO: Replace with a generic status consistency check
     assert(latest_status.downstream_count >= 1);
     assert(!latest_status.downstream_count_overflow);
@@ -151,7 +220,7 @@ bool future_wait_timer_once(udipe_future_t* future,
     if (!success) {
         assert(latest_status.state == STATE_RESULT);
         trace("Future reached STATE_RESULT before we started waiting");
-        return true;
+        return latest_status;
     }
 
     #ifdef __linux__
@@ -215,12 +284,13 @@ bool future_wait_timer_once(udipe_future_t* future,
                         memory_order_release,
                         memory_order_relaxed
                     );
+                    if (success) latest_status = desired_status;
                 } while (!success);
                 // No need for an acquire barrier, ppoll() already acted as one
-                return true;
+                return latest_status;
             case 0:
                 trace("Reached timeout before the future became ready");
-                return false;
+                return latest_status;
             case -1:
                 switch (errno) {
                     case EINTR:
@@ -243,70 +313,6 @@ bool future_wait_timer_once(udipe_future_t* future,
 }
 
 // TODO future_wait_timer_repeat()
-
-UDIPE_NODISCARD
-UDIPE_NON_NULL_ARGS
-DEFINE_PUBLIC
-bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout) {
-    with_logger(&future->context->logger, {
-        tracef("Checking initial readiness of future %p...", future);
-        future_status_t status = future_status_load(future, memory_order_acquire);
-        // TODO: Replace with generic future status check
-        assert(status.downstream_count >= 1);
-        assert(!status.downstream_count_overflow);
-        switch (status.state) {
-        case STATE_RESULT:
-            trace("Future is already in STATE_RESULT at the start of udipe_wait(): wait succeeded.");
-            return true;
-        case STATE_WAITING:
-        case STATE_PROCESSING:
-        case STATE_CANCELING:
-            trace("Future is not in STATE_RESULT yet, but may require manual status word updates.");
-            break;
-        case STATE_UNINITIALIZED:
-        default:
-            assert(future->context);
-            errorf("Observed invalid future state %d", status.state);
-            exit(EXIT_FAILURE);
-        }
-
-        // Determine appropriate waiting strategy
-        // TODO: Replace with generic future status check
-        assert(status.outcome == OUTCOME_UNKNOWN || status.state == STATE_CANCELING);
-        switch (status.type) {
-        case TYPE_NETWORK_CONNECT:
-        case TYPE_NETWORK_DISCONNECT:
-        case TYPE_NETWORK_SEND:
-        case TYPE_NETWORK_RECV:
-        case TYPE_CUSTOM:
-            // Eager futures that are actively driven by a dedicated thread
-            // enjoy the most efficient futex-based synchronization mechanism.
-            if (timeout == UDIPE_DURATION_MIN) {
-                // The status word is guaranteed to be kept up to date, so
-                // waits with a minimal timeout can end instantly...
-                trace("Eager future not in STATE_RESULT and asked not to wait: wait failed.");
-                return false;
-            } else {
-                // ...and the waiting logic is independent of the eager type
-                // that one is dealing with (only the result fetching differs)
-                return future_wait_eager(future, status, timeout);
-            }
-        case TYPE_JOIN:
-            return future_wait_join(future, status, timeout);
-        case TYPE_UNORDERED:
-            return future_wait_unordered(future, status, timeout);
-        case TYPE_TIMER_ONCE:
-            return future_wait_timer_once(future, status, timeout);
-        case TYPE_TIMER_REPEAT:
-            return future_wait_timer_repeat(future, status, timeout);
-        case TYPE_INVALID:
-        default:
-            errorf("Observed invalid future type %d", status.type);
-            exit(EXIT_FAILURE);
-        }
-    });
-}
-
 
 /*DEFINE_PUBLIC
 UDIPE_NON_NULL_ARGS

@@ -1220,27 +1220,67 @@ bool future_downstream_count_try_inc(udipe_future_t* future,
 /// \name Type-specific branches of the future_wait() function
 /// \{
 
-/// Backend of udipe_wait() for all future types that get eagerly signaled by a
+/// Backend of udipe_wait() that returns the latest future status after the wait
+///
+/// The wait is considered successful if the final status has \ref STATE_RESULT.
+///
+/// Used by operations like udipe_finish() that await the final future status,
+/// then additionally process it.
+///
+/// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by an asynchronous function
+///               (those whose name begins with `udipe_start_`) and has not been
+///               liberated by udipe_finish() or udipe_cancel() since.
+/// \param timeout works as in wait_on_address().
+///
+/// \returns the final future status at the end of the wait. The wait is
+///          successful if this final status has \ref STATE_RESULT, this should
+///          always be the case when using infinite timeouts.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_status_t future_wait(udipe_future_t* future,
+                            udipe_duration_ns_t timeout);
+
+/// Backend of future_wait() for all future types that get eagerly signaled by a
 /// separate thread
 ///
 /// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by an asynchronous function
+///               (those whose name begins with `udipe_start_`) and has not been
+///               liberated by udipe_finish() or udipe_cancel() since.
+/// \param latest_status should be the latest known future status at the time
+///                      where this function is called.
+/// \param timeout works as in wait_on_address().
+///
+/// \returns the final future status.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
-bool future_wait_eager(udipe_future_t* future,
-                       future_status_t latest_status,
-                       udipe_duration_ns_t timeout);
+future_status_t future_wait_eager(udipe_future_t* future,
+                                  future_status_t latest_status,
+                                  udipe_duration_ns_t timeout);
 
 // TODO future_wait_join()
 // TODO future_wait_unordered()
 
-/// Backend of udipe_wait() for \ref TYPE_TIMER_ONCE
+/// Backend of future_wait() for \ref TYPE_TIMER_ONCE
 ///
 /// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by an asynchronous function
+///               (those whose name begins with `udipe_start_`) and has not been
+///               liberated by udipe_finish() or udipe_cancel() since.
+/// \param latest_status should be the latest known future status at the time
+///                      where this function is called.
+/// \param timeout works as in wait_on_address().
+///
+/// \returns the final future status.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
-bool future_wait_timer_once(udipe_future_t* future,
-                            future_status_t latest_status,
-                            udipe_duration_ns_t timeout);
+future_status_t future_wait_timer_once(udipe_future_t* future,
+                                       future_status_t latest_status,
+                                       udipe_duration_ns_t timeout);
 
 // TODO future_wait_timer_repeat()
 
