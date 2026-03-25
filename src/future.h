@@ -944,15 +944,28 @@ static_assert(sizeof(udipe_result_t) <= CACHE_LINE_SIZE,
 /// \name Future status word manipulation
 /// \{
 
+/// Check that a future's status word is internally consistent in debug builds
+///
+/// This function can be used whenever a new value of a future's status word is
+/// observed or injected, to ensure that no inconsistent state slips in as a
+/// result of a bug.
+///
+/// \param status is the observed/injected future status
+/// \param allocated indicates whether the future is currently allocated to some
+///                  work or simply lying around in some recycling pool waiting
+///                  to be picked up for another task.
+void future_status_debug_check(future_status_t status,
+                               bool allocated);
+
 /// Initialize a future's status word
 ///
 /// This operation is not atomic and must never be called from multiple threads.
-/// It is only meant to be used when a future is initially allocated, and must
-/// never be called at a time where other threads might be accessing the future.
+/// It should only be used when a future is initially allocated, and must never
+/// be called at a time where other threads might be accessing the future.
 ///
 /// At any point of a future's lifetime after initialization, including when the
 /// future is recycled into a thread-local cache and later recalled from said
-/// cache, future_status_store() should be preferred to this function.
+/// cache, future_status_store() should be preferred over this function.
 UDIPE_NON_NULL_ARGS
 static inline
 void future_status_initialize(udipe_future_t* future,
@@ -1095,7 +1108,6 @@ bool future_status_wait(udipe_future_t* future,
         (future_status_word_t){ .as_bitfield = expected }.as_word,
         timeout
     );
-
 }
 
 /// Atomically decrement a future's downstream count, return the new future
@@ -1217,15 +1229,17 @@ bool future_downstream_count_try_inc(udipe_future_t* future,
 /// \}
 
 
-/// \name Type-specific branches of the future_wait() function
+/// \name Awaiting future results
 /// \{
 
 /// Backend of udipe_wait() that returns the latest future status after the wait
 ///
-/// The wait is considered successful if the final status has \ref STATE_RESULT.
+/// The wait is considered successful if the final status has \ref STATE_RESULT,
+/// which should always be the case when using \ref UDIPE_DURATION_MAX and \ref
+/// UDIPE_DURATION_DEFAULT unbounded timeouts.
 ///
-/// Used by operations like udipe_finish() that await the final future status,
-/// then additionally process it.
+/// The output status is used by operations like udipe_finish() that not only
+/// await the final future status, but also process it.
 ///
 /// Must be called within the scope of with_logger().
 ///
@@ -1234,9 +1248,7 @@ bool future_downstream_count_try_inc(udipe_future_t* future,
 ///               liberated by udipe_finish() or udipe_cancel() since.
 /// \param timeout works as in wait_on_address().
 ///
-/// \returns the final future status at the end of the wait. The wait is
-///          successful if this final status has \ref STATE_RESULT, this should
-///          always be the case when using infinite timeouts.
+/// \returns the final future status at the end of the wait.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 future_status_t future_wait(udipe_future_t* future,

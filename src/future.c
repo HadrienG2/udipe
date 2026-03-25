@@ -26,6 +26,92 @@
 #endif
 
 
+// === Future status word manipulation ===
+
+void future_status_debug_check(future_status_t status,
+                               bool allocated) {
+    assert(("65k dependents ought to be enough for anybody",
+            !status.downstream_count_overflow));
+    assert(("Futures should only reach a zero refcount at deallocation time",
+            (status.downstream_count >= 1) == allocated));
+    assert(("If false definition of MAX_DOWNSTREAM_COUNT needs updating",
+            status.downstream_count <= MAX_DOWNSTREAM_COUNT));
+
+    bool has_dependencies = false;
+    bool has_processing = false;
+    bool has_dedicated_thread = false;
+    bool is_fd_based = false;
+    switch (status.type) {
+    case TYPE_INVALID:
+        assert(!allocated);
+        break;
+    case TYPE_NETWORK_CONNECT:
+    case TYPE_NETWORK_DISCONNECT:
+    case TYPE_NETWORK_SEND:
+    case TYPE_NETWORK_RECV:
+        assert(allocated);
+        has_dependencies = true;
+        has_processing = true;
+        has_dedicated_thread = true;
+        is_fd_based = false;
+        break;
+    case TYPE_CUSTOM:
+        assert(allocated);
+        has_dependencies = false;
+        has_processing = true;
+        has_dedicated_thread = true;
+        is_fd_based = false;
+        break;
+    case TYPE_JOIN:
+    case TYPE_UNORDERED:
+        assert(allocated);
+        has_dependencies = true;
+        has_processing = false;
+        has_dedicated_thread = false;
+        is_fd_based = true;
+        break;
+    case TYPE_TIMER_ONCE:
+    case TYPE_TIMER_REPEAT:
+        assert(allocated);
+        has_dependencies = false;
+        has_processing = true;
+        has_dedicated_thread = false;
+        is_fd_based = true;
+        break;
+    default:
+        assert(("Never valid", false));
+    }
+
+    switch (status.state) {
+    case STATE_UNINITIALIZED:
+        assert(("Only valid for deallocated futures", !allocated));
+        break;
+    case STATE_WAITING:
+        assert(allocated);
+        assert(has_dependencies);
+        break;
+    case STATE_PROCESSING:
+        assert(allocated);
+        assert(has_processing);
+        break;
+    case STATE_CANCELING:
+        assert(allocated);
+        assert(has_dedicated_thread);
+    case STATE_RESULT:
+        assert(allocated);
+        break;
+    default:
+        assert(("Never valid", false));
+    }
+
+    // TODO: Check other fields: outcome, notify_address,
+    //       lazy_update_lock/notify_fd (choose depending on is_fd_based).
+    // TODO: Inject in any place that manipulates future status words
+}
+
+
+// === Awaiting future results ===
+
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 DEFINE_PUBLIC
@@ -313,6 +399,9 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
 }
 
 // TODO future_wait_timer_repeat()
+
+
+// === Other public methods ===
 
 /*DEFINE_PUBLIC
 UDIPE_NON_NULL_ARGS
