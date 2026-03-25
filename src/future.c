@@ -37,13 +37,17 @@ void future_status_debug_check(future_status_t status,
     assert(("If false definition of MAX_DOWNSTREAM_COUNT needs updating",
             status.downstream_count <= MAX_DOWNSTREAM_COUNT));
 
-    bool has_dependencies = false;
-    bool has_processing = false;
-    bool has_dedicated_thread = false;
-    bool is_fd_based = false;
+    bool has_dependencies;
+    bool has_processing;
+    bool has_dedicated_thread;
+    bool is_fd_based;
     switch (status.type) {
     case TYPE_INVALID:
         assert(!allocated);
+        has_dependencies = false;
+        has_processing = false;
+        has_dedicated_thread = false;
+        is_fd_based = false;
         break;
     case TYPE_NETWORK_CONNECT:
     case TYPE_NETWORK_DISCONNECT:
@@ -80,28 +84,40 @@ void future_status_debug_check(future_status_t status,
         break;
     default:
         assert(("Never valid", false));
+        has_dependencies = false;
+        has_processing = false;
+        has_dedicated_thread = false;
+        is_fd_based = false;
     }
 
+    bool has_outcome;
     switch (status.state) {
     case STATE_UNINITIALIZED:
-        assert(("Only valid for deallocated futures", !allocated));
+        assert(!allocated);
+        has_outcome = false;
         break;
     case STATE_WAITING:
         assert(allocated);
         assert(has_dependencies);
+        has_outcome = false;
         break;
     case STATE_PROCESSING:
         assert(allocated);
         assert(has_processing);
+        has_outcome = false;
         break;
     case STATE_CANCELING:
         assert(allocated);
         assert(has_dedicated_thread);
+        has_outcome = true;
+        break;
     case STATE_RESULT:
         assert(allocated);
+        has_outcome = true;
         break;
     default:
         assert(("Never valid", false));
+        has_outcome = false;
     }
 
     // TODO: Check other fields: outcome, notify_address,
