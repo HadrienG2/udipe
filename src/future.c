@@ -29,11 +29,11 @@
 // === Future status word manipulation ===
 
 void future_status_debug_check(future_status_t status,
-                               bool allocated) {
+                               bool is_allocated) {
     assert(("65k dependents ought to be enough for anybody",
             !status.downstream_count_overflow));
     assert(("Futures should only reach a zero refcount at deallocation time",
-            (status.downstream_count >= 1) == allocated));
+            (status.downstream_count >= 1) == is_allocated));
     assert(("If false definition of MAX_DOWNSTREAM_COUNT needs updating",
             status.downstream_count <= MAX_DOWNSTREAM_COUNT));
 
@@ -41,46 +41,59 @@ void future_status_debug_check(future_status_t status,
     bool has_processing;
     bool has_dedicated_thread;
     bool is_fd_based;
+    bool requires_locking;
     switch (status.type) {
     case TYPE_INVALID:
-        assert(!allocated);
+        assert(!is_allocated);
         has_dependencies = false;
         has_processing = false;
         has_dedicated_thread = false;
         is_fd_based = false;
+        requires_locking = false;
         break;
     case TYPE_NETWORK_CONNECT:
     case TYPE_NETWORK_DISCONNECT:
     case TYPE_NETWORK_SEND:
     case TYPE_NETWORK_RECV:
-        assert(allocated);
+        assert(is_allocated);
         has_dependencies = true;
         has_processing = true;
         has_dedicated_thread = true;
         is_fd_based = false;
+        requires_locking = false;
         break;
     case TYPE_CUSTOM:
-        assert(allocated);
+        assert(is_allocated);
         has_dependencies = false;
         has_processing = true;
         has_dedicated_thread = true;
         is_fd_based = false;
+        requires_locking = false;
         break;
     case TYPE_JOIN:
     case TYPE_UNORDERED:
-        assert(allocated);
+        assert(is_allocated);
         has_dependencies = true;
         has_processing = false;
         has_dedicated_thread = false;
         is_fd_based = true;
+        requires_locking = true;
         break;
     case TYPE_TIMER_ONCE:
-    case TYPE_TIMER_REPEAT:
-        assert(allocated);
+        assert(is_allocated);
         has_dependencies = false;
         has_processing = true;
         has_dedicated_thread = false;
         is_fd_based = true;
+        requires_locking = false;
+        break;
+    case TYPE_TIMER_REPEAT:
+        assert(is_allocated);
+        has_dependencies = false;
+        has_processing = true;
+        has_dedicated_thread = false;
+        is_fd_based = true;
+        requires_locking = true;
         break;
     default:
         assert(("Never valid", false));
@@ -88,41 +101,88 @@ void future_status_debug_check(future_status_t status,
         has_processing = false;
         has_dedicated_thread = false;
         is_fd_based = false;
+        requires_locking = false;
     }
 
     bool has_outcome;
+    bool could_be_locked;
     switch (status.state) {
     case STATE_UNINITIALIZED:
-        assert(!allocated);
+        assert(!is_allocated);
         has_outcome = false;
+        could_be_locked = false;
         break;
     case STATE_WAITING:
-        assert(allocated);
+        assert(is_allocated);
         assert(has_dependencies);
         has_outcome = false;
+        could_be_locked = requires_locking;
         break;
     case STATE_PROCESSING:
-        assert(allocated);
+        assert(is_allocated);
         assert(has_processing);
         has_outcome = false;
+        could_be_locked = requires_locking;
         break;
     case STATE_CANCELING:
-        assert(allocated);
+        assert(is_allocated);
         assert(has_dedicated_thread);
         has_outcome = true;
+        could_be_locked = false;
         break;
     case STATE_RESULT:
-        assert(allocated);
+        assert(is_allocated);
         has_outcome = true;
+        could_be_locked = false;
         break;
     default:
         assert(("Never valid", false));
         has_outcome = false;
+        could_be_locked = false;
     }
 
-    // TODO: Check other fields: outcome, notify_address,
-    //       lazy_update_lock/notify_fd (choose depending on is_fd_based).
-    // TODO: Inject in any place that manipulates future status words
+    switch (status.outcome) {
+    case OUTCOME_UNKNOWN:
+        assert(!has_outcome);
+        break;
+    case OUTCOME_SUCCESS:
+        assert(has_outcome);
+        assert(status.state == STATE_RESULT);
+        break;
+    case OUTCOME_FAILURE_DEPENDENCY:
+        assert(has_outcome);
+        assert(has_dependencies);
+        break;
+    case OUTCOME_FAILURE_INTERNAL:
+        assert(has_outcome);
+        assert(has_processing);
+        break;
+    case OUTCOME_FAILURE_CANCELED:
+        assert(has_outcome);
+        break;
+    default:
+        assert(("Never valid", false));
+    }
+
+    if (is_allocated) {
+        if (is_fd_based) {
+            // notify_address can be switched on from the fist state onwards,
+            // and remains on after being turned on. Or it may never be switched
+            // on. So we can't tell anything about its value.
+            if (status.lazy_update_lock) assert(could_be_locked);
+        } else {
+            // notify_address and notify_fd can be switched on from the WAITING
+            // state, and remain on after being turned on. They may also never
+            // be switched on. So we can't tell anything about their values.
+        }
+    } else {
+        assert(!status.notify_address);
+        if (is_fd_based) {
+            assert(!status.lazy_update_lock);
+        } else {
+            assert(!status.notify_fd);
+        }
+    }
 }
 
 
@@ -143,9 +203,7 @@ future_status_t future_wait(udipe_future_t* future,
                             udipe_duration_ns_t timeout) {
     tracef("Checking initial readiness of future %p...", future);
     future_status_t status = future_status_load(future, memory_order_acquire);
-    // TODO: Replace with generic future status check
-    assert(status.downstream_count >= 1);
-    assert(!status.downstream_count_overflow);
+    future_status_debug_check(status, true);
     switch (status.state) {
     case STATE_RESULT:
         trace("Future is already in STATE_RESULT at the start of udipe_wait(): wait succeeded.");
@@ -158,13 +216,11 @@ future_status_t future_wait(udipe_future_t* future,
     case STATE_UNINITIALIZED:
     default:
         assert(future->context);
-        errorf("Observed invalid future state %d", status.state);
+        errorf("Observed future state is not valid: %d", status.state);
         exit(EXIT_FAILURE);
     }
 
     // Determine appropriate waiting strategy
-    // TODO: Replace with generic future status check
-    assert(status.outcome == OUTCOME_UNKNOWN || status.state == STATE_CANCELING);
     switch (status.type) {
     case TYPE_NETWORK_CONNECT:
     case TYPE_NETWORK_DISCONNECT:
@@ -204,13 +260,11 @@ future_status_t future_wait_eager(udipe_future_t* future,
                                   future_status_t latest_status,
                                   udipe_duration_ns_t timeout) {
     // Readiness and early exit should be handled upstream
-    // TODO: Replace with a generic status consistency check
-    assert(latest_status.downstream_count >= 1);
-    assert(!latest_status.downstream_count_overflow);
-    assert(latest_status.state != STATE_RESULT);
+    future_status_debug_check(latest_status, true);
     assert((latest_status.type >= TYPE_NETWORK_START
             && latest_status.type < TYPE_NETWORK_END)
            || latest_status.type == TYPE_CUSTOM);
+    assert(latest_status.state != STATE_RESULT);
     assert(timeout != UDIPE_DURATION_MIN);
 
     trace("Recording wait start time...");
@@ -226,6 +280,7 @@ future_status_t future_wait_eager(udipe_future_t* future,
                   (size_t)MAX_DOWNSTREAM_COUNT);
         ensure(!desired_status.downstream_count_overflow);
         ++desired_status.downstream_count;
+        future_status_debug_check(desired_status, true);
         success = future_status_compare_exchange_weak(
             future,
             &latest_status,
@@ -240,6 +295,7 @@ future_status_t future_wait_eager(udipe_future_t* future,
             latest_status = desired_status;
             break;
         }
+        future_status_debug_check(latest_status, true);
         if (latest_status.state == STATE_RESULT) {
             trace("...and failed, but meanwhile the result became available.");
             atomic_thread_fence(memory_order_acquire);  // Sync with final state
@@ -256,6 +312,7 @@ future_status_t future_wait_eager(udipe_future_t* future,
         if (success) {
             trace("Checking the new state...");
             latest_status = future_status_load(future, memory_order_relaxed);
+            future_status_debug_check(latest_status, true);
             if (latest_status.state == STATE_RESULT) {
                 // No acquire barrier here because there's another load below
                 trace("Future result is now available: we're done.");
@@ -293,7 +350,10 @@ future_status_t future_wait_eager(udipe_future_t* future,
     // Need at least release to ensure no previous operation get reordered after
     // the downstream_count decrement. Putting the acquire barrier here lets us
     // handle last-minute switches to STATE_RESULT correctly.
-    return future_downstream_count_dec(future, memory_order_acq_rel);
+    latest_status =
+        future_downstream_count_dec(future, memory_order_acq_rel);
+    future_status_debug_check(latest_status, true);
+    return latest_status;
 }
 
 // TODO future_wait_join()
@@ -304,14 +364,9 @@ UDIPE_NON_NULL_ARGS
 future_status_t future_wait_timer_once(udipe_future_t* future,
                                        future_status_t latest_status,
                                        udipe_duration_ns_t timeout) {
-    // TODO: Replace with a generic status consistency check
-    assert(latest_status.downstream_count >= 1);
-    assert(!latest_status.downstream_count_overflow);
-    assert(latest_status.state == STATE_PROCESSING);
-    assert(latest_status.outcome == OUTCOME_UNKNOWN);
-    assert(!latest_status.notify_address);
+    future_status_debug_check(latest_status, true);
     assert(latest_status.type == TYPE_TIMER_ONCE);
-    assert(!latest_status.lazy_update_lock);
+    assert(latest_status.state != STATE_RESULT);
 
     trace("Recording wait start time...");
     struct timespec start_time;
@@ -319,6 +374,7 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
 
     trace("Registering as a waiter...");
     bool success = future_downstream_count_try_inc(future, &latest_status);
+    future_status_debug_check(latest_status, true);
     if (!success) {
         assert(latest_status.state == STATE_RESULT);
         trace("Future reached STATE_RESULT before we started waiting");
@@ -362,19 +418,13 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
                       "while decrementing our downstream_count");
                 do {
                     future_status_t desired_status = latest_status;
-                    // TODO: Replace with a generic status consistency check
-                    assert(desired_status.downstream_count >= 1);
-                    assert(!desired_status.downstream_count_overflow);
-                    assert(desired_status.state == STATE_PROCESSING
-                           || desired_status.state == STATE_RESULT);
-                    assert(!desired_status.notify_address);
-                    assert(desired_status.type == TYPE_TIMER_ONCE);
-                    assert(!desired_status.lazy_update_lock);
+                    assert(latest_status.downstream_count >= 2);
                     --desired_status.downstream_count;
                     desired_status.state = STATE_RESULT;
                     if (desired_status.outcome == OUTCOME_UNKNOWN) {
                         desired_status.outcome = OUTCOME_SUCCESS;
                     }
+                    future_status_debug_check(desired_status, true);
 
                     success = future_status_compare_exchange_weak(
                         future,
@@ -386,8 +436,14 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
                         memory_order_release,
                         memory_order_relaxed
                     );
-                    if (success) latest_status = desired_status;
-                } while (!success);
+                    if (success) {
+                        latest_status = desired_status;
+                        break;
+                    } else {
+                        future_status_debug_check(latest_status, true);
+                        continue;
+                    }
+                } while (true);
                 // No need for an acquire barrier, ppoll() already acted as one
                 return latest_status;
             case 0:
@@ -397,6 +453,7 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
                 switch (errno) {
                     case EINTR:
                         // TODO: Update the timeout and resume the wait
+                        // TODO: Try to deduplicate code wrt above
                         exit(EXIT_FAILURE);
                     case EFAULT:  // No such fd
                     case EINVAL:  // nfds too high or timeout is negative

@@ -951,11 +951,11 @@ static_assert(sizeof(udipe_result_t) <= CACHE_LINE_SIZE,
 /// result of a bug.
 ///
 /// \param status is the observed/injected future status
-/// \param allocated indicates whether the future is currently allocated to some
-///                  work or simply lying around in some recycling pool waiting
-///                  to be picked up for another task.
+/// \param is_allocated indicates whether the future is currently allocated to
+///                     some work or simply lying around in some recycling pool
+///                     waiting to be picked up for another task.
 void future_status_debug_check(future_status_t status,
-                               bool allocated);
+                               bool is_allocated);
 
 /// Initialize a future's status word
 ///
@@ -1048,6 +1048,8 @@ bool future_status_compare_exchange_strong(udipe_future_t* future,
                                            future_status_t desired,
                                            memory_order success,
                                            memory_order failure) {
+    future_status_debug_check(*expected, true);
+    future_status_debug_check(desired, true);
     future_status_word_t expected_word = (future_status_word_t){
         .as_bitfield = *expected
     };
@@ -1059,6 +1061,7 @@ bool future_status_compare_exchange_strong(udipe_future_t* future,
         failure
     );
     *expected = expected_word.as_bitfield;
+    if (!result) future_status_debug_check(*expected, true);
     return result;
 }
 
@@ -1077,6 +1080,8 @@ bool future_status_compare_exchange_weak(udipe_future_t* future,
                                          future_status_t desired,
                                          memory_order success,
                                          memory_order failure) {
+    future_status_debug_check(*expected, true);
+    future_status_debug_check(desired, true);
     future_status_word_t expected_word = (future_status_word_t){
         .as_bitfield = *expected
     };
@@ -1088,6 +1093,7 @@ bool future_status_compare_exchange_weak(udipe_future_t* future,
         failure
     );
     *expected = expected_word.as_bitfield;
+    if (!result) future_status_debug_check(*expected, true);
     return result;
 }
 
@@ -1103,6 +1109,7 @@ static inline
 bool future_status_wait(udipe_future_t* future,
                         future_status_t expected,
                         udipe_duration_ns_t timeout) {
+    future_status_debug_check(expected, true);
     return wait_on_address(
         &future->status_word,
         (future_status_word_t){ .as_bitfield = expected }.as_word,
@@ -1133,13 +1140,16 @@ UDIPE_NON_NULL_ARGS
 static inline
 future_status_t future_downstream_count_dec(udipe_future_t* future,
                                             memory_order order) {
-    future_status_t result = (future_status_word_t){
+    const future_status_t pre_op_status = (future_status_word_t){
         .as_word = atomic_fetch_sub_explicit(&future->status_word,
                                              1,
                                              order)
     }.as_bitfield;
+    future_status_debug_check(pre_op_status, true);
+    future_status_t result = pre_op_status;
     assert(result.downstream_count >= 1);
     --result.downstream_count;
+    future_status_debug_check(result, true);
     return result;
 }
 
@@ -1193,6 +1203,7 @@ static inline
 bool future_downstream_count_try_inc(udipe_future_t* future,
                                      future_status_t* latest_status) {
     trace("Incrementing downstream_count...");
+    future_status_debug_check(*latest_status, true);
     future_status_t pre_op_status = (future_status_word_t){
         // Acquire ordering needed because subsequent operations on the future
         // should not be reordered before this downstream_count increment.
@@ -1200,6 +1211,7 @@ bool future_downstream_count_try_inc(udipe_future_t* future,
                                              1,
                                              memory_order_acquire)
     }.as_bitfield;
+    future_status_debug_check(pre_op_status, true);
     if (pre_op_status.downstream_count == MAX_DOWNSTREAM_COUNT
         || pre_op_status.downstream_count_overflow)
     {
@@ -1217,11 +1229,13 @@ bool future_downstream_count_try_inc(udipe_future_t* future,
         *latest_status = future_downstream_count_dec(future,
                                                      memory_order_relaxed);
         assert(latest_status->state == STATE_RESULT);
+        future_status_debug_check(*latest_status, true);
         return false;
     } {
         trace("Updating latest_status after successful increment...");
         *latest_status = pre_op_status;
         ++(latest_status->downstream_count);
+        future_status_debug_check(*latest_status, true);
         return true;
     }
 }
