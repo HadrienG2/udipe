@@ -12,6 +12,7 @@
 #include "context.h"
 #include "error.h"
 #include "log.h"
+#include "stopwatch.h"
 #include "unit_tests.h"
 #include "visibility.h"
 
@@ -268,9 +269,8 @@ future_status_t future_wait_eager(udipe_future_t* future,
     assert(latest_status.state != STATE_RESULT);
     assert(timeout != UDIPE_DURATION_MIN);
 
-    trace("Recording wait start time...");
-    struct timespec start_time;
-    timespec_get(&start_time, TIME_UTC);
+    trace("Initializing timeout stopwatch...");
+    stopwatch_t stopwatch = stopwatch_initialize();
 
     trace("Enabling futex notifications + incrementing downstream_count...");
     bool success;
@@ -325,25 +325,13 @@ future_status_t future_wait_eager(udipe_future_t* future,
         }
 
         trace("Measuring elapsed time since last clock check...");
-        struct timespec current_time;
-        timespec_get(&current_time, TIME_UTC);
-        assert(current_time.tv_sec >= start_time.tv_sec);
-        udipe_duration_ns_t elapsed_time =
-            (current_time.tv_sec - start_time.tv_sec) * UDIPE_SECOND;
-        if (current_time.tv_nsec >= start_time.tv_nsec) {
-            elapsed_time += current_time.tv_nsec - start_time.tv_nsec;
-        } else {
-            elapsed_time += UDIPE_SECOND;
-            elapsed_time -= start_time.tv_nsec - current_time.tv_nsec;
-        }
-
+        udipe_duration_ns_t elapsed_time = stopwatch_measure(&stopwatch);
         if (elapsed_time >= timeout) {
             trace("Timeout reached without observing STATE_RESULT.");
             break;
         } else {
             trace("Updating timer for the next round of waiting...");
             timeout -= elapsed_time;
-            start_time = current_time;
         }
     } while(true);
 
@@ -369,9 +357,8 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
     assert(latest_status.type == TYPE_TIMER_ONCE);
     assert(latest_status.state != STATE_RESULT);
 
-    trace("Recording wait start time...");
-    struct timespec start_time;
-    timespec_get(&start_time, TIME_UTC);
+    trace("Initializing timeout stopwatch...");
+    stopwatch_t stopwatch = stopwatch_initialize();
 
     trace("Registering as a waiter...");
     bool success = future_downstream_count_try_inc(future, &latest_status);
@@ -385,30 +372,30 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
     #ifdef __linux__
 
         // TODO: Extract commonalities wrt other fd waits
-        // TODO: Add logging
 
-        // Indicate which fd we want to poll (TODO: generalize for other fd waits)
+        trace("Encoding timerfd into a pollfd...");
         struct pollfd timer = (struct pollfd){
             .fd = future->output_fd.timer,
             .events = POLLIN,
             .revents = 0
         };
 
-        // Translate our timeout into the timespec format ingested by ppoll()
-        struct timespec timeout_spec;
-        struct timespec* timeout_spec_ptr = &timeout_spec;
-        if (timeout == UDIPE_DURATION_MIN) {
-            timeout_spec = (struct timespec){ .tv_sec = 0, .tv_nsec = 0 };
-        } else if (timeout == UDIPE_DURATION_MAX || timeout == UDIPE_DURATION_DEFAULT) {
-            timeout_spec_ptr = NULL;
-        } else {
-            timeout_spec = (struct timespec){
-                .tv_sec = timeout / UDIPE_SECOND,
-                .tv_nsec = timeout % UDIPE_SECOND
-            };
-        }
-
         do {
+            trace("Encoding timeout into a timespec...");
+            struct timespec timeout_spec;
+            struct timespec* timeout_spec_ptr = &timeout_spec;
+            if (timeout == UDIPE_DURATION_MIN) {
+                timeout_spec = (struct timespec){ .tv_sec = 0, .tv_nsec = 0 };
+            } else if (timeout == UDIPE_DURATION_MAX || timeout == UDIPE_DURATION_DEFAULT) {
+                timeout_spec_ptr = NULL;
+            } else {
+                timeout_spec = (struct timespec){
+                    .tv_sec = timeout / UDIPE_SECOND,
+                    .tv_nsec = timeout % UDIPE_SECOND
+                };
+            }
+
+            trace("Waiting for timerfd readiness...");
             int result = ppoll(&timer,
                                1,
                                timeout_spec_ptr,
@@ -423,6 +410,8 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
                     --desired_status.downstream_count;
                     desired_status.state = STATE_RESULT;
                     if (desired_status.outcome == OUTCOME_UNKNOWN) {
+                        // Only if OUTCOME_UNKNOWN to avoid overwriting a former
+                        // cancelation signal.
                         desired_status.outcome = OUTCOME_SUCCESS;
                     }
                     future_status_debug_check(desired_status, true);
@@ -453,9 +442,16 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
             case -1:
                 switch (errno) {
                     case EINTR:
-                        // TODO: Update the timeout and resume the wait
-                        // TODO: Try to deduplicate code wrt above
-                        exit(EXIT_FAILURE);
+                        trace("Interrupted by signal, updating timeout...");
+                        udipe_duration_ns_t elapsed_time =
+                            stopwatch_measure(&stopwatch);
+                        if (elapsed_time >= timeout) {
+                            trace("Reached timeout before the future became ready");
+                            return latest_status;
+                        } else {
+                            timeout -= elapsed_time;
+                            continue;
+                        }
                     case EFAULT:  // No such fd
                     case EINVAL:  // nfds too high or timeout is negative
                     case ENOMEM:  // Unable to allocate kernel memory

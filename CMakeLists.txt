@@ -158,6 +158,7 @@ target_sources(udipe
                        src/memory.h
                        src/name_filter.c
                        src/name_filter.h
+                       src/stopwatch.h
                        src/thread_name.c
                        src/thread_name.h
                        src/unit_tests.c
