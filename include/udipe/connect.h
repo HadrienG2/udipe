@@ -8,7 +8,7 @@
 //! amount of related definitions, which have been extracted into this dedicated
 //! header the interest of code clarity.
 
-#include "time.h"
+#include "duration.h"
 
 #include <stdbool.h>
 #include <stdint.h>

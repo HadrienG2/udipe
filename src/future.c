@@ -5,6 +5,7 @@
 #include "future.h"
 
 #include <udipe/context.h>
+#include <udipe/duration.h>
 #include <udipe/future.h>
 #include <udipe/pointer.h>
 

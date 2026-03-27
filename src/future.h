@@ -8,9 +8,9 @@
 #include <udipe/future.h>
 
 #include <udipe/context.h>
+#include <udipe/duration.h>
 #include <udipe/nodiscard.h>
 #include <udipe/result.h>
-#include <udipe/time.h>
 
 #include "address_wait.h"
 #include "arch.h"

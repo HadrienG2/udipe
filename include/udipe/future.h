@@ -15,10 +15,10 @@
 //! of \ref udipe_future_t for more information.
 
 #include "context.h"
+#include "duration.h"
 #include "nodiscard.h"
 #include "pointer.h"
 #include "result.h"
-#include "time.h"
 #include "visibility.h"
 
 #include <assert.h>

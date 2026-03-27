@@ -1,12 +1,11 @@
 #pragma once
 
 //! \file
-//! \brief Time-related definitions
+//! \brief Duration-related definitions
 //!
-//! At the time of writing, the public `libudipe` API only exposes support for
-//! timeouts, but when a given worker thread awaits multiple timeouts, its
-//! implementation is closer in spirit to deadline scheduling. So if the need
-//! emerges, support for deadlines would not be hard to add to the public API.
+//! In an ideal world, durations and timestamps would be uniformly handled by a
+//! header called time.h, but unfortunately the C standard got there first,
+//! hence this module which is focused on durations only.
 
 #include <stdint.h>
 

@@ -1,5 +1,7 @@
 #include "address_wait.h"
 
+#include <udipe/duration.h>
+
 #include "error.h"
 #include "log.h"
 #include "thread_name.h"
