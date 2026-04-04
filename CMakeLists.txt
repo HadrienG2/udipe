@@ -147,8 +147,10 @@ target_sources(udipe
                        src/connect.c
                        src/context.c
                        src/context.h
+                       src/duration.h
                        src/error.c
                        src/error.h
+                       src/event.h
                        src/format.h
                        src/future.c
                        src/future.h

@@ -15,7 +15,9 @@
 #include "address_wait.h"
 #include "arch.h"
 #include "error.h"
+#include "event.h"
 #include "log.h"
+#include "stopwatch.h"
 
 #include <assert.h>
 #include <stdalign.h>
@@ -636,7 +638,7 @@ typedef struct collective_upstream_s {
 /// time where the associated future is liberated.
 //
 // TODO: Windows version, based on NT semaphores?
-typedef int outcome_eventfd_t;
+typedef event_t outcome_event_t;
 
 /// \copydoc udipe_future_t
 struct udipe_future_s {
@@ -706,8 +708,8 @@ struct udipe_future_s {
             /// eventfd used to mark this future as permanently ready after it
             /// has reached its final outcome
             ///
-            /// See \ref outcome_eventfd_t for more information.
-            outcome_eventfd_t outcome_eventfd;
+            /// See \ref outcome_event_t for more information.
+            outcome_event_t outcome_event;
         } join;
 
         /// Unordered future state and result
@@ -750,8 +752,8 @@ struct udipe_future_s {
             /// eventfd used to mark this future as permanently ready after it
             /// has reached its final outcome
             ///
-            /// See \ref outcome_eventfd_t for more information.
-            outcome_eventfd_t outcome_eventfd;
+            /// See \ref outcome_event_t for more information.
+            outcome_event_t outcome_event;
         } unordered;
 
         /// Repeating timer state
@@ -782,14 +784,14 @@ struct udipe_future_s {
             /// recuring timerfds largely void the need for repeatedly creating
             /// and destroying lots of one-shot timerfds.
             //
-            // TODO: Windows version, based on NT timer threads?
+            // TODO: Windows version, based on waitable timers?
             int timerfd;
 
             /// eventfd used to mark this future as permanently ready after it
             /// has reached its final outcome
             ///
-            /// See \ref outcome_eventfd_t for more information.
-            outcome_eventfd_t outcome_eventfd;
+            /// See \ref outcome_event_t for more information.
+            outcome_event_t outcome_event;
         } timer_repeat;
     } specific;
 
@@ -827,7 +829,7 @@ struct udipe_future_s {
     /// variant of this union you are dealing with, then read the associated
     /// description for more info.
     //
-    // TODO: Windows version, based on NT semaphores?
+    // TODO: Windows version, based on NT sync objects?
     union {
         /// eventfd in non-semaphore mode, used for eager futures
         ///
@@ -848,7 +850,7 @@ struct udipe_future_s {
         /// word, completing the synchronization transaction.
         ///
         /// Must be reset via readout and recycled when the future is liberated.
-        int event;
+        event_t event;
 
         /// epollfd with a cancelation eventfd, used for collective futures and
         /// repeating timers.
@@ -922,6 +924,13 @@ struct udipe_future_s {
         /// becomes a bottleneck, but that seems unlikely under correct usage
         /// since recuring timerfds are a thing.
         int timer;
+
+        /// Catch-all file descriptor type
+        ///
+        /// Use this union variant in situations where the active file
+        /// descriptors doesn't matter, such as when managing attachment of
+        /// output fds to collective future epollfds.
+        int any;
     } output_fd;
 };
 static_assert(alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
@@ -1260,7 +1269,9 @@ bool future_downstream_count_try_inc(udipe_future_t* future,
 /// \param future must be a future that was returned by an asynchronous function
 ///               (those whose name begins with `udipe_start_`) and has not been
 ///               liberated by udipe_finish() or udipe_cancel() since.
-/// \param timeout works as in wait_on_address().
+/// \param timeout works as in wait_on_address(). In particular it cannot take
+///                value \ref UDIPE_DURATION_DEFAULT, which should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
 ///
 /// \returns the final future status at the end of the wait.
 UDIPE_NODISCARD
@@ -1273,12 +1284,15 @@ future_status_t future_wait(udipe_future_t* future,
 ///
 /// Must be called within the scope of with_logger().
 ///
-/// \param future must be a future that was returned by an asynchronous function
-///               (those whose name begins with `udipe_start_`) and has not been
-///               liberated by udipe_finish() or udipe_cancel() since.
+/// \param future must be a future that was returned by an asynchronous network
+///               operation (those whose name begins with `udipe_start_`) or by
+///               udipe_start_custom() and has not been liberated by
+///               udipe_finish() or udipe_cancel() since.
 /// \param latest_status should be the latest known future status at the time
 ///                      where this function is called.
-/// \param timeout works as in wait_on_address().
+/// \param timeout works as in wait_on_address(). In particular it cannot take
+///                value \ref UDIPE_DURATION_DEFAULT, which should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
 ///
 /// \returns the final future status.
 UDIPE_NODISCARD
@@ -1287,19 +1301,60 @@ future_status_t future_wait_eager(udipe_future_t* future,
                                   future_status_t latest_status,
                                   udipe_duration_ns_t timeout);
 
-// TODO future_wait_join()
-// TODO future_wait_unordered()
+/// Backend of future_wait() for \ref TYPE_JOIN
+///
+/// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by udipe_start_join() and
+///               has not been liberated by udipe_finish() or udipe_cancel()
+///               since.
+/// \param latest_status should be the latest known future status at the time
+///                      where this function is called.
+/// \param timeout works as in wait_on_address(). In particular it cannot take
+///                value \ref UDIPE_DURATION_DEFAULT, which should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+///
+/// \returns the final future status.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_status_t future_wait_join(udipe_future_t* future,
+                                 future_status_t latest_status,
+                                 udipe_duration_ns_t timeout);
+
+/// Backend of future_wait() for \ref TYPE_UNORDERED
+///
+/// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by udipe_start_unordered()
+///               and has not been liberated by udipe_finish() or udipe_cancel()
+///               since.
+/// \param latest_status should be the latest known future status at the time
+///                      where this function is called.
+/// \param timeout works as in wait_on_address(). In particular it cannot take
+///                value \ref UDIPE_DURATION_DEFAULT, which should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+///
+/// \returns the final future status.
+//
+// TODO implement
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_status_t future_wait_unordered(udipe_future_t* future,
+                                      future_status_t latest_status,
+                                      udipe_duration_ns_t timeout);
 
 /// Backend of future_wait() for \ref TYPE_TIMER_ONCE
 ///
 /// Must be called within the scope of with_logger().
 ///
-/// \param future must be a future that was returned by an asynchronous function
-///               (those whose name begins with `udipe_start_`) and has not been
-///               liberated by udipe_finish() or udipe_cancel() since.
+/// \param future must be a future that was returned by udipe_start_timer_once()
+///               and has not been liberated by udipe_finish() or udipe_cancel()
+///               since.
 /// \param latest_status should be the latest known future status at the time
 ///                      where this function is called.
-/// \param timeout works as in wait_on_address().
+/// \param timeout works as in wait_on_address(). In particular it cannot take
+///                value \ref UDIPE_DURATION_DEFAULT, which should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
 ///
 /// \returns the final future status.
 UDIPE_NODISCARD
@@ -1308,7 +1363,122 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
                                        future_status_t latest_status,
                                        udipe_duration_ns_t timeout);
 
-// TODO future_wait_timer_repeat()
+/// Backend of future_wait() for \ref TYPE_TIMER_REPEAT
+///
+/// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by
+///               udipe_start_timer_repeat() and has not been liberated by
+///               udipe_finish() or udipe_cancel() since.
+/// \param latest_status should be the latest known future status at the time
+///                      where this function is called.
+/// \param timeout works as in wait_on_address(). In particular it cannot take
+///                value \ref UDIPE_DURATION_DEFAULT, which should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+///
+/// \returns the final future status.
+//
+// TODO implement
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_status_t future_wait_timer_repeat(udipe_future_t* future,
+                                         future_status_t latest_status,
+                                         udipe_duration_ns_t timeout);
+
+/// Outcome of future_wait_by_adress()
+///
+/// This type is returned by future_wait_by_address() to tell the caller what
+/// happened and what it should do next.
+typedef enum address_wait_outcome_e {
+    /// The target future reached \ref STATE_RESULT.
+    ///
+    ADDRESS_WAIT_SUCCESS,
+
+    /// The user-specified timeout elapsed without the target future reaching
+    /// \ref STATE_RESULT.
+    ADDRESS_WAIT_TIMEOUT,
+
+    /// The lock on the target future was released without the future reaching
+    /// \ref STATE_RESULT
+    ///
+    /// This outcome can only happen for future types like \ref TYPE_JOIN where
+    /// the waiting procedure involves awaiting an epollfd. Because the design
+    /// of epoll_wait() makes it hard to use from multiple threads, this waiting
+    /// method is implemented by having one thread probe the epollfd while other
+    /// threads wait for it to report its conclusion via a futex. The selection
+    /// of the thread that will call epoll_wait() is performed via simple
+    /// locking of a flag in the future status word.
+    ///
+    /// One limitation of this design, however is that something like the
+    /// following can happen:
+    ///
+    /// - Thread A starts waiting for future F with a timeout of 1s
+    /// - Thread A locks state and starts waiting via epoll_wait().
+    /// - Thread B starts waiting for future F with a timeout of 2s.
+    /// - Thread B observes that thread A got there first and starts waiting for
+    ///   thread A via the futex method.
+    /// - Thread A reaches its 1s timeout without getting a notification from
+    ///   epoll_wait(), so it stops waiting and reports the timeout.
+    /// - At this point, thread B still has 1s of timeout to go, but it cannot
+    ///   passively wait for thread A via the futex anymore, instead it must
+    ///   switch to active waiting via epoll_wait().
+    ///
+    /// This situation is handled by unblocking **one** of the threads that's
+    /// waiting on the futex (to avoid thundering herds), which will retult in
+    /// is future_wait_by_address() call returning this outcome. Upon receiving
+    /// this outcome, the thread must either lock the future status and start an
+    /// epoll_wait() or wake another futex waiter if it cannot call epoll_wait()
+    /// because its timeout elapsed at the same time.
+    ADDRESS_WAIT_UNLOCKED,
+} address_wait_outcome_t;
+
+/// Wait for a future's status to change via the wait-by-address path
+///
+/// This path is taken...
+///
+/// - Anytime an eager future (network & custom operations) does not initially
+///   have a ready status.
+/// - Whenever a lazy future does not initially have a ready status and another
+///   thread already has taken the lock to update its status.
+///
+/// Before taking this path, you must...
+///
+/// - Increment the `downstream_count` field of the future status word.
+/// - Set the `notify_address` field of said status word.
+/// - Perform any other setup step required by the specific future type.
+///
+/// This function will take care of decrementing the `downstream_count` at the
+/// end before returning the final status.
+///
+/// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that supports address-based wakeup, which has
+///               not been liberated by udipe_finish() or udipe_cancel(). Its
+///               status word must previously have been updated in a manner that
+///               increments `downstream_count` and sets `notify_address`. Both
+///               of these changes will be reverted at the end.
+/// \param latest_status must be initially set to the latest known future status
+///                      at the time where this function is called. It will be
+///                      updated to the latest known future status at the time
+///                      where this function returns.
+/// \param timeout should initially be set to the desired timeout with respect
+///                to the timestamp denoted by `stopwatch`. This initial value
+///                cannot be \ref UDIPE_DURATION_DEFAULT, it should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+///                By the time this function returns, the timeout will have been
+///                updated to correspond to the latest value of `stopwatch`.
+/// \param stopwatch must be a stopwatch that was initialized at the start of
+///                  the future waiting procedure. It may be updated in an
+///                  unspecified fashion.
+///
+/// \returns a summary of the final status of the future and the actions that
+///          must be taken by the caller.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+address_wait_outcome_t future_wait_by_adress(udipe_future_t* future,
+                                             future_status_t* latest_status,
+                                             udipe_duration_ns_t* timeout,
+                                             stopwatch_t* stopwatch);
 
 /// \}
 
