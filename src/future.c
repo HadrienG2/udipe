@@ -37,9 +37,9 @@
 ///
 /// Setting this higher may reduce the number of syscalls made by the
 /// application when polling large join-sets, at the expense of increasing stack
-/// usage.
+/// memory usage.
 ///
-/// Other epoll-based futures at the time of writing do not need this:
+/// Other epoll-based futures at time of writing cannot use this optimization:
 ///
 /// - With unordered futures, events should be fetched one by one to ensure that
 ///   we stop fetching events as soon as one of the parent futures is ready.
@@ -54,11 +54,13 @@
 
 void future_status_debug_check(future_status_t status,
                                bool is_allocated) {
+    assert(is_allocated || !status.available);
+
     assert(("65k dependents ought to be enough for anybody",
             !status.downstream_count_overflow));
-    assert(("Futures should only reach a zero refcount at deallocation time",
-            (status.downstream_count >= 1) == is_allocated));
-    assert(("If false definition of MAX_DOWNSTREAM_COUNT needs updating",
+    assert(("Futures can only be used between allocation and start of udipe_finish()",
+            (status.downstream_count > 0) == status.available));
+    assert(("Should be true unless MAX_DOWNSTREAM_COUNT define needs updating",
             status.downstream_count <= MAX_DOWNSTREAM_COUNT));
 
     bool has_dependencies;
@@ -218,17 +220,21 @@ DEFINE_PUBLIC
 bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout) {
     with_logger(&future->context->logger, {
         if (timeout == UDIPE_DURATION_DEFAULT) timeout = UDIPE_DURATION_MAX;
-        return future_wait(future, timeout).state == STATE_RESULT;
+        const future_status_t final_status =
+            future_wait(future, timeout, DOWNSTREAM_COUNT_CYCLE);
+        return final_status.state == STATE_RESULT;
     });
 }
 
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 future_status_t future_wait(udipe_future_t* future,
-                            udipe_duration_ns_t timeout) {
+                            udipe_duration_ns_t timeout,
+                            downstream_count_behavior_t count_behavior) {
     assert(timeout != UDIPE_DURATION_DEFAULT);
 
     tracef("Checking initial readiness of future %p...", future);
+    // Synchronize-with the current future state
     future_status_t status = future_status_load(future, memory_order_acquire);
     future_status_debug_check(status, true);
     switch (status.state) {
@@ -264,16 +270,19 @@ future_status_t future_wait(udipe_future_t* future,
         } else {
             // ...and the waiting logic is independent of the eager type
             // that one is dealing with (only the result fetching differs)
-            return future_wait_eager(future, status, timeout);
+            return future_wait_eager(future,
+                                     status,
+                                     timeout,
+                                     count_behavior);
         }
     case TYPE_JOIN:
-        return future_wait_join(future, status, timeout);
+        return future_wait_join(future, status, timeout, count_behavior);
     case TYPE_UNORDERED:
-        return future_wait_unordered(future, status, timeout);
+        return future_wait_unordered(future, status, timeout, count_behavior);
     case TYPE_TIMER_ONCE:
-        return future_wait_timer_once(future, status, timeout);
+        return future_wait_timer_once(future, status, timeout, count_behavior);
     case TYPE_TIMER_REPEAT:
-        return future_wait_timer_repeat(future, status, timeout);
+        return future_wait_timer_repeat(future, status, timeout, count_behavior);
     case TYPE_INVALID:
     default:
         errorf("Observed invalid future type %d", status.type);
@@ -285,7 +294,8 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 future_status_t future_wait_eager(udipe_future_t* future,
                                   future_status_t latest_status,
-                                  udipe_duration_ns_t timeout) {
+                                  udipe_duration_ns_t timeout,
+                                  downstream_count_behavior_t count_behavior) {
     // Readiness and early exit should be handled upstream
     future_status_debug_check(latest_status, true);
     assert((latest_status.type >= TYPE_NETWORK_START
@@ -297,48 +307,80 @@ future_status_t future_wait_eager(udipe_future_t* future,
     trace("Initializing timeout stopwatch...");
     stopwatch_t stopwatch = stopwatch_initialize();
 
-    trace("Enabling futex notifications + incrementing downstream_count...");
+    trace("Updating the future's status word...");
     bool success;
     do {
         future_status_t desired_status = latest_status;
         desired_status.notify_address = true;
-        ensure_lt((size_t)desired_status.downstream_count,
-                  (size_t)MAX_DOWNSTREAM_COUNT);
+
+        // TODO: Extract this repeating code chunk into some kind of
+        //       prepare_downstream_count_inc(&latest_status). Add documentation
+        //       which clarifies that changes must have acquire ordering. Notify
+        //       about the existence of this function in the docs of
+        //       future_downstream_count_try_inc().
         ensure(!desired_status.downstream_count_overflow);
-        ++desired_status.downstream_count;
+        switch (count_behavior) {
+        case DOWNSTREAM_COUNT_CYCLE:
+            ensure_lt((size_t)desired_status.downstream_count,
+                      (size_t)MAX_DOWNSTREAM_COUNT);
+            ++desired_status.downstream_count;
+            break;
+        case DOWNSTREAM_COUNT_KEEP:
+            break;
+        }
+
         future_status_debug_check(desired_status, true);
 
         success = future_status_compare_exchange_weak(
             future,
             &latest_status,
             desired_status,
-            // Subsequent future operations should not be reordered before the
-            // downstream_count increment.
+            // Subsequent operations must not be reordered before the above
+            // status word changes, as e.g. reordering the wait before the
+            // enablement of notifications would lead to a deadlock.
+            //
+            // We are not notifying other threads about any shared state change
+            // other than our status word update, so release ordering or
+            // stronger is not needed here.
             memory_order_acquire,
-            memory_order_relaxed
+            // Synchronize-with concurrent future state changes.
+            memory_order_acquire
         );
 
         if (success) {
-            trace("Done enabling futex + registering ourself as a waiter.");
+            trace("Done updating the future status.");
             latest_status = desired_status;
             break;
         }
         future_status_debug_check(latest_status, true);
         if (latest_status.state == STATE_RESULT) {
-            trace("...and failed, but the result became available meanwhile.");
-            atomic_thread_fence(memory_order_acquire);  // Sync with final state
+            trace("Failed to update status, but result became available meanwhile.");
             return latest_status;
         }
-        trace("...and failed because another thread updated the status word or "
+        trace("Failed because another thread updated the status word or "
               "weak compare_exchange failed spuriously. Let's try again.");
     } while(true);
+
+    trace("Waiting for the dedicated thread to update the future status...");
     switch (future_wait_by_adress(future,
                                   &latest_status,
                                   &timeout,
                                   &stopwatch)) {
     case ADDRESS_WAIT_SUCCESS:
     case ADDRESS_WAIT_TIMEOUT:
-        return latest_status;
+        trace("Result is now available or wait timed out.");
+        switch (count_behavior) {
+        case DOWNSTREAM_COUNT_CYCLE:
+            // Need at least release ordering to ensure no previous
+            // operation get reordered after the downstream_count
+            // decrement. Adding in the acquire ordering ensures that we
+            // synchronize-with concurrent state changes.
+            return future_downstream_count_dec(future, memory_order_acq_rel);
+        case DOWNSTREAM_COUNT_KEEP:
+            return latest_status;
+        default:
+            exit_with_error("No other count_behavior is supported yet");
+        }
     case ADDRESS_WAIT_UNLOCKED:
     default:
         exit_with_error("Shouldn't happen for this future type");
@@ -349,7 +391,8 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 future_status_t future_wait_join(udipe_future_t* future,
                                  future_status_t latest_status,
-                                 udipe_duration_ns_t timeout) {
+                                 udipe_duration_ns_t timeout,
+                                 downstream_count_behavior_t count_behavior) {
     // TODO: Much of this code should be identical across all epoll-based
     //       future types, with only handling of epoll notifications differing,
     //       so a generic function with a callback should be eventually devised.
@@ -365,9 +408,9 @@ future_status_t future_wait_join(udipe_future_t* future,
     stopwatch_t stopwatch = stopwatch_initialize();
 
     do {
+        trace("Preparing future status update...");
         bool previously_locked;
         do {
-            trace("Preparing future status update...");
             future_status_t desired_status = latest_status;
             previously_locked = latest_status.lazy_update_lock;
             if (previously_locked) {
@@ -378,20 +421,38 @@ future_status_t future_wait_join(udipe_future_t* future,
                 trace("We're the first to await it, so try to take the lock.");
                 desired_status.lazy_update_lock = true;
             }
-            ensure_lt((size_t)desired_status.downstream_count,
-                      (size_t)MAX_DOWNSTREAM_COUNT);
+            // TODO: Extract this repeating code chunk into some kind of
+            //       prepare_downstream_count_inc(&latest_status). Add
+            //       documentation which clarifies that changes must have
+            //       acquire ordering. Notify about the existence of this
+            //       function in the docs of future_downstream_count_try_inc().
             ensure(!desired_status.downstream_count_overflow);
-            ++desired_status.downstream_count;
+            switch (count_behavior) {
+            case DOWNSTREAM_COUNT_CYCLE:
+                ensure_lt((size_t)desired_status.downstream_count,
+                          (size_t)MAX_DOWNSTREAM_COUNT);
+                ++desired_status.downstream_count;
+                break;
+            case DOWNSTREAM_COUNT_KEEP:
+                break;
+            }
+
             future_status_debug_check(desired_status, true);
 
             const bool success = future_status_compare_exchange_weak(
                 future,
                 &latest_status,
                 desired_status,
-                // Subsequent future operations should not be reordered before the
-                // downstream_count increment.
+                // Subsequent operations must not be reordered before the above
+                // status word changes, as e.g. reordering the wait before the
+                // enablement of notifications would lead to a deadlock.
+                //
+                // We are not notifying others about any state change other than
+                // our status word update, so release ordering or stronger is
+                // not needed here.
                 memory_order_acquire,
-                memory_order_relaxed
+                // Synchronize-with concurrent future state changes.
+                memory_order_acquire
             );
 
             if (success) {
@@ -403,25 +464,35 @@ future_status_t future_wait_join(udipe_future_t* future,
             if (latest_status.state == STATE_RESULT) {
                 trace("Failed to update the future's status, "
                       "but the result became available meanwhile.");
-                atomic_thread_fence(memory_order_acquire);  // Sync with final state
                 return latest_status;
             }
-            trace("...and failed because another thread updated the status word or "
+            trace("...and failed because another thread updated the status or "
                   "weak compare_exchange failed spuriously. Let's try again.");
         } while(true);
 
         if (previously_locked) {
-            trace("Waiting for other thread to signal completion or give up...");
+            trace("Waiting for owner of lazy_update_lock to yield a result or give up...");
             switch (future_wait_by_adress(future,
                                           &latest_status,
                                           &timeout,
                                           &stopwatch)) {
             case ADDRESS_WAIT_SUCCESS:
             case ADDRESS_WAIT_TIMEOUT:
-                trace("Done waiting for the thread driving this future.");
-                return latest_status;
+                trace("Result is now available or wait timed out.");
+                switch (count_behavior) {
+                case DOWNSTREAM_COUNT_CYCLE:
+                    // Need at least release ordering to ensure no previous
+                    // operation get reordered after the downstream_count
+                    // decrement. Adding in the acquire ordering ensures that we
+                    // synchronize-with concurrent state changes.
+                    return future_downstream_count_dec(future, memory_order_acq_rel);
+                case DOWNSTREAM_COUNT_KEEP:
+                    return latest_status;
+                default:
+                    exit_with_error("No other count_behavior is supported yet");
+                }
             case ADDRESS_WAIT_UNLOCKED:
-                trace("Other thread gave up, time to drive ourselves?");
+                trace("Other thread gave up, let's try to acquire lazy_update_lock again!");
                 continue;
             }
         } else {
@@ -434,7 +505,7 @@ future_status_t future_wait_join(udipe_future_t* future,
 
                     trace("Beginning wait for epoll events...");
                     struct epoll_event events[MAX_JOIN_EPOLL_EVENTS];
-                    int result = epoll_pwait2(future->output_fd.epoll,
+                    int result = epoll_pwait2(future->output_fd.epoll_with_event,
                                               events,
                                               MAX_JOIN_EPOLL_EVENTS,
                                               pdelay,
@@ -444,7 +515,7 @@ future_status_t future_wait_join(udipe_future_t* future,
                     bool interrupted_by_signal = false;
                     switch (result) {
                     case 0:
-                        trace("Reached timeout during epoll_pwait2...");
+                        trace("Reached timeout during epoll_pwait2()...");
                         epoll_timed_out = true;
                         break;
                     case -1:
@@ -460,7 +531,10 @@ future_status_t future_wait_join(udipe_future_t* future,
                         }
                         break;
                     default:
-                        ensure_ge(result, 1);  // At least one event should be ready
+                        // Expecting at least one ready event on this branch
+                        ensure_ge(result, 1);
+                        const collective_upstream_t all_upstreams =
+                            future->specific.join.upstream;
                         for (size_t i = 0; i < (size_t)result; ++i) {
                             const struct epoll_event* event = &events[i];
                             // We only subscribed to EPOLLIN, and we don't
@@ -469,39 +543,57 @@ future_status_t future_wait_join(udipe_future_t* future,
                             // we are monitoring.
                             ensure_eq(event->events, EPOLLIN);
 
-                            // Find the upstream future and check/update its
-                            // status, this is be done with a zero-duration wait
-                            const uint64_t upstream_index = event->data.u64;
+                            // eventfd notifications can only occur if this
+                            // future was concurrently canceled, so we can abort
+                            // the loop over events in this case.
+                            const size_t upstream_index = event->data.u64;
+                            if (upstream_index == UINT64_MAX) {
+                                outcome = OUTCOME_FAILURE_CANCELED;
+                                break;
+                            }
+                            ensure_lt(upstream_index, all_upstreams.len);
+
+                            // Find the upstream future that became ready and
+                            // check/update its status word
                             udipe_future_t* const upstream =
-                                future->specific.join.upstream.array[upstream_index];
-                            // TODO: Should not need to increase
-                            //       downstream_count on every
-                            //       epoll-driven probe, instead it should be
-                            //       incremented at the time where the upstream
-                            //       future is attached to this join future and
-                            //       decremented at the time where the upstream
-                            //       future is detached from this join future.
-                            const future_status_t upstream_status =
-                                future_wait(upstream, UDIPE_DURATION_MIN);
+                                all_upstreams.array[upstream_index];
+                            future_status_t upstream_status =
+                                future_wait(upstream,
+                                            UDIPE_DURATION_MIN,
+                                            DOWNSTREAM_COUNT_KEEP);
                             future_status_debug_check(upstream_status, true);
 
-                            // If the upstream future is not ready yet, we'll
+                            // If this upstream future is not ready yet, we'll
                             // need to keep polling it until it is ready or
                             // another future errors out.
                             if (upstream_status.state != STATE_RESULT) continue;
 
-                            // Remove ready upstream future from epoll set...
+                            // If this upstream future's outcome is now known,
+                            // remove it from our epoll set...
+                            ensure_ge(future->specific.join.remaining,
+                                      (size_t)1);
                             --(future->specific.join.remaining);
                             const int upstream_fd = upstream->output_fd.any;
-                            epoll_ctl(future->output_fd.epoll,
+                            // FIXME: Forgot to handle epoll_ctl errors here!
+                            //        But this code is already way too nested,
+                            //        should extract it into another function
+                            //        before adding more nesting to it.
+                            epoll_ctl(future->output_fd.epoll_with_event,
                                       EPOLL_CTL_DEL,
                                       upstream_fd,
                                       NULL);
-                            // TODO: This is where a upstream_fd
-                            //       downstream_count decrement should happen.
+                            // TODO: Call future_downstream_count_dec() on
+                            //       upstream futures at the time where this
+                            //       future is destroyed by udipe_finish(). We
+                            //       cannot call it beforehand because upon
+                            //       cancelation, the upstream future could be
+                            //       accessed again, as the cancelation routine
+                            //       does not know which upstreams were removed
+                            //       from our epoll set. All it can do is call
+                            //       epoll_ctl on everything and ignore errors.
 
-                            // ...and update this future's outcome depending on
-                            // how the upstream future behaved.
+                            // Integrate the upstream future's outcome into our
+                            // own outcome.
                             switch (upstream_status.outcome) {
                             case OUTCOME_SUCCESS:
                                 break;
@@ -519,9 +611,9 @@ future_status_t future_wait_join(udipe_future_t* future,
                                 );
                             }
                         }
-                        const bool all_parents_ready =
+                        const bool all_upstreams_ready =
                             future->specific.join.remaining == 0;
-                        if (all_parents_ready && outcome == OUTCOME_UNKNOWN) {
+                        if (all_upstreams_ready && outcome == OUTCOME_UNKNOWN) {
                             outcome = OUTCOME_SUCCESS;
                         }
                     }
@@ -550,10 +642,23 @@ future_status_t future_wait_join(udipe_future_t* future,
                         trace("Preparing future status update...");
                         future_status_t desired_status = latest_status;
 
+                        // TODO: Extract this repeating code chunk into some
+                        //       kind of
+                        //       prepare_downstream_count_dec(&latest_status).
+                        //       Add documentation which clarifies that changes
+                        //       must have require ordering. Notify about the
+                        //       existence of this function in the docs of
+                        //       future_downstream_count_dec().
                         ensure(!desired_status.downstream_count_overflow);
-                        ensure_ge((size_t)desired_status.downstream_count,
-                                  (size_t)1);
-                        --desired_status.downstream_count;
+                        switch (count_behavior) {
+                        case DOWNSTREAM_COUNT_CYCLE:
+                            ensure_ge((size_t)desired_status.downstream_count,
+                                      (size_t)1);
+                            --desired_status.downstream_count;
+                            break;
+                        case DOWNSTREAM_COUNT_KEEP:
+                            break;
+                        }
 
                         if (desired_status.outcome != OUTCOME_UNKNOWN) {
                             ensure_eq((int)desired_status.state,
@@ -579,10 +684,11 @@ future_status_t future_wait_join(udipe_future_t* future,
                             future,
                             &latest_status,
                             desired_status,
-                            // Previous future operations should not be
-                            // reordered after the downstream_count decrement.
+                            // Must use release ordering when signaling a new
+                            // future state through a status word change.
                             memory_order_release,
-                            memory_order_relaxed
+                            // Synchronize-with concurrent future state changes.
+                            memory_order_acquire
                         );
 
                         if (success) {
@@ -597,14 +703,19 @@ future_status_t future_wait_join(udipe_future_t* future,
                               "spuriously. Let's try again...");
                     } while(true);
 
-                    if (canceled) {
-                        // No notification work to be done if canceled, the
-                        // thread that switched to a canceled status will take
-                        // care of it for us
+                    if (latest_status.downstream_count == 0 || canceled) {
+                        // - No notification needed if no thread is waiting for
+                        //   this future's status to change. Any thread that
+                        //   observes this future's final status afterwards
+                        //   should not need to query its eventfd to know that
+                        //   it's already ready.
+                        // - No notification needed if we were canceled, the
+                        //   thread that switched to a canceled status will take
+                        //   care of notifying others for us.
                     } else if (outcome_known) {
                         trace("Letting other threads know that the outcome of "
                               "this join future is now known.");
-                        if (latest_status->notify_address) {
+                        if (latest_status.notify_address) {
                             trace("...including other threads which were "
                                   "waiting for lazy_update_lock.");
                             wake_by_address_all(&future->status_word);
@@ -613,12 +724,13 @@ future_status_t future_wait_join(udipe_future_t* future,
                     } else {
                         assert(reached_timeout);
                         trace("Reached timeout without completing the wait.");
-                        if (latest_status->notify_address) {
+                        if (latest_status.notify_address) {
                             trace("Will now wake up another waiter (if any) to "
                                   "take over the lazy_update_lock.");
-                            // Ask next thread in the line, if any, to take over
-                            // the Using single wake avoids thundering herd as
-                            // all waiters race to acquire lazy_update_lock.
+                            // Use of wake_by_address_single() avoids the
+                            // thundering herd that would occur if multiple
+                            // waiters woke only to immediately race to acquire
+                            // lazy_update_lock and fall back asleep.
                             wake_by_address_single(&future->status_word);
                         } else {
                             trace("No other thread could be waiting for "
@@ -640,9 +752,12 @@ future_status_t future_wait_join(udipe_future_t* future,
 
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
-future_status_t future_wait_timer_once(udipe_future_t* future,
-                                       future_status_t latest_status,
-                                       udipe_duration_ns_t timeout) {
+future_status_t future_wait_timer_once(
+    udipe_future_t* future,
+    future_status_t latest_status,
+    udipe_duration_ns_t timeout,
+    downstream_count_behavior_t count_behavior
+) {
     future_status_debug_check(latest_status, true);
     assert(latest_status.type == TYPE_TIMER_ONCE);
     assert(latest_status.state != STATE_RESULT);
@@ -651,13 +766,23 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
     trace("Initializing timeout stopwatch...");
     stopwatch_t stopwatch = stopwatch_initialize();
 
-    trace("Registering as a waiter...");
-    bool success = future_downstream_count_try_inc(future, &latest_status);
-    future_status_debug_check(latest_status, true);
-    if (!success) {
-        assert(latest_status.state == STATE_RESULT);
-        trace("Future reached STATE_RESULT before we started waiting");
-        return latest_status;
+    switch(count_behavior) {
+    case DOWNSTREAM_COUNT_CYCLE:
+        trace("Registering as a waiter...");
+        const bool success =
+            future_downstream_count_try_inc(future, &latest_status);
+        future_status_debug_check(latest_status, true);
+        if (!success) {
+            assert(latest_status.state == STATE_RESULT);
+            trace("Future reached STATE_RESULT before we started waiting");
+            return latest_status;
+        }
+        break;
+    case DOWNSTREAM_COUNT_KEEP:
+        // Not checking the future's initial state again if we don't need to
+        // increment the downstream count: future_wait() already checked it
+        // right before calling this function, it is unlikely to have changed.
+        break;
     }
 
     #ifdef __linux__
@@ -686,8 +811,24 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
                       "while decrementing our downstream_count");
                 do {
                     future_status_t desired_status = latest_status;
-                    assert(latest_status.downstream_count >= 2);
-                    --desired_status.downstream_count;
+
+                    // TODO: Extract this repeating code chunk into some kind of
+                    //       prepare_downstream_count_dec(&latest_status). Add
+                    //       documentation which clarifies that changes must
+                    //       have require ordering. Notify about the existence
+                    //       of this function in the docs of
+                    //       future_downstream_count_dec().
+                    ensure(!desired_status.downstream_count_overflow);
+                    switch(count_behavior) {
+                    case DOWNSTREAM_COUNT_CYCLE:
+                        ensure_ge((size_t)desired_status.downstream_count,
+                                  (size_t)1);
+                        --desired_status.downstream_count;
+                        break;
+                    case DOWNSTREAM_COUNT_KEEP:
+                        break;
+                    }
+
                     desired_status.state = STATE_RESULT;
                     if (desired_status.outcome == OUTCOME_UNKNOWN) {
                         // Only if OUTCOME_UNKNOWN to avoid overwriting a former
@@ -696,15 +837,15 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
                     }
                     future_status_debug_check(desired_status, true);
 
-                    success = future_status_compare_exchange_weak(
+                    const bool success = future_status_compare_exchange_weak(
                         future,
                         &latest_status,
                         desired_status,
-                        // Must use release ordering when decrementing
-                        // downstream_count, so that previous operations cannot
-                        // be reordered afterwards.
+                        // Must use release ordering when signaling a new future
+                        // state through a status word change.
                         memory_order_release,
-                        memory_order_relaxed
+                        // Synchronize-with concurrent future state changes.
+                        memory_order_acquire
                     );
                     if (success) {
                         latest_status = desired_status;
@@ -714,7 +855,6 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
                         continue;
                     }
                 } while (true);
-                // No need for an acquire barrier, ppoll() already acted as one
                 return latest_status;
             case 0:
                 trace("Reached timeout before the future became ready");
@@ -752,10 +892,13 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
 
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
-address_wait_outcome_t future_wait_by_adress(udipe_future_t* future,
-                                             future_status_t* latest_status,
-                                             udipe_duration_ns_t* timeout,
-                                             stopwatch_t* stopwatch) {
+address_wait_outcome_t future_wait_by_adress(
+    udipe_future_t* future,
+    future_status_t* latest_status,
+    udipe_duration_ns_t* timeout,
+    stopwatch_t* stopwatch
+) {
+    assert(latest_status->state != STATE_RESULT);
     assert(timeout != UDIPE_DURATION_DEFAULT);
 
     trace("Checking if future type is lazy / awaited via epoll_wait()...");
@@ -772,12 +915,19 @@ address_wait_outcome_t future_wait_by_adress(udipe_future_t* future,
     case TYPE_UNORDERED:
     case TYPE_TIMER_REPEAT:
         lazy = true;
+        // This function should only be called if waiting for the epollfd
+        // directly is not possible because another thread is polling it.
+        assert(latest_status->lazy_update_lock);
         break;
     case TYPE_INVALID:
     case TYPE_TIMER_ONCE:
     default:
         exit_with_error("future_wait_by_adress() should not have been called");
     }
+    // This function should only be called after directing the threads updating
+    // the status word that they needs to send a futex notification.
+    assert(latest_status->notify_address);
+
 
     do {
         trace("Waiting for a futex-signaled status change...");
@@ -785,11 +935,10 @@ address_wait_outcome_t future_wait_by_adress(udipe_future_t* future,
 
         if (success) {
             trace("Checking the new state...");
-            *latest_status = future_status_load(future, memory_order_relaxed);
+            // Synchronize-with freshly signaled future state changes
+            *latest_status = future_status_load(future, memory_order_acquire);
             future_status_debug_check(*latest_status, true);
             if (latest_status->state == STATE_RESULT) {
-                // No acquire barrier is needed to synchronize with the result
-                // here because there's another acquire load below
                 trace("Future result is now available: we're done.");
                 break;
             } else if (lazy && !latest_status->lazy_update_lock) {
@@ -813,13 +962,7 @@ address_wait_outcome_t future_wait_by_adress(udipe_future_t* future,
         }
     } while(true);
 
-    trace("Decrementing downstream_count and assessing final status...");
-    // Need at least release to ensure no previous operation get reordered after
-    // the downstream_count decrement. Putting the acquire barrier here lets us
-    // handle last-minute switches to STATE_RESULT correctly.
-    *latest_status =
-        future_downstream_count_dec(future, memory_order_acq_rel);
-    future_status_debug_check(*latest_status, true);
+    trace("Assessing final status...");
     if (latest_status->state == STATE_RESULT) {
         return ADDRESS_WAIT_SUCCESS;
     } else if (lazy && !latest_status->lazy_update_lock) {
