@@ -945,7 +945,7 @@ address_wait_outcome_t future_wait_by_adress(
                 trace("Lazy future has been unlocked: must switch to epoll_wait() or wake up next waiter.");
                 break;
             }
-            trace("Future didn't reach its final state yet!");
+            trace("Did not reach any of the state we are waiting for!");
         } else {
             trace("Wait failed due to timeout or other cause (signal etc).");
         }
