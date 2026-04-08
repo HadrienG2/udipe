@@ -200,12 +200,7 @@ void future_status_debug_check(future_status_t status,
             // notify_address can be switched on from the fist state onwards,
             // and remains on after being turned on. Or it may never be switched
             // on. So we can't tell anything about its value.
-            trace_expr((bool)status.lazy_update_lock);
-            trace_expr(could_be_locked);
-            trace_expr((size_t)status.state);
-            trace_expr(requires_locking);
-            trace_expr((size_t)status.type);
-            if (status.lazy_update_lock) assert(could_be_locked);
+            if (status.notify_fd_or_lazy_lock) assert(could_be_locked);
         } else {
             // notify_address and notify_fd can be switched on from the WAITING
             // state, and remain on after being turned on. They may also never
@@ -213,12 +208,10 @@ void future_status_debug_check(future_status_t status,
         }
     } else {
         assert(!status.notify_address);
-        if (is_fd_based) {
-            assert(!status.lazy_update_lock);
-        } else {
-            assert(!status.notify_fd);
-        }
+        assert(!status.notify_fd_or_lazy_lock);
     }
+
+    assert(status.reserved == 0);
 }
 
 
@@ -407,14 +400,14 @@ future_status_t future_wait_join(udipe_future_t* future,
         do {
             future_status_t desired_status = latest_status;
             prepare_downstream_count_inc(&desired_status, count_policy);
-            previously_locked = latest_status.lazy_update_lock;
+            previously_locked = latest_status.notify_fd_or_lazy_lock;
             if (previously_locked) {
                 trace("Another thread is already awaiting this future, "
                       "will await this thread via the futex path...");
                 desired_status.notify_address = true;
             } else {
                 trace("No thread is waiting yet, try to acquire the lock.");
-                desired_status.lazy_update_lock = true;
+                desired_status.notify_fd_or_lazy_lock = true;
             }
 
             if (future_status_eq(desired_status, latest_status)) {
@@ -453,7 +446,7 @@ future_status_t future_wait_join(udipe_future_t* future,
         } while(true);
 
         if (previously_locked) {
-            trace("Waiting for the lazy_update_lock holder to "
+            trace("Waiting for the lazy_lock holder to "
                   "either yield a result or give up...");
             switch (future_wait_by_adress(future,
                                           &latest_status,
@@ -476,7 +469,7 @@ future_status_t future_wait_join(udipe_future_t* future,
                     exit_with_error("No other count_policy is supported yet");
                 }
             case ADDRESS_WAIT_UNLOCKED:
-                trace("The lazy_update_lock holder gave up, let's try to "
+                trace("The lazy_lock holder gave up, let's try to "
                       "take its bplace.");
                 continue;
             }
@@ -644,8 +637,8 @@ future_status_t future_wait_join(udipe_future_t* future,
                         } else {
                             assert(reached_timeout);
                         }
-                        assert(latest_status.lazy_update_lock);
-                        desired_status.lazy_update_lock = false;
+                        assert(latest_status.notify_fd_or_lazy_lock);
+                        desired_status.notify_fd_or_lazy_lock = false;
 
                         future_status_debug_check(desired_status, true);
                         const bool success = future_status_compare_exchange_weak(
@@ -684,7 +677,7 @@ future_status_t future_wait_join(udipe_future_t* future,
                               "this join future is now known.");
                         if (latest_status.notify_address) {
                             trace("...including other threads which were "
-                                  "waiting for lazy_update_lock.");
+                                  "waiting for lazy_lock.");
                             wake_by_address_all(&future->status_word);
                         }
                         event_signal(future->specific.join.outcome_event);
@@ -693,15 +686,15 @@ future_status_t future_wait_join(udipe_future_t* future,
                         trace("Reached timeout without completing the wait.");
                         if (latest_status.notify_address) {
                             trace("Will now wake up one waiter (if any) to "
-                                  "take over the lazy_update_lock.");
+                                  "take over the lazy_lock.");
                             // Use of wake_by_address_single() avoids the
                             // thundering herd that would occur if multiple
                             // waiters woke only to immediately race to acquire
-                            // lazy_update_lock and fall back asleep.
+                            // lazy_lock and fall back asleep.
                             wake_by_address_single(&future->status_word);
                         } else {
                             trace("No other thread could be waiting for "
-                                  "lazy_update_lock at the time where it freed "
+                                  "lazy_lock at the time where it freed "
                                   "up: will leave the futex alone.");
                         }
                     }
@@ -887,7 +880,7 @@ address_wait_outcome_t future_wait_by_adress(
         lazy = true;
         // This function should only be called if waiting for the epollfd
         // directly is not possible because another thread is polling it.
-        assert(latest_status->lazy_update_lock);
+        assert(latest_status->notify_fd_or_lazy_lock);
         break;
     case TYPE_INVALID:
     case TYPE_TIMER_ONCE:
@@ -912,7 +905,7 @@ address_wait_outcome_t future_wait_by_adress(
             if (latest_status->state == STATE_RESULT) {
                 trace("Future result is now available: we're done.");
                 break;
-            } else if (lazy && !latest_status->lazy_update_lock) {
+            } else if (lazy && !latest_status->notify_fd_or_lazy_lock) {
                 trace("Lazy future has been unlocked: must switch to epoll_wait() or wake up next waiter.");
                 break;
             }
@@ -936,7 +929,7 @@ address_wait_outcome_t future_wait_by_adress(
     trace("Assessing final status...");
     if (latest_status->state == STATE_RESULT) {
         return ADDRESS_WAIT_SUCCESS;
-    } else if (lazy && !latest_status->lazy_update_lock) {
+    } else if (lazy && !latest_status->notify_fd_or_lazy_lock) {
         return ADDRESS_WAIT_UNLOCKED;
     } else {
         return ADDRESS_WAIT_TIMEOUT;
@@ -963,7 +956,7 @@ void udipe_join(udipe_context_t* context,
 
 #ifdef UDIPE_BUILD_TESTS
 
-    #define NUM_TRIALS  (size_t)1024
+    #define NUM_TRIALS  (size_t)(50*1000)
 
     typedef enum random_status_kind_e {
         STATUS_KIND_UNALLOCATED = 0,
@@ -1112,24 +1105,25 @@ void udipe_join(udipe_context_t* context,
         switch (wait_style) {
         case 0:  // Unallocated
             result.notify_address = false;
-            result.notify_fd = false;
+            result.notify_fd_or_lazy_lock = false;
             break;
         case 1:  // Eager
             result.notify_address = rand() % 2;
-            result.notify_fd = rand() % 2;
+            result.notify_fd_or_lazy_lock = rand() % 2;
             break;
         case 2:  // Lazy
             result.notify_address = rand() % 2;
             if (could_be_locked) {
-                result.lazy_update_lock = rand() % 2;
+                result.notify_fd_or_lazy_lock = rand() % 2;
             } else {
-                result.lazy_update_lock = false;
+                result.notify_fd_or_lazy_lock = false;
             }
             break;
         }
         trace_expr((size_t)result.notify_address);
-        trace_expr((bool)result.notify_fd);
-        trace_expr((bool)result.lazy_update_lock);
+        trace_expr((bool)result.notify_fd_or_lazy_lock);
+
+        result.reserved = 0;
         return result;
     }
 
@@ -1171,6 +1165,7 @@ void udipe_join(udipe_context_t* context,
         } while (status_to_u32(desired) == status_to_u32(initial_status)
                  || status_to_u32(desired) == status_to_u32(expected));
 
+        trace("Trying strong CAS(expected -> desired) which should fail...");
         const future_status_t initial_expected = expected;
         ensure(
             !future_status_compare_exchange_strong(future,
@@ -1184,6 +1179,7 @@ void udipe_join(udipe_context_t* context,
                          initial_status);
         expected = initial_expected;
 
+        trace("Trying weak CAS(expected -> desired) which should fail...");
         ensure(
             !future_status_compare_exchange_weak(future,
                                                  &expected,
@@ -1213,6 +1209,7 @@ void udipe_join(udipe_context_t* context,
         } while (status_to_u32(desired2) == status_to_u32(initial_status)
                  || status_to_u32(desired2) == status_to_u32(desired1));
 
+        trace("Trying strong CAS(initial -> desired1) which should succeed...");
         future_status_t expected = initial_status;
         ensure(
             future_status_compare_exchange_strong(future,
@@ -1226,6 +1223,7 @@ void udipe_join(udipe_context_t* context,
                          desired1);
         expected = desired1;
 
+        trace("Trying weak CAS(desired1->desired2) until it succeeds...");
         while (!future_status_compare_exchange_weak(future,
                                                     &expected,
                                                     desired2,
@@ -1253,6 +1251,7 @@ void udipe_join(udipe_context_t* context,
             initial_status.downstream_count_overflow = false;
             future_status_store(future, initial_status, memory_order_relaxed);
 
+            trace("Trying to increase the downstream count...");
             future_status_t latest_status = initial_status;
             const bool success =
                 future_downstream_count_try_inc(future, &latest_status);
@@ -1266,6 +1265,7 @@ void udipe_join(udipe_context_t* context,
                 return;
             }
 
+            trace("Trying to decrease the downstream count...");
             future_downstream_count_dec(future, memory_order_release);
             ensure_status_eq(
                 future_status_load(future, memory_order_relaxed),
@@ -1279,20 +1279,20 @@ void udipe_join(udipe_context_t* context,
         configure_rand();
 
         for (size_t i = 0; i < NUM_TRIALS; ++i) {
-            debug("Testing future initialization...");
+            trace("Testing future initialization...");
             udipe_future_t future;
             check_future_status_init(&future, random_status(STATUS_KIND_UNALLOCATED));
 
-            debug("Testing status word writes...");
+            trace("Testing status word writes...");
             check_future_status_write(&future, random_status(STATUS_KIND_ANY));
 
-            debug("Testing status word CAS failure...");
+            trace("Testing status word CAS failure...");
             check_future_status_cas_fail(&future);
 
-            debug("Testing status word CAS success...");
+            trace("Testing status word CAS success...");
             check_future_status_cas_success(&future);
 
-            debug("Testing downstream count increment/decrement...");
+            trace("Testing downstream count increment/decrement...");
             check_future_downstream_count_inc_dec(&future);
         }
 

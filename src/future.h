@@ -540,54 +540,56 @@ typedef struct future_status_s {
     /// that intermittently need it.
     bool notify_address : 1;
 
-    union {
-        /// Truth that changes to this status word should be signaled via
-        /// the output `eventfd`
-        ///
-        /// "Eager" futures support address-based signaling, in contrast to
-        /// "lazy" futures which only support file descriptor signaling.
-        /// Therefore eager futures do not always need to signal changes
-        /// through their output eventfd, and require a flag to enable this
-        /// form of signaling.
-        ///
-        /// This flag works just like `notify_address`: initially unset, set
-        /// the first time a thread expresses interest in receiving updates
-        /// through the file descriptor path, cannot be unset afterwards
-        /// until the future is destroyed.
-        bool notify_fd : 1;
+    /// Request for `eventfd` signaling or lazy future state locking
+    ///
+    /// The meaning of this field depends on whether you are dealing with an
+    /// "eager" future, whose status is automatically changed by a dedicated
+    /// thread, or with a "lazy" future, whose status is changed as a result of
+    /// polling an eventfd.
+    ///
+    /// # Event future: Request for `eventfd` signaling
+    ///
+    /// "Eager" futures support address-based signaling, in contrast to "lazy"
+    /// futures which only support file descriptor signaling. Therefore eager
+    /// futures do not always need to signal changes through their output
+    /// eventfd, and require a flag to enable this form of signaling.
+    ///
+    /// For these futures, this flag works just like `notify_address`: initially
+    /// unset, set the first time a thread expresses interest in receiving
+    /// updates through the file descriptor path, cannot be unset afterwards
+    /// until the future is destroyed.
+    ///
+    /// # Lazy future: Lock for lazily updating the future state
+    ///
+    /// "Lazy" future types are not eagerly updated by a thread which is in
+    /// charge of performing the asynchronous work. Instead they get lazily
+    /// updated, usually at the point where a user thread starts directly or
+    /// indirectly waiting for their output epollfd to signal a status change.
+    ///
+    /// Because these future types may be concurrently awaited by multiple
+    /// threads, access to their lazily updated internal state must be
+    /// synchronized somehow. For collective and repeating timer futures, which
+    /// have complex internal state that cannot be updated in a single atomic
+    /// RMW operation, this is ensured by using this flag as a lock. When such a
+    /// future's output fd becomes ready, indicating a possible state change,
+    /// the thread that gets awakened as a result must...
+    ///
+    /// - Check if this locking flag is already set.
+    ///     - If so, another thread is already in the process of querying the
+    ///       file descriptor, and this thread can do nothing but wait for the
+    ///       results. To do this set the `notify_address` flag if it is not set
+    ///       yet, then use a wait_on_address() loop to wait for the other
+    ///       thread that arrived first to report the final state (or release
+    ///       the lock in some other way).
+    ///     - If not, attempt to set this flag, and if successful perform any
+    ///       required state update operation finishing with the status word
+    ///       (clearing this lock flag along the way), then signal the status
+    ///       word change via wake_by_address_all() if `notify_address` is set.
+    bool notify_fd_or_lazy_lock : 1;
 
-        /// State lock for lazily updated futures
-        ///
-        /// "Lazy" future types are not eagerly updated by a thread which is
-        /// in charge of performing the asynchronous work. Instead they get
-        /// lazily updated, usually at the point where a user thread starts
-        /// directly or indirectly waiting for their output epollfd to
-        /// signal a status change.
-        ///
-        /// Because these future types may be concurrently awaited by
-        /// multiple threads, access to their lazily updated internal state
-        /// must be synchronized somehow. For collective and repeating timer
-        /// futures, which have complex internal state that cannot be
-        /// updated in a single atomic RMW operation, this is ensured by
-        /// using this flag as a lock. When such a future's output fd
-        /// becomes ready, indicating a possible state change, the thread
-        /// that gets awakened as a result must...
-        ///
-        /// - Check if this locking flag is already set.
-        ///     - If so, another thread is already in the process of
-        ///       querying the file descriptor, and this thread can do
-        ///       nothing but wait for the results. To do this set the
-        ///       `notify_address` flag if it is not set yet, then use a
-        ///       wait_on_address() loop to wait for the other thread that
-        ///       arrived first to report the final state (or release the
-        ///       lock in some other way).
-        ///     - If not, attempt to set this flag, and if successful
-        ///       perform any required state update operation finishing with
-        ///       the status word (clearing this lock flag along the way),
-        ///       then signal the status word change via
-        ///       wake_by_address_all() if `notify_address` is set.
-        bool lazy_update_lock : 1;
-    };
+    /// Those spare bits are reserved for future use and must be set to 0
+    ///
+    unsigned reserved : 2;
 
     // NOTE: This bitfield cannot grow beyond the end of the above byte.
 } future_status_t;
@@ -659,7 +661,7 @@ typedef struct collective_upstream_s {
 /// read by clients and can thus remain in the perpetually ready unread state,
 /// which acts as that future type's output readiness notification.
 ///
-/// These eventfds must be written to under `lazy_update_lock` protection, and
+/// These eventfds must be written to under `lazy_lock` protection, and
 /// must be reset and recycled along with the associated output epollfd at the
 /// time where the associated future is liberated.
 //
@@ -728,7 +730,7 @@ struct udipe_future_s {
             /// If this number reaches 0, then this future can switch to \ref
             /// STATE_RESULT with \ref OUTCOME_SUCCESS.
             ///
-            /// Must be read and written under `lazy_update_lock` protection.
+            /// Must be read and written under `lazy_lock` protection.
             size_t remaining;
 
             /// eventfd used to mark this future as permanently ready after it
@@ -756,7 +758,7 @@ struct udipe_future_s {
             /// indicates which of the upstream futures became ready and how to
             /// await the rest of the upstream futures.
             ///
-            /// Must be written under `lazy_update_lock` protection.
+            /// Must be written under `lazy_lock` protection.
             udipe_unordered_payload_t payload;
 
             /// Inner epollfd that contains the set of upstream futures, which
@@ -766,11 +768,10 @@ struct udipe_future_s {
             /// set to successor unordered futures without affecting clients of
             /// this specific unordered future.
             ///
-            /// Must be awaited under `lazy_update_lock` protection, and
-            /// detached from the output epollfd and attached to the successor
-            /// future (if any) once a result is ready. Must be reset by
-            /// detaching all remaining upstream fds then recycled when the
-            /// future is liberated.
+            /// Must be awaited under `lazy_lock` protection, and detached from
+            /// the output epollfd and attached to the successor future (if any)
+            /// once a result is ready. Must be reset by detaching all remaining
+            /// upstream fds then recycled when the future is liberated.
             ///
             /// Unlike the output epollfd, the epoll set does not contain an
             /// eventfd.
@@ -804,10 +805,10 @@ struct udipe_future_s {
             /// to successor unordered futures without affecting clients of this
             /// specific unordered future.
             ///
-            /// Must be read under `lazy_update_lock` protection, and detached
-            /// from the output epollfd then attached to the successor future's
-            /// output epollfd when a result is ready. Must be destroyed when
-            /// the future is liberated, for now. May switch to disarming and
+            /// Must be read under `lazy_lock` protection, and detached from the
+            /// output epollfd then attached to the successor future's output
+            /// epollfd when a result is ready. Must be destroyed when the
+            /// future is liberated, for now. May switch to disarming and
             /// recycling if timerfd creation/destruction ever becomes a
             /// bottleneck, but that seems unlikely under correct usage since
             /// recuring timerfds largely void the need for repeatedly creating
@@ -917,7 +918,7 @@ struct udipe_future_s {
         ///
         /// Because epoll's API design is not very friendly to multi-threaded
         /// use, `epoll_wait()` on the inner epollfds requires
-        /// `lazy_update_lock` protection, which effectively acts as a mutex to
+        /// `lazy_lock` protection, which effectively acts as a mutex to
         /// control access to the epollfd and associated future state.
         ///
         /// Whenever `epoll_wait()` output indicates that a particular upstream
