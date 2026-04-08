@@ -98,6 +98,10 @@ typedef enum future_state_e /* : _BitInt(3) */ {
     /// other pending asynchronous operations, obviously).
     STATE_RESULT,
 
+    /// Not a true state, only needed to count how many states there are
+    ///
+    NUM_STATES,
+
     // NOTE: If this enum gets more than 8 variants, reallocate the bit budget
     //       of the `state` field of the future_status_word_t accordingly.
 } future_state_t;
@@ -173,6 +177,10 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
     /// this future depends on in constant time, the latter is reported via \ref
     /// OUTCOME_FAILURE_DEPENDENCY.
     OUTCOME_FAILURE_CANCELED,
+
+    /// Not a true outcome, only needed to count how many outcomes there are
+    ///
+    NUM_OUTCOMES,
 
     // NOTE: If this enum gets more than 8 variants, reallocate the bit budget
     //       of the `state` field of the future_status_word_t accordingly.
@@ -394,6 +402,10 @@ typedef enum future_type_e /* : _BitInt(4) */ {
     ///   side the eventfd is signaled to make sure that the original future
     ///   remains in a perma-signaled state.
     TYPE_TIMER_REPEAT,
+
+    /// Not a true type, only needed to count how many types there are
+    ///
+    NUM_TYPES,
 
     // NOTE: If this enum gets more than 16 variants, reallocate the bit budget
     //       of the `type` field of the future_status_word_t accordingly.
@@ -982,6 +994,139 @@ static_assert(sizeof(udipe_result_t) <= CACHE_LINE_SIZE,
 void future_status_debug_check(future_status_t status,
                                bool is_allocated);
 
+/// How the downstream count of a future should be changed during a wait
+///
+/// The downstream count is a reference count, stored within a future's status
+/// word, which is used to detect use-after-free patterns where udipe_finish()
+/// is called before all users of a future are done with it.
+///
+/// When a thread waits for a future to be ready, it normally increments the
+/// downstream count at the beginning of the wait and decrements it at the end,
+/// as modeled by the `DOWNSTREAM_COUNT_CYCLE` variant of this enum. But there
+/// are a few exceptions to this general rule, motivated by performance and
+/// correctness reasons. Hence this tuning knob.
+typedef enum downstream_count_policy_e {
+    /// Increment the downstream count at the start and decrement it at the end
+    ///
+    /// This is the normal policy of udipe_wait(). Any other policy assumes
+    /// something about the way the future has been previously manipulated or
+    /// will be manipulated in the future, and must therefore only be used in
+    /// special circumstances.
+    DOWNSTREAM_COUNT_CYCLE = 0,
+
+    /// Do not change the downstream count during the waiting process
+    ///
+    /// This special policy is needed in two circumstances:
+    ///
+    /// - udipe_finish(), which ends a future's lifetime, does not manipulate
+    ///   the downstream count. It will instead clear the `available` flag at
+    ///   the beginning and make sure the downstream count is zero at that time.
+    /// - Collective futures like \ref TYPE_JOIN and \ref TYPE_UNORDERED stay
+    ///   attached to their upstream futures until they are done waiting for
+    ///   them. Thus the downstream count of upstream futures is incremented
+    ///   initially as the collective future is created, and only decremented as
+    ///   the collective future is liberated by udipe_finish(). This has two
+    ///   benefits:
+    ///     - The performance overhead of incrementing and decrementing the
+    ///       downstream count of upstream futures multiple times throughout the
+    ///       waiting process is avoided.
+    ///     - The downstream count stays at a nonzero value as long as the
+    ///       collective future may access it, thus reducing the odds of
+    ///       use-after-finish detection failure.
+    DOWNSTREAM_COUNT_KEEP,
+} downstream_count_policy_t;
+
+/// Apply the effect of future_downstream_count_try_inc() to a local status word
+///
+/// This function can be used when a thread is getting ready to await a
+/// non-ready future and needs to change fields of the status word other than
+/// the `downstream_count`. When no other status word field needs to be changed,
+/// future_downstream_count_try_inc() should be used instead.
+///
+/// Once you are ready to commit this status word change through a
+/// `compare_exchange` transaction, you should make sure that said transaction
+/// has a memory ordering of `acquire` or stronger (`acq_rel`, `seq_cst`) on
+/// success. This is needed to ensure that no later thread action targeting
+/// the future may be reordered before the `downstream_count` increment.
+///
+/// It only makes sense to apply this sort of fine-grained transaction to the
+/// status word of a live future that's allocated to some work. Unallocated
+/// futures can be manipulated by simply overwriting their status with
+/// future_status_store().
+///
+/// \param status should initially point to the latest known future status word,
+///               or a version of it which already started receiving some of the
+///               desired changes. This function will take care of applying any
+///               needed downstream_count change.
+/// \param count_policy indicates the downstream count policy which the caller
+///                     of this function operates under.
+UDIPE_NON_NULL_ARGS
+static inline
+void prepare_downstream_count_inc(future_status_t* status,
+                                  downstream_count_policy_t count_policy) {
+    future_status_debug_check(*status, true);
+    assert(status->state != STATE_RESULT);
+    ensure(!status->downstream_count_overflow);
+    switch (count_policy) {
+    case DOWNSTREAM_COUNT_CYCLE:
+        ensure_lt((size_t)status->downstream_count,
+                  (size_t)MAX_DOWNSTREAM_COUNT);
+        ++(status->downstream_count);
+        break;
+    case DOWNSTREAM_COUNT_KEEP:
+        break;
+    }
+}
+
+/// Apply the effect of future_downstream_count_dec() to a local status word
+///
+/// This function can be used when a thread is done awaiting a future and needs
+/// to change fields of the status word other than the `downstream_count`. When
+/// no other status word field needs to be changed,
+/// future_downstream_count_dec() should be used instead.
+///
+/// Once you are ready to commit this status word change through a
+/// `compare_exchange` transaction, you should make sure that said transaction
+/// has a memory ordering of `release` or stronger (`acq_rel`, `seq_cst`) on
+/// success. This is needed to ensure that no previous thread action targeting
+/// the future may be reordered after the `downstream_count` decrement.
+///
+/// It only makes sense to apply this sort of fine-grained transaction to the
+/// status word of a live future that's allocated to some work. Unallocated
+/// futures can be manipulated by simply overwriting their status with
+/// future_status_store().
+///
+/// \param status should initially point to the latest known future status word,
+///               or a version of it which already started receiving some of the
+///               desired changes. This function will take care of applying any
+///               needed downstream_count change.
+/// \param count_policy indicates the downstream count policy which the caller
+///                     of this function operates under.
+UDIPE_NON_NULL_ARGS
+static inline
+void prepare_downstream_count_dec(future_status_t* status,
+                                  downstream_count_policy_t count_policy) {
+    future_status_debug_check(*status, true);
+    ensure(!status->downstream_count_overflow);
+    switch (count_policy) {
+    case DOWNSTREAM_COUNT_CYCLE:
+        ensure_ge((size_t)status->downstream_count,
+                  (size_t)1);
+        --(status->downstream_count);
+        break;
+    case DOWNSTREAM_COUNT_KEEP:
+        break;
+    }
+}
+
+/// Check if two future status words are equal
+///
+static inline
+bool future_status_eq(future_status_t s1, future_status_t s2) {
+    return (future_status_word_t){ .as_bitfield = s1 }.as_word
+        == (future_status_word_t){ .as_bitfield = s2 }.as_word;
+}
+
 /// Initialize a future's status word
 ///
 /// This operation is not atomic and must never be called from multiple threads.
@@ -995,6 +1140,7 @@ UDIPE_NON_NULL_ARGS
 static inline
 void future_status_initialize(udipe_future_t* future,
                               future_status_t status) {
+    future_status_debug_check(status, false);
     atomic_init(&future->status_word,
                 (future_status_word_t){ .as_bitfield = status }.as_word);
 }
@@ -1045,6 +1191,11 @@ void future_status_store(udipe_future_t* future,
 ///
 /// If the only field you want to change is the `downstream_count`, consider
 /// using `future_downstream_count_` operations as a more efficient alternative.
+///
+/// It only makes sense to apply this sort of fine-grained transaction to the
+/// status word of a live future that's allocated to some work. Unallocated
+/// futures can be manipulated by simply overwriting their status with
+/// future_status_store().
 ///
 /// \param future must be a future that was returned by an asynchronous function
 ///               (those whose name begins with `udipe_start_`) and has not been
@@ -1128,7 +1279,11 @@ bool future_status_compare_exchange_weak(udipe_future_t* future,
 /// This function has the same semantics as wait_on_address(), but it is meant
 /// to be called and operates on their status word in its decoded bitfield form.
 ///
-/// It must be called within the scope of with_logger().
+/// It only makes sense to apply this sort of synchronization to the status word
+/// of a live future that's allocated to some work. Unallocated futures can be
+/// manipulated by simply overwriting their status with future_status_store().
+///
+/// This function must be called within the scope of with_logger().
 UDIPE_NON_NULL_ARGS
 static inline
 bool future_status_wait(udipe_future_t* future,
@@ -1150,7 +1305,14 @@ bool future_status_wait(udipe_future_t* future,
 ///
 /// As with future_downstream_count_try_inc(), if you need to modify other
 /// fields of the future status word, you should batch these two updates into a
-/// single `future_status_compare_exchange_` transaction.
+/// single `future_status_compare_exchange_` transaction. In this case, you can
+/// use prepare_downstream_count_dec() as preparation for your custom CAS
+/// transaction.
+///
+/// It only makes sense to apply this sort of fine-grained transaction to the
+/// status word of a live future that's allocated to some work. Unallocated
+/// futures can be manipulated by simply overwriting their status with
+/// future_status_store().
 ///
 /// \param future must be a future that was returned by an asynchronous function
 ///               (those whose name begins with `udipe_start_`) and has not been
@@ -1193,7 +1355,9 @@ future_status_t future_downstream_count_dec(udipe_future_t* future,
 /// If you need to perform other changes to the future's status word, then you
 /// should batch up all desired changes into a single
 /// `future_status_compare_exchange_` loop, as it will be more efficient than
-/// performing multiple RMW operations on the future status word.
+/// performing multiple RMW operations on the future status word. In this case,
+/// you can use prepare_downstream_count_inc() as preparation for your custom
+/// CAS transaction.
 ///
 /// If the future switches to \ref STATE_RESULT as this change is being
 /// performed, then this function will either revert the `downstream_count`
@@ -1211,6 +1375,11 @@ future_status_t future_downstream_count_dec(udipe_future_t* future,
 ///
 /// In both cases, `latest_status`, which should initially be set to the latest
 /// known future status, will be updated to the new future status.
+///
+/// It only makes sense to apply this sort of fine-grained transaction to the
+/// status word of a live future that's allocated to some work. Unallocated
+/// futures can be manipulated by simply overwriting their status with
+/// future_status_store().
 ///
 /// This function must be called within the scope of with_logger().
 ///
@@ -1274,45 +1443,6 @@ bool future_downstream_count_try_inc(udipe_future_t* future,
 /// \name Awaiting future results
 /// \{
 
-/// How the downstream count of a future should be changed during a wait
-///
-/// The downstream count is a reference count, stored within a future's status
-/// word, which is used to detect use-after-free patterns where udipe_finish()
-/// is called before all users of a future are done with it.
-///
-/// When a thread waits for a future to be ready, it normally increments the
-/// downstream count at the beginning of the wait and decrements it at the end.
-/// But there are a few exceptions to this general rule, motivated by
-/// performance and correctness reasons. Hence this tuning knob.
-typedef enum downstream_count_behavior_e {
-    /// Increment the downstream count at the start and decrement it at the end
-    ///
-    /// This is the normal behavior of udipe_wait(). Any other behavior assumes
-    /// something about the way the future has been previously manipulated or
-    /// will be manipulated in the future, and must therefore only be used in
-    /// special circumstances.
-    DOWNSTREAM_COUNT_CYCLE,
-
-    /// Do not change the downstream count
-    ///
-    /// This special behavior is needed in two circumstances:
-    ///
-    /// - udipe_finish(), which ends a future's lifetime, does not manipulate
-    ///   the downstream count. It will
-    /// - Collective futures like \ref TYPE_JOIN and \ref TYPE_UNORDERED stay
-    ///   attached to their upstream futures until they are done waiting for
-    ///   them. Therefore, the downstream count of upstream futures is
-    ///   incremented initially as the collective future is created, and only
-    ///   decremented as the collective future is done waiting for upstream
-    ///   futures. This has two benefits:
-    ///     - The performance overhead of incrementing and decrementing the
-    ///       downstream count of upstream futures multiple times throughout the
-    ///       waiting process is avoided.
-    ///     - The downstream count stays at a nonzero value permanently, thus
-    ///       reducing the odds of use-after-finish detection failure.
-    DOWNSTREAM_COUNT_KEEP,
-} downstream_count_behavior_t;
-
 /// Backend of udipe_wait() that returns the latest future status after the wait
 ///
 /// The wait is considered successful if the final status has \ref STATE_RESULT,
@@ -1336,7 +1466,7 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 future_status_t future_wait(udipe_future_t* future,
                             udipe_duration_ns_t timeout,
-                            downstream_count_behavior_t count_behavior);
+                            downstream_count_policy_t count_policy);
 
 /// Backend of future_wait() for all future types that get eagerly signaled by a
 /// separate thread
@@ -1359,7 +1489,7 @@ UDIPE_NON_NULL_ARGS
 future_status_t future_wait_eager(udipe_future_t* future,
                                   future_status_t latest_status,
                                   udipe_duration_ns_t timeout,
-                                  downstream_count_behavior_t count_behavior);
+                                  downstream_count_policy_t count_policy);
 
 /// Backend of future_wait() for \ref TYPE_JOIN
 ///
@@ -1380,7 +1510,7 @@ UDIPE_NON_NULL_ARGS
 future_status_t future_wait_join(udipe_future_t* future,
                                  future_status_t latest_status,
                                  udipe_duration_ns_t timeout,
-                                 downstream_count_behavior_t count_behavior);
+                                 downstream_count_policy_t count_policy);
 
 /// Backend of future_wait() for \ref TYPE_UNORDERED
 ///
@@ -1396,14 +1526,12 @@ future_status_t future_wait_join(udipe_future_t* future,
 ///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
 ///
 /// \returns the final future status.
-//
-// TODO implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 future_status_t future_wait_unordered(udipe_future_t* future,
                                       future_status_t latest_status,
                                       udipe_duration_ns_t timeout,
-                                      downstream_count_behavior_t count_behavior);
+                                      downstream_count_policy_t count_policy);
 
 /// Backend of future_wait() for \ref TYPE_TIMER_ONCE
 ///
@@ -1424,7 +1552,7 @@ UDIPE_NON_NULL_ARGS
 future_status_t future_wait_timer_once(udipe_future_t* future,
                                        future_status_t latest_status,
                                        udipe_duration_ns_t timeout,
-                                       downstream_count_behavior_t count_behavior);
+                                       downstream_count_policy_t count_policy);
 
 /// Backend of future_wait() for \ref TYPE_TIMER_REPEAT
 ///
@@ -1440,14 +1568,12 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
 ///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
 ///
 /// \returns the final future status.
-//
-// TODO implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 future_status_t future_wait_timer_repeat(udipe_future_t* future,
                                          future_status_t latest_status,
                                          udipe_duration_ns_t timeout,
-                                         downstream_count_behavior_t count_behavior);
+                                         downstream_count_policy_t count_policy);
 
 /// Outcome of future_wait_by_adress()
 ///
@@ -1508,7 +1634,7 @@ typedef enum address_wait_outcome_e {
 /// Before calling this function, you must...
 ///
 /// - Increment the `downstream_count` field of the future status word if
-///   directed by the downstream_count_behavior_t.
+///   directed by the \ref downstream_count_policy_t.
 /// - Set the `notify_address` field of said status word.
 /// - Perform any other setup step required by the specific future type.
 ///
@@ -1516,7 +1642,7 @@ typedef enum address_wait_outcome_e {
 /// reordered before the status word setup.
 ///
 /// After calling this function, you must decrement the `downstream_count` field
-/// of the future status word if directed by the downstream_count_behavior_t,
+/// of the future status word if directed by the \ref downstream_count_policy_t,
 /// with at least release ordering, so that no future manipulation is reordered
 /// after the downstream count decrement.
 ///
