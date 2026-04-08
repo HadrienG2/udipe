@@ -59,7 +59,7 @@ void future_status_debug_check(future_status_t status,
     assert(("65k dependents ought to be enough for anybody",
             !status.downstream_count_overflow));
     assert(("Futures can only be used between allocation and start of udipe_finish()",
-            (status.downstream_count > 0) == status.available));
+            (status.downstream_count == 0) || status.available));
     assert(("Should be true unless MAX_DOWNSTREAM_COUNT define needs updating",
             status.downstream_count <= MAX_DOWNSTREAM_COUNT));
 
@@ -200,6 +200,11 @@ void future_status_debug_check(future_status_t status,
             // notify_address can be switched on from the fist state onwards,
             // and remains on after being turned on. Or it may never be switched
             // on. So we can't tell anything about its value.
+            trace_expr((bool)status.lazy_update_lock);
+            trace_expr(could_be_locked);
+            trace_expr((size_t)status.state);
+            trace_expr(requires_locking);
+            trace_expr((size_t)status.type);
             if (status.lazy_update_lock) assert(could_be_locked);
         } else {
             // notify_address and notify_fd can be switched on from the WAITING
@@ -958,6 +963,8 @@ void udipe_join(udipe_context_t* context,
 
 #ifdef UDIPE_BUILD_TESTS
 
+    #define NUM_TRIALS  (size_t)1024
+
     typedef enum random_status_kind_e {
         STATUS_KIND_UNALLOCATED = 0,
         STATUS_KIND_AVAILABLE,
@@ -968,6 +975,7 @@ void udipe_join(udipe_context_t* context,
 
     future_status_t random_status(random_status_kind_t kind) {
         future_status_t result;
+
         switch (kind) {
         case STATUS_KIND_UNALLOCATED:
         case STATUS_KIND_FINISHING:
@@ -990,6 +998,7 @@ void udipe_join(udipe_context_t* context,
         case STATUS_KIND_ALLOCATED:
             return random_status(STATUS_KIND_AVAILABLE + (rand() % 2));
         }
+        trace_expr(result.downstream_count);
 
         result.downstream_count_overflow = false;
 
@@ -1003,10 +1012,13 @@ void udipe_join(udipe_context_t* context,
             break;
         case STATUS_KIND_ANY:
         case STATUS_KIND_ALLOCATED:
+        default:
             exit_with_error("Excluded above");
         }
+        trace_expr((size_t)result.type);
 
         result.available = (kind == STATUS_KIND_AVAILABLE);
+        trace_expr((bool)result.available);
 
         int wait_style;  // 0 = unallocated, 1 = eager, 2 = lazy
         bool has_dependencies; // Only set when wait_style is nonzero
@@ -1072,6 +1084,7 @@ void udipe_join(udipe_context_t* context,
         case NUM_TYPES:
             exit_with_error("Should never happen");
         }
+        trace_expr((size_t)result.state);
 
         switch (result.state) {
         case STATE_UNINITIALIZED:
@@ -1094,6 +1107,7 @@ void udipe_join(udipe_context_t* context,
         case NUM_STATES:
             exit_with_error("Should never happen");
         }
+        trace_expr((size_t)result.outcome);
 
         switch (wait_style) {
         case 0:  // Unallocated
@@ -1113,6 +1127,9 @@ void udipe_join(udipe_context_t* context,
             }
             break;
         }
+        trace_expr((size_t)result.notify_address);
+        trace_expr((bool)result.notify_fd);
+        trace_expr((bool)result.lazy_update_lock);
         return result;
     }
 
@@ -1138,13 +1155,16 @@ void udipe_join(udipe_context_t* context,
     }
 
     void check_future_status_cas_fail(udipe_future_t* future) {
+        trace("Generating initial status...");
         const future_status_t initial_status =
             random_status(STATUS_KIND_ALLOCATED);
         future_status_store(future, initial_status, memory_order_relaxed);
+        trace("Generating expected status...");
         future_status_t expected;
         do {
             expected = random_status(STATUS_KIND_ALLOCATED);
         } while (status_to_u32(expected) == status_to_u32(initial_status));
+        trace("Generating desired status...");
         future_status_t desired;
         do {
             desired = random_status(STATUS_KIND_ALLOCATED);
@@ -1177,13 +1197,16 @@ void udipe_join(udipe_context_t* context,
     }
 
     void check_future_status_cas_success(udipe_future_t* future) {
+        trace("Generating initial status...");
         const future_status_t initial_status =
             random_status(STATUS_KIND_ALLOCATED);
         future_status_store(future, initial_status, memory_order_relaxed);
+        trace("Generating first desired status...");
         future_status_t desired1;
         do {
             desired1 = random_status(STATUS_KIND_ALLOCATED);
         } while (status_to_u32(desired1) == status_to_u32(initial_status));
+        trace("Generating second desired status...");
         future_status_t desired2;
         do {
             desired2 = random_status(STATUS_KIND_ALLOCATED);
@@ -1220,13 +1243,14 @@ void udipe_join(udipe_context_t* context,
     void check_future_downstream_count_inc_dec(udipe_future_t* future) {
         for (int i = 0; i < 2; ++i) {
             const bool has_result = (bool)(i % 2);
+            tracef("Generating initial status with has_result = %u...",
+                   has_result);
             future_status_t initial_status;
             do {
                 initial_status = random_status(STATUS_KIND_AVAILABLE);
             } while (initial_status.downstream_count == MAX_DOWNSTREAM_COUNT
-                     && (!has_result && initial_status.state == STATE_RESULT));
+                     || has_result != (initial_status.state == STATE_RESULT));
             initial_status.downstream_count_overflow = false;
-            if (has_result) initial_status.state = STATE_RESULT;
             future_status_store(future, initial_status, memory_order_relaxed);
 
             future_status_t latest_status = initial_status;
@@ -1254,21 +1278,23 @@ void udipe_join(udipe_context_t* context,
         info("Running future unit tests...");
         configure_rand();
 
-        debug("Testing future initialization...");
-        udipe_future_t future;
-        check_future_status_init(&future, random_status(STATUS_KIND_UNALLOCATED));
+        for (size_t i = 0; i < NUM_TRIALS; ++i) {
+            debug("Testing future initialization...");
+            udipe_future_t future;
+            check_future_status_init(&future, random_status(STATUS_KIND_UNALLOCATED));
 
-        debug("Testing status word writes...");
-        check_future_status_write(&future, random_status(STATUS_KIND_ANY));
+            debug("Testing status word writes...");
+            check_future_status_write(&future, random_status(STATUS_KIND_ANY));
 
-        debug("Testing status word CAS failure...");
-        check_future_status_cas_fail(&future);
+            debug("Testing status word CAS failure...");
+            check_future_status_cas_fail(&future);
 
-        debug("Testing status word CAS success...");
-        check_future_status_cas_success(&future);
+            debug("Testing status word CAS success...");
+            check_future_status_cas_success(&future);
 
-        debug("Testing downstream count increment/decrement...");
-        check_future_downstream_count_inc_dec(&future);
+            debug("Testing downstream count increment/decrement...");
+            check_future_downstream_count_inc_dec(&future);
+        }
 
         // TODO: Add more future tests as they come up. In particular, need to
         //       test all future_wait() variants + new status word
