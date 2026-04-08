@@ -1015,13 +1015,16 @@ void udipe_join(udipe_context_t* context,
         trace_expr((bool)result.available);
 
         int wait_style;  // 0 = unallocated, 1 = eager, 2 = lazy
-        bool has_dependencies; // Only set when wait_style is nonzero
-        bool has_processing;   // Only set when wait_style is nonzero
-        bool could_be_locked;  // Only set when wait_style is 2 (lazy)
+        bool has_dependencies;
+        bool has_processing;
+        bool could_be_locked;
         switch (result.type) {
         case TYPE_INVALID:
             result.state = STATE_UNINITIALIZED;
             wait_style = 0;
+            has_dependencies = false;
+            has_processing = false;
+            could_be_locked = false;
             break;
         case TYPE_NETWORK_CONNECT:
         case TYPE_NETWORK_DISCONNECT:
@@ -1033,6 +1036,7 @@ void udipe_join(udipe_context_t* context,
             wait_style = 1;
             has_dependencies = true;
             has_processing = true;
+            could_be_locked = false;
             break;
         case TYPE_CUSTOM:
             // Custom futures can be in states PROCESSING, CANCELING and RESULT,
@@ -1041,6 +1045,7 @@ void udipe_join(udipe_context_t* context,
             wait_style = 1;
             has_dependencies = false;
             has_processing = true;
+            could_be_locked = false;
             break;
         case TYPE_JOIN:
         case TYPE_UNORDERED:
@@ -1076,7 +1081,6 @@ void udipe_join(udipe_context_t* context,
             could_be_locked = (result.type != TYPE_TIMER_ONCE);
             break;
         case NUM_TYPES:
-        default:
             exit_with_error("Should never happen");
         }
         trace_expr((size_t)result.state);
