@@ -527,17 +527,20 @@ typedef struct future_status_s {
     /// Truth that changes to this status word should be notified through a
     /// call to wake_by_address_all()
     ///
-    /// This flag is initially unset when a future is set up. It is set on
-    /// the first time where a thread starts waiting for state changes via
-    /// wait_on_address(), and cannot be unset afterwards until the future
-    /// is liberated. From the point where this flag is set, all status word
-    /// changes will be notified via wake_by_address_all().
+    /// This flag is initially unset when a future is set up. It is set on the
+    /// first time where a thread starts waiting for state changes via
+    /// wait_on_address(), and cannot be unset afterwards until the future is
+    /// liberated. From the point where this flag is set, all status word
+    /// changes will be notified via a variant of `wake_by_address` (usually
+    /// wake_by_address_all(), but lazy futures also use
+    /// wake_by_address_single() to avoid thundering herds when they transfer
+    /// the lazy update lock from one waiter to another).
     ///
     /// The reason why this is a sticky flag and not a counter of waiters is
-    /// that we don't have enough bits in this status word to afford more
-    /// than one counter of reasonable range... So we can afford to avoid
-    /// futex syscalls on futures that never need it, but not on futures
-    /// that intermittently need it.
+    /// that we don't have enough bits in this status word to afford more than
+    /// one counter of reasonable range... So we can afford to avoid unnecessary
+    /// futex syscalls on futures that never need a futex syscall, but not on
+    /// futures that intermittently need these.
     bool notify_address : 1;
 
     /// Request for `eventfd` signaling or lazy future state locking
@@ -556,7 +559,7 @@ typedef struct future_status_s {
     ///
     /// For these futures, this flag works just like `notify_address`: initially
     /// unset, set the first time a thread expresses interest in receiving
-    /// updates through the file descriptor path, cannot be unset afterwards
+    /// updates through the file descriptor path, and cannot be unset afterwards
     /// until the future is destroyed.
     ///
     /// # Lazy future: Lock for lazily updating the future state
