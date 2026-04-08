@@ -1081,6 +1081,7 @@ void udipe_join(udipe_context_t* context,
             could_be_locked = (result.type != TYPE_TIMER_ONCE);
             break;
         case NUM_TYPES:
+        default:
             exit_with_error("Should never happen");
         }
         trace_expr((size_t)result.state);
