@@ -199,7 +199,8 @@ void future_status_debug_check(future_status_t status,
         if (is_fd_based) {
             // notify_address can be switched on from the fist state onwards,
             // and remains on after being turned on. Or it may never be switched
-            // on. So we can't tell anything about its value.
+            // on. So we can't tell anything about its value. On the other hand,
+            // we know of some cases where lazy_lock cannot be set.
             if (status.notify_fd_or_lazy_lock) assert(could_be_locked);
         } else {
             // notify_address and notify_fd can be switched on from the WAITING
