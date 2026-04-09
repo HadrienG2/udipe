@@ -57,7 +57,6 @@ struct timespec* make_unix_timeout(struct timespec* timespec,
         tracef("Setting up a Unix timeout of %zu.%06zu ms...",
                (size_t)(timeout / UDIPE_MILLISECOND),
                (size_t)(timeout % UDIPE_MILLISECOND));
-        int nanosecs_per_sec = UDIPE_SECOND;
         *timespec = (struct timespec){ .tv_sec = timeout / UDIPE_SECOND,
                                        .tv_nsec = timeout % UDIPE_SECOND };
     }
