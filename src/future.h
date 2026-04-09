@@ -1327,7 +1327,6 @@ bool future_downstream_count_try_inc(udipe_future_t* future,
 ///               asynchronous operation and has just been liberated via
 ///               udipe_finish(). This future cannot be used again afterwards.
 //
-// TODO: implement. Set most values to zero-ish and the output fd to -1.
 // TODO: Add GNU attributes to mark this + future_allocate() as an
 //       allocator/liberator pair if possible.
 UDIPE_NON_NULL_ARGS
