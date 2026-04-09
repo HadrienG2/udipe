@@ -47,7 +47,7 @@
 ///   allocating a buffer of >1 events is useless.
 //
 // TODO: Tune based on benchmarking on realistic use cases
-#define MAX_JOIN_EPOLL_EVENTS (size_t)64
+#define MAX_JOIN_EPOLL_EVENTS (size_t)4
 
 
 // === Future status word manipulation ===
@@ -239,7 +239,8 @@ future_status_t future_wait(udipe_future_t* future,
 
     tracef("Checking initial readiness of future %p...", future);
     // Synchronize-with the initial future state
-    future_status_t status = future_status_load(future, memory_order_acquire);
+    const future_status_t status =
+        future_status_load(future, memory_order_acquire);
     future_status_debug_check(status, true);
     switch (status.state) {
     case STATE_RESULT:
@@ -324,12 +325,11 @@ future_status_t future_wait_eager(udipe_future_t* future,
             future,
             &latest_status,
             desired_status,
-            // Need an acquire barrier as subsequent steps should not be
-            // reordered before these status word changes.
-            //
-            // But we are not notifying other threads about any shared state
-            // change other than our status word update, so release ordering or
-            // stronger is not needed here.
+            // - Need an acquire barrier so that our next actions cannot be
+            //   reordered before this initial status setup.
+            // - No release or seq_cst needed, previous operations on the shared
+            //   state are unrelated to this transaction and can therefore
+            //   safely be reordered after this initial status word setup.
             memory_order_acquire,
             // Synchronize-with concurrent future state changes.
             memory_order_acquire
@@ -359,10 +359,12 @@ future_status_t future_wait_eager(udipe_future_t* future,
         trace("Either a result is available or the wait timed out.");
         switch (count_policy) {
         case DOWNSTREAM_COUNT_CYCLE:
-            // Need at least release ordering to ensure no previous
-            // operation get reordered after the downstream_count
-            // decrement. Adding in the acquire ordering ensures that we
-            // synchronize-with concurrent future state changes.
+            // - Need an acquire barrier to synchronize-with concurrent future
+            //   state changes performed by other threads.
+            // - Need a release barrier so that our previous operations cannot
+            //   be reordered after this final refcount decrement.
+            // - No need for sequential consistency as we're not synchronizing
+            //   across multiple futures/other objects.
             return future_downstream_count_dec(future, memory_order_acq_rel);
         case DOWNSTREAM_COUNT_KEEP:
             return latest_status;
@@ -420,12 +422,11 @@ future_status_t future_wait_join(udipe_future_t* future,
                 future,
                 &latest_status,
                 desired_status,
-                // Need an acquire barrier as subsequent steps should not be
-                // reordered before these status word changes.
-                //
-                // But we are not notifying other threads about any shared state
-                // change other than our status word update, so release ordering
-                // or stronger is not needed here.
+                // - Need an acquire barrier so that our next actions are not
+                //   reordered before this initial status setup.
+                // - No release or seq_cst needed, previous operations on shared
+                //   state are unrelated to this transaction and can safely be
+                //   reordered after this initial status word setup.
                 memory_order_acquire,
                 // Synchronize-with concurrent future state changes.
                 memory_order_acquire
@@ -458,10 +459,12 @@ future_status_t future_wait_join(udipe_future_t* future,
                 trace("Either a result is available or the wait timed out.");
                 switch (count_policy) {
                 case DOWNSTREAM_COUNT_CYCLE:
-                    // Need at least release ordering to ensure no previous
-                    // operation get reordered after the downstream_count
-                    // decrement. Adding in the acquire ordering ensures that we
-                    // synchronize-with concurrent future state changes.
+                    // - Need an acquire barrier to synchronize-with concurrent
+                    //   future state changes performed by other threads.
+                    // - Need a release barrier so that our previous operations
+                    //   can't be reordered before this final decrement.
+                    // - No need for sequential consistency as we're not
+                    //   synchronizing across multiple futures/other objects.
                     return future_downstream_count_dec(future,
                                                        memory_order_acq_rel);
                 case DOWNSTREAM_COUNT_KEEP:
@@ -533,8 +536,10 @@ future_status_t future_wait_join(udipe_future_t* future,
                                 latest_status =
                                     future_status_load(future,
                                                        memory_order_acquire);
-                                assert(latest_status.state == STATE_RESULT);
-                                assert(latest_status.outcome == OUTCOME_FAILURE_CANCELED);
+                                ensure_eq((size_t)latest_status.state,
+                                          (size_t)STATE_RESULT);
+                                ensure_eq((size_t)latest_status.outcome,
+                                          (size_t)OUTCOME_FAILURE_CANCELED);
                                 outcome = latest_status.outcome;
                                 break;
                             }
@@ -646,9 +651,15 @@ future_status_t future_wait_join(udipe_future_t* future,
                             future,
                             &latest_status,
                             desired_status,
-                            // Must use release ordering when signaling a new
-                            // future state through a status word change.
-                            memory_order_release,
+                            // - Need an acquire barrier to ensure subsequent
+                            //   notifications aren't reordered before the
+                            //   status change that they are supposed to notify.
+                            // - Need a release barrier so that our previous
+                            //   operations can't be reordered after this
+                            //   lazy_lock release.
+                            // - No need for sequential consistency as we're not
+                            //   synchronizing multiple futures/other objects.
+                            memory_order_acq_rel,
                             // Synchronize-with concurrent future state changes.
                             memory_order_acquire
                         );
@@ -742,7 +753,7 @@ future_status_t future_wait_timer_once(
             future_downstream_count_try_inc(future, &latest_status);
         future_status_debug_check(latest_status, true);
         if (!success) {
-            assert(latest_status.state == STATE_RESULT);
+            ensure_eq((size_t)latest_status.state, (size_t)STATE_RESULT);
             trace("Future reached STATE_RESULT before we started waiting");
             return latest_status;
         }
@@ -797,8 +808,15 @@ future_status_t future_wait_timer_once(
                         future,
                         &latest_status,
                         desired_status,
-                        // Must use release ordering when signaling a new future
-                        // state through a status word change.
+                        // - No acquire barrier needed: we're not observing new
+                        //   future states on success and the next operations
+                        //   are unrelated to this transaction and can safely be
+                        //   reordered before this status update.
+                        // - Need a release barrier so that our previous
+                        //   operations cannot be reordered before this status
+                        //   update, which is meant to expose their outcome.
+                        // - No need for sequential consistency as we're not
+                        //   synchronizing multiple futures/other objects.
                         memory_order_release,
                         // Synchronize-with concurrent future state changes.
                         memory_order_acquire

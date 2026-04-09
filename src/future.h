@@ -713,7 +713,7 @@ struct udipe_future_s {
             /// This union variant will be set before signaling \ref
             /// OUTCOME_SUCCESS if the \ref future_type_t is \ref TYPE_CUSTOM.
             udipe_custom_payload_t custom;
-        } eager_payload;
+        } eager;
 
         /// Joined future state
         ///
