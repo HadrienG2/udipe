@@ -1312,6 +1312,58 @@ bool future_downstream_count_try_inc(udipe_future_t* future,
 /// \}
 
 
+/// \name Basic future lifecycle
+/// \{
+
+/// Liberate a future
+///
+/// The future will be reset to an unallocated state, then shelved into a
+/// thread-local cache where later calls to future_allocate() will be able to
+/// find and reuse it instead of resorting to a global allocation.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param future must point to a future that was previously allocated to some
+///               asynchronous operation and has just been liberated via
+///               udipe_finish(). This future cannot be used again afterwards.
+//
+// TODO: implement. Set most values to zero-ish and the output fd to -1.
+// TODO: Add GNU attributes to mark this + future_allocate() as an
+//       allocator/liberator pair if possible.
+UDIPE_NON_NULL_ARGS
+void future_liberate(udipe_future_t* future);
+
+/// Allocate a future
+///
+/// The future is provided in an invalid state and must be initialized as
+/// appropriate for the asynchronous task that is starting. Status word
+/// initialization can be carried out using future_status_store() as the future
+/// is not shared across multiple threads yet.
+///
+/// This function must be called within the scope of with_logger().
+//
+// TODO: Implement. Should go through the thread-local cache first, then through
+//       the global cache after locking it, and if the global cache is empty too
+//       then should allocate a new page of futures, register it into the global
+//       cache for liberation by atexit(), release the global cache lock,
+//       put the futures in a zeroed/invalid state, and add all but one
+//       future to the thread-local cache. The future which we set aside will
+//       then be returned by this function.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_RESULT
+udipe_future_t* future_allocate();
+
+// TODO: Ensure that 1/when a user thread exits, its thread-local unallocated
+//       future cache is spilled into a global unallocated future cache and 2/on
+//       atexit(), this global future cache is fully wiped: not just individual
+//       futures, but also the memory pages as part of which these futures were
+//       allocated. I think it makes most sense for the global future cache to
+//       not be specific to any udipe context but shared across all udipe
+//       contexts.
+
+/// \}
+
+
 /// \name Awaiting future results
 /// \{
 

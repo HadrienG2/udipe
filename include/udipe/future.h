@@ -310,8 +310,6 @@ typedef struct udipe_future_s udipe_future_t;
 ///               be destroyed by this function and must not be used afterwards.
 ///
 /// \returns the result of the asynchronous operation
-//
-// TODO: Implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
