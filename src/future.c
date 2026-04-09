@@ -516,8 +516,8 @@ future_status_t future_wait_join(udipe_future_t* future,
                         // Expecting at least one ready event on this branch
                         ensure_ge(result, 1);
                         trace("Successfully received events from epoll_pwait2().");
-                        const collective_upstream_t all_upstreams =
-                            future->specific.join.upstream;
+                        collective_upstream_t* const upstream_set =
+                            &future->specific.join.upstream;
                         for (size_t i = 0; i < (size_t)result; ++i) {
                             const struct epoll_event* event = &events[i];
                             // We only subscribed to EPOLLIN, and we don't
@@ -543,12 +543,12 @@ future_status_t future_wait_join(udipe_future_t* future,
                                 outcome = latest_status.outcome;
                                 break;
                             }
-                            ensure_lt(upstream_index, all_upstreams.len);
+                            ensure_lt(upstream_index, upstream_set->length);
 
                             // Find the upstream future that became ready and
                             // check/update its status word
                             udipe_future_t* const upstream =
-                                all_upstreams.array[upstream_index];
+                                upstream_set->array[upstream_index];
                             future_status_t upstream_status =
                                 future_wait(upstream,
                                             UDIPE_DURATION_MIN,
@@ -562,9 +562,8 @@ future_status_t future_wait_join(udipe_future_t* future,
 
                             // If this upstream future's outcome is now known,
                             // remove it from our epoll set...
-                            ensure_ge(future->specific.join.remaining,
-                                      (size_t)1);
-                            --(future->specific.join.remaining);
+                            ensure_ge(upstream_set->remaining, (uint32_t)1);
+                            --(upstream_set->remaining);
                             const int upstream_fd = upstream->output_fd.any;
                             // FIXME: Forgot to handle epoll_ctl errors here!
                             //        But this code is already way too nested,
@@ -605,7 +604,7 @@ future_status_t future_wait_join(udipe_future_t* future,
                             }
                         }
                         if (outcome != OUTCOME_UNKNOWN) break;
-                        if (future->specific.join.remaining == 0) {
+                        if (upstream_set->remaining == 0) {
                             outcome = OUTCOME_SUCCESS;
                             break;
                         }

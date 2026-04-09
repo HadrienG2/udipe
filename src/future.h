@@ -204,11 +204,6 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
 /// enum from the status word to another field if either that identifier grows
 /// too large or too many extra status bits end up being needed for other
 /// purposes.
-//
-// TODO: Decide if the documentation currently written here is here to stay.
-//       Maybe I should just nuke it once the associated code is written to
-//       avoid having the same info in two places?
-// TODO: Sync up with internal table if here to stay.
 typedef enum future_type_e /* : _BitInt(4) */ {
     /// Invalid future type
     ///
@@ -219,188 +214,48 @@ typedef enum future_type_e /* : _BitInt(4) */ {
     /// First network operation type
     ///
     /// All network operations have a type code between \ref TYPE_NETWORK_START
-    /// inclusive and \ref TYPE_NETWORK_END exclusive, and share the following
-    /// properties:
-    ///
-    /// - Single optional dependency.
-    ///     - If it already has \ref OUTCOME_SUCCESS at command scheduling time,
-    ///       command is scheduled as if no dependency was specified.
-    ///     - If already has a failing outcome at command scheduling time,
-    ///       future is created in the failure state without bothering the
-    ///       network thread with this operation.
-    ///     - If outcome isn't initially known, command is scheduled in a halted
-    ///       state and network thread awaits the dependency via its fd before
-    ///       command execution can start or be canceled.
-    /// - Driven to completion by a udipe network thread processing a previously
-    ///   submitted network request.
-    /// - Produces a result type that depends on the network operation.
-    /// - Supports futex-based status change notifications which must be enabled
-    ///   via the `notify_address` flag of \ref future_status_word_t.
-    /// - Output file descriptor is an eventfd whose notification must be
-    ///   enabled via the `notify_fd` flag of \ref future_status_word_t.
-    /// - Cancelation handled by switching to \ref STATE_CANCELING with \ref
-    ///   OUTCOME_FAILURE_CANCELED, signaling this to the network thread via the
-    ///   output eventfd which is monitored by the network thread along with
-    ///   usual network sockets (by exception to usual rules this is done even
-    ///   if `notify_fd` is not enabled), and waiting for the network thread to
-    ///   acknowledge this signal by switching the future to \ref STATE_RESULT.
-    /// - Liberation drains the eventfd if known to be signaled (can also be
-    ///   done via `write(1)/read()` cycle if status unknown) then recycles it
-    ///   along with the future.
+    /// inclusive and \ref TYPE_NETWORK_END exclusive.
     TYPE_NETWORK_START,
 
     /// Connection setup request from udipe_start_connect()
     ///
-    /// See \ref TYPE_NETWORK_START for general info about network operations.
     TYPE_NETWORK_CONNECT = TYPE_NETWORK_START,
 
     /// Connection teardown request from udipe_start_disconnect()
     ///
-    /// See \ref TYPE_NETWORK_START for general info about network operations.
     TYPE_NETWORK_DISCONNECT,
 
     /// Datagram send request from udipe_start_send()
     ///
-    /// See \ref TYPE_NETWORK_START for general info about network operations.
     TYPE_NETWORK_SEND,
 
     /// Datagram receive request from udipe_start_recv()
     ///
-    /// See \ref TYPE_NETWORK_START for general info about network operations.
     TYPE_NETWORK_RECV,
 
     /// First future type past the end of the list of network operations
     ///
-    /// See \ref TYPE_NETWORK_START for general info about network operations.
+    /// See also \ref TYPE_NETWORK_START.
     TYPE_NETWORK_END,
 
     /// Custom operation
     ///
-    /// - No dependencies.
-    /// - Driven to completion by a user thread submitting a result via
-    ///   udipe_set_custom().
-    /// - Produces a user-defined result type that is somehow fit into a small
-    ///   udipe-provided bag of bytes.
-    /// - Supports futex-based status change notifications which must be enabled
-    ///   via the `notify_address` flag of \ref future_status_word_t.
-    /// - Output file descriptor is an eventfd whose notifications must be
-    ///   enabled via the `notify_fd` flag of \ref future_status_word_t.
-    /// - Cancelation handled by switching to \ref STATE_RESULT with \ref
-    ///   OUTCOME_FAILURE_CANCELED and providing the user thread that handles
-    ///   the custom operation with a way to periodically check if its work has
-    ///   been canceled.
-    /// - Liberation drains the eventfd as described for \ref
-    ///   TYPE_NETWORK_START.
     TYPE_CUSTOM = TYPE_NETWORK_END,
 
     /// Join (aka await all)
     ///
-    /// - Multiple dependencies collected into an epollfd which serves double
-    ///   duty as its output file descriptor, along with an eventfd used for
-    ///   status word change notifications. Epoll identifier of a dependency is
-    ///   its index in the upstream dependency array, except for the outcome
-    ///   availability eventfd which has an easily identifiable special index
-    ///   (`SIZE_MAX` ?).
-    /// - Driven to completion by a thread that polls its epollfd, either
-    ///   directly (if this future is passed to udipe_wait()/udipe_finish()) or
-    ///   indirectly by virtue of being awaited by fd as a dependency of another
-    ///   future. Contains a counter of dependencies that have not yet reached
-    ///   \ref OUTCOME_SUCCESS, whenever a dependency reaches this outcome the
-    ///   counter is decremented and the associated fd is removed from the
-    ///   epollfd's interest list. Join future successful completion happens
-    ///   once the pending dep counter reaches 0. When this happens, status word
-    ///   moves to \ref STATE_RESULT with \ref OUTCOME_SUCCESS, and if
-    ///   `downstream_count` indicates the presence of any waiters other than
-    ///   the active one or the caller is not the final one (i.e. wait() not
-    ///   finish() was used), outcome availability eventfd is signaled, marking
-    ///   the output epollfd as permanently ready and thus ensuring that all
-    ///   downstream clients will eventually take notice of the status change.
-    /// - Does not produce a result.
-    /// - Does not support futex-based status change notifications in general,
-    ///   but uses them to synchronize concurrent access to output epollfd from
-    ///   multiple threads. Synchronous wait performed via epoll_wait() under
-    ///   locking protection.
-    /// - Output file descriptor is an aforementioned epollfd that automatically
-    ///   forwards input readiness notifications. Client threads that receive
-    ///   this readiness notification proceed to lock the epollfd then read
-    ///   notifications via epoll_wait() and update status word, internal
-    ///   counter and epollfd interest list accordingly.
-    /// - Cancelation handled by switching to \ref STATE_RESULT with \ref
-    ///   OUTCOME_FAILURE_CANCELED then signaling clients with the outcome
-    ///   availability eventfd if `downstream_count` + state indicates that at
-    ///   least one downstream future monitors the epollfd.
-    /// - Liberation drains the cancelation eventfd as described for \ref
-    ///   TYPE_NETWORK_START, if canceled unregisters fds of all dependencies
-    ///   via `epoll_ctl()` while ignoring errors (not needed in successful case
-    ///   since all dependencies should already be unregistrered), then recycles
-    ///   coupled (epoll, eventfd) pair and future.
     TYPE_JOIN,
 
     /// Unordered (aka await any)
     ///
-    /// Implementation has several similarities to join, but with some obvious
-    /// and less obvious differences:
-    ///
-    /// - Not based on a single epollfd that combines dependencies and an
-    ///   outcome availability eventfd, instead two cascading epollfds are used:
-    ///     - An "inner" epollfd that is attached to the fds of the upstream
-    ///       futures that we depend on.
-    ///     - An "outer" epollfd that is attached to the inner epollfd and to
-    ///       the outcome availability eventfd.
-    /// - epoll_wait() is only ever used to query one single input event, this
-    ///   way we are never notified about more futures than we can report.
-    /// - While remaining dependencies are still tracked, successful completion
-    ///   is signaled when the **first** dependency reaches \ref
-    ///   OUTCOME_SUCCESS.
-    /// - Produces a result composed of the index of the input future that
-    ///   completed, and another unordered future with remaining dependency
-    ///   count decremented by 1 if the remaining dependency count of this
-    ///   future indicates that there should be another future afterwards. This
-    ///   other unordered future uses a different outer epollfd/eventfd pair,
-    ///   but attaches it to the same inner epollfd that contains our remaining
-    ///   dependencies, which is simultaneously unregistered from the outer
-    ///   epollfd of the parent future. All this epollfd shuffling is obviously
-    ///   done under lock protection, to ensure that from the perspective of
-    ///   other threads also waiting for the initial unordered future, we switch
-    ///   to a final state where the outer epollfd is only connected to the
-    ///   outcome availability eventfd, which is signaled, ensuring that these
-    ///   other threads can only get notifications about the eventfd.
     TYPE_UNORDERED,
 
     /// Single-shot/deadline timer
     ///
-    /// - No dependency.
-    /// - Driven to completion by the kernel signaling the underlying timerfd.
-    /// - Does not produce a result.
-    /// - Does not support futex-based status change notifications in general,
-    ///   but uses them to synchronize concurrent access to output timerfd from
-    ///   multiple threads. Synchronous wait is performed via read() under
-    ///   locking protection.
-    /// - Output file descriptor is an timerfd that automatically becomes ready
-    ///   once specified deadline is reached. Client threads that receive this
-    ///   readiness notification proceed to lock the epollfd then move the
-    ///   future to \ref STATE_RESULT with \ref OUTCOME_SUCCESS.
-    /// - Cancelation handled by switching to \ref STATE_RESULT with \ref
-    ///   OUTCOME_FAILURE_CANCELED then setting the timerfd to a tiny relative
-    ///   period so it gets instantly signaled.
-    /// - Liberation disarms the timerfd, then recycles it and the future.
     TYPE_TIMER_ONCE,
 
-    /// Multi-shot/repeating timer
+    /// Multi-shot/periodic timer
     ///
-    /// Much like unordered futures handle multi-shot signaling by using a
-    /// cascading epoll structure that makes it possible to migrate the
-    /// dependency eventfd to a different future, multi-shot timers also use
-    /// epollfds as a way to decouple the output fd from the inner timerfd so
-    /// that the latter can be reused by another future without disturbing the
-    /// former.
-    ///
-    /// - Output fd is an epollfd that is connected to the timerfd of interest
-    ///   and an eventfd that signals outcome availability.
-    /// - Each timer shot leads the timerfd to be "unplugged" from the epollfd
-    ///   and migrated to the next future emitted in the result, while on its
-    ///   side the eventfd is signaled to make sure that the original future
-    ///   remains in a perma-signaled state.
     TYPE_TIMER_REPEAT,
 
     /// Not a true type, only needed to count how many types there are
@@ -630,13 +485,13 @@ typedef struct collective_upstream_s {
     /// Array of upstream futures that this future is awaiting
     ///
     /// This array must not be accessed after the point where `status_word` is
-    /// set to a completed state, as the user is allowed to liberate the
+    /// set to \ref STATE_RESULT, as the user is allowed to liberate the
     /// associated memory after this point.
     ///
     /// Must have been checked to contain no duplicates and no `NULL`s at
     /// collective future construction time. As long as we do not expose an
     /// output fd accessor that lets users call `dup()`, `epoll_ctl()` should
-    /// take care of the former at collective future construction time.
+    /// take care of the former for us.
     udipe_future_t* const* array;
 
     /// Number of upstream futures in `array`
@@ -644,7 +499,29 @@ typedef struct collective_upstream_s {
     /// This is needed in order to be able to detach all upstream futures when a
     /// collective operation gets canceled. It can also be used for
     /// bounds-checking assertions in debug builds.
-    size_t len;
+    //
+    // TODO: Make sure len is not above UINT32_MAX when creating a collective.
+    uint32_t length;
+
+    /// Number of upstream futures that have not yet reached \ref
+    /// OUTCOME_SUCCESS
+    ///
+    /// This counter is initialized to `len` then decremented every time one of
+    /// the upstream futures reaches \ref OUTCOME_SUCCESS. If it reaches 0,
+    /// all upstream futures have reached \ref OUTCOME_SUCCESS.
+    ///
+    /// - Join futures do not switch to \ref OUTCOME_SUCCESS until all upstream
+    ///   futures have reached \ref OUTCOME_SUCCESS.
+    /// - Unordered futures emit a new future whenever this counter is
+    ///   decremented, with a `next` pointer that points to a successor future
+    ///   if this counter has not reached zero yet. If this counter has reached
+    ///   zero, `next` is set to `NULL`, marking the end of the unordered chain.
+    ///
+    /// When one of the upstream futures reaches a non-successful outcome, this
+    /// counter becomes useless and is allowed to take any value.
+    ///
+    /// This counter must be read and written under `lazy_lock` protection.
+    uint32_t remaining;
 } collective_upstream_t;
 
 /// eventfd used to mark a lazy future as permanently ready once it has reached
@@ -727,15 +604,6 @@ struct udipe_future_s {
             ///
             collective_upstream_t upstream;
 
-            /// Number of upstream futures that have not yet reached \ref
-            /// OUTCOME_SUCCESS
-            ///
-            /// If this number reaches 0, then this future can switch to \ref
-            /// STATE_RESULT with \ref OUTCOME_SUCCESS.
-            ///
-            /// Must be read and written under `lazy_lock` protection.
-            size_t remaining;
-
             /// eventfd used to mark this future as permanently ready after it
             /// has reached its final outcome
             ///
@@ -771,8 +639,8 @@ struct udipe_future_s {
             /// set to successor unordered futures without affecting clients of
             /// this specific unordered future.
             ///
-            /// Must be awaited under `lazy_lock` protection, and detached from
-            /// the output epollfd and attached to the successor future (if any)
+            /// Must be awaited under `lazy_lock` protection, detached from the
+            /// output epollfd and attached to the successor future (if any)
             /// once a result is ready. Must be reset by detaching all remaining
             /// upstream fds then recycled when the future is liberated.
             ///
