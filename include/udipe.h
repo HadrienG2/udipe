@@ -27,11 +27,11 @@
 #include "udipe/command.h"
 #include "udipe/connect.h"
 #include "udipe/context.h"
+#include "udipe/duration.h"
 #include "udipe/future.h"
 #include "udipe/log.h"
 #include "udipe/nodiscard.h"
 #include "udipe/pointer.h"
 #include "udipe/result.h"
-#include "udipe/time.h"
 // Not including udipe/unit_tests.h as it isn't meant for end user consumption
 #include "udipe/visibility.h"

@@ -103,12 +103,12 @@ set(udipe_public_headers include/udipe.h
                          include/udipe/command.h
                          include/udipe/connect.h
                          include/udipe/context.h
+                         include/udipe/duration.h
                          include/udipe/future.h
                          include/udipe/log.h
                          include/udipe/nodiscard.h
                          include/udipe/pointer.h
                          include/udipe/result.h
-                         include/udipe/time.h
                          include/udipe/visibility.h)
 target_sources(udipe
                PUBLIC FILE_SET HEADERS
@@ -147,8 +147,10 @@ target_sources(udipe
                        src/connect.c
                        src/context.c
                        src/context.h
+                       src/duration.h
                        src/error.c
                        src/error.h
+                       src/event.h
                        src/format.h
                        src/future.c
                        src/future.h
@@ -158,6 +160,7 @@ target_sources(udipe
                        src/memory.h
                        src/name_filter.c
                        src/name_filter.h
+                       src/stopwatch.h
                        src/thread_name.c
                        src/thread_name.h
                        src/unit_tests.c

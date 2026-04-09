@@ -1,5 +1,8 @@
 #include "address_wait.h"
 
+#include <udipe/duration.h>
+
+#include "duration.h"
 #include "error.h"
 #include "log.h"
 #include "thread_name.h"
@@ -25,7 +28,7 @@ UDIPE_NON_NULL_ARGS
 bool wait_on_address(_Atomic uint32_t* atom,
                      uint32_t expected,
                      udipe_duration_ns_t timeout) {
-    tracef("Waiting for the value at address %p to change away from %#x...",
+    tracef("Preparing to wait for the value at address %p to change from %#x...",
            (void*)atom,
            expected);
 
@@ -39,20 +42,7 @@ bool wait_on_address(_Atomic uint32_t* atom,
     #ifdef __linux__
         // Translate udipe timeout into Linux timeout
         struct timespec delay;
-        struct timespec* pdelay;
-        if (timeout != UDIPE_DURATION_MAX) {
-            uint64_t nanosecs_per_millisec = 1000 * 1000;
-            tracef("...with a timeout of %zu.%06zu ms...",
-                   (size_t)(timeout / nanosecs_per_millisec),
-                   (size_t)(timeout % nanosecs_per_millisec));
-            int nanosecs_per_sec = 1000 * nanosecs_per_millisec;
-            delay = (struct timespec){ .tv_sec = timeout / nanosecs_per_sec,
-                                       .tv_nsec = timeout % nanosecs_per_sec };
-            pdelay = &delay;
-        } else {
-            trace("...with an infinite timeout...");
-            pdelay = NULL;
-        }
+        struct timespec* pdelay = make_unix_timeout(&delay, timeout);
 
         // Call futex and handle results
         long result = syscall(SYS_futex,

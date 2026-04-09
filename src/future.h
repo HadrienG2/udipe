@@ -7,15 +7,22 @@
 
 #include <udipe/future.h>
 
+#include <udipe/context.h>
+#include <udipe/duration.h>
 #include <udipe/nodiscard.h>
 #include <udipe/result.h>
 
+#include "address_wait.h"
 #include "arch.h"
+#include "error.h"
+#include "event.h"
+#include "log.h"
+#include "stopwatch.h"
 
 #include <assert.h>
 #include <stdalign.h>
-#include <stdbool.h>
 #include <stdatomic.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 
@@ -90,6 +97,10 @@ typedef enum future_state_e /* : _BitInt(3) */ {
     /// accessed by internal udipe threads again (unless they were passed to
     /// other pending asynchronous operations, obviously).
     STATE_RESULT,
+
+    /// Not a true state, only needed to count how many states there are
+    ///
+    NUM_STATES,
 
     // NOTE: If this enum gets more than 8 variants, reallocate the bit budget
     //       of the `state` field of the future_status_word_t accordingly.
@@ -167,6 +178,10 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
     /// OUTCOME_FAILURE_DEPENDENCY.
     OUTCOME_FAILURE_CANCELED,
 
+    /// Not a true outcome, only needed to count how many outcomes there are
+    ///
+    NUM_OUTCOMES,
+
     // NOTE: If this enum gets more than 8 variants, reallocate the bit budget
     //       of the `state` field of the future_status_word_t accordingly.
 } future_outcome_t;
@@ -189,11 +204,6 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
 /// enum from the status word to another field if either that identifier grows
 /// too large or too many extra status bits end up being needed for other
 /// purposes.
-//
-// TODO: Decide if the documentation currently written here is here to stay.
-//       Maybe I should just nuke it once the associated code is written to
-//       avoid having the same info in two places?
-// TODO: Sync up with internal table if here to stay.
 typedef enum future_type_e /* : _BitInt(4) */ {
     /// Invalid future type
     ///
@@ -204,189 +214,53 @@ typedef enum future_type_e /* : _BitInt(4) */ {
     /// First network operation type
     ///
     /// All network operations have a type code between \ref TYPE_NETWORK_START
-    /// inclusive and \ref TYPE_NETWORK_END exclusive, and share the following
-    /// properties:
-    ///
-    /// - Single optional dependency.
-    ///     - If it already has \ref OUTCOME_SUCCESS at command scheduling time,
-    ///       command is scheduled as if no dependency was specified.
-    ///     - If already has a failing outcome at command scheduling time,
-    ///       future is created in the failure state without bothering the
-    ///       network thread with this operation.
-    ///     - If outcome isn't initially known, command is scheduled in a halted
-    ///       state and network thread awaits the dependency via its fd before
-    ///       command execution can start or be canceled.
-    /// - Driven to completion by a udipe network thread processing a previously
-    ///   submitted network request.
-    /// - Produces a result type that depends on the network operation.
-    /// - Supports futex-based status change notifications which must be enabled
-    ///   via the `notify_address` flag of \ref future_status_word_t.
-    /// - Output file descriptor is an eventfd whose notification must be
-    ///   enabled via the `notify_fd` flag of \ref future_status_word_t.
-    /// - Cancelation handled by switching to \ref STATE_CANCELING with \ref
-    ///   OUTCOME_FAILURE_CANCELED, signaling this to the network thread via the
-    ///   output eventfd which is monitored by the network thread along with
-    ///   usual network sockets (by exception to usual rules this is done even
-    ///   if `notify_fd` is not enabled), and waiting for the network thread to
-    ///   acknowledge this signal by switching the future to \ref STATE_RESULT.
-    /// - Liberation drains the eventfd if known to be signaled (can also be
-    ///   done via `write(1)/read()` cycle if status unknown) then recycles it
-    ///   along with the future.
+    /// inclusive and \ref TYPE_NETWORK_END exclusive.
     TYPE_NETWORK_START,
 
     /// Connection setup request from udipe_start_connect()
     ///
-    /// See \ref TYPE_NETWORK_START for general info about network operations.
     TYPE_NETWORK_CONNECT = TYPE_NETWORK_START,
 
     /// Connection teardown request from udipe_start_disconnect()
     ///
-    /// See \ref TYPE_NETWORK_START for general info about network operations.
     TYPE_NETWORK_DISCONNECT,
 
     /// Datagram send request from udipe_start_send()
     ///
-    /// See \ref TYPE_NETWORK_START for general info about network operations.
     TYPE_NETWORK_SEND,
 
     /// Datagram receive request from udipe_start_recv()
     ///
-    /// See \ref TYPE_NETWORK_START for general info about network operations.
     TYPE_NETWORK_RECV,
 
     /// First future type past the end of the list of network operations
     ///
-    /// See \ref TYPE_NETWORK_START for general info about network operations.
+    /// See also \ref TYPE_NETWORK_START.
     TYPE_NETWORK_END,
 
     /// Custom operation
     ///
-    /// - No dependencies.
-    /// - Driven to completion by a user thread submitting a result via
-    ///   udipe_set_custom().
-    /// - Produces a user-defined result type that is somehow fit into a small
-    ///   udipe-provided bag of bytes.
-    /// - Supports futex-based status change notifications which must be enabled
-    ///   via the `notify_address` flag of \ref future_status_word_t.
-    /// - Output file descriptor is an eventfd whose notifications must be
-    ///   enabled via the `notify_fd` flag of \ref future_status_word_t.
-    /// - Cancelation handled by switching to \ref STATE_RESULT with \ref
-    ///   OUTCOME_FAILURE_CANCELED and providing the user thread that handles
-    ///   the custom operation with a way to periodically check if its work has
-    ///   been canceled.
-    /// - Liberation drains the eventfd as described for \ref
-    ///   TYPE_NETWORK_START.
     TYPE_CUSTOM = TYPE_NETWORK_END,
 
     /// Join (aka await all)
     ///
-    /// - Multiple dependencies collected into an epollfd which serves double
-    ///   duty as its output file descriptor, along with an eventfd used for
-    ///   status word change notifications. Epoll identifier of a dependency is
-    ///   its index in the upstream dependency array, except for the outcome
-    ///   availability eventfd which has an easily identifiable special index
-    ///   (`SIZE_MAX` ?).
-    /// - Driven to completion by a thread that polls its epollfd, either
-    ///   directly (if this future is passed to udipe_wait()/udipe_finish()) or
-    ///   indirectly by virtue of being awaited by fd as a dependency of another
-    ///   future. Contains a counter of dependencies that have not yet reached
-    ///   \ref OUTCOME_SUCCESS, whenever a dependency reaches this outcome the
-    ///   counter is decremented and the associated fd is removed from the
-    ///   epollfd's interest list. Join future successful completion happens
-    ///   once the pending dep counter reaches 0. When this happens, status word
-    ///   moves to \ref STATE_RESULT with \ref OUTCOME_SUCCESS, and if
-    ///   `downstream_count` indicates the presence of any waiters other than
-    ///   the active one or the caller is not the final one (i.e. wait() not
-    ///   finish() was used), outcome availability eventfd is signaled, marking
-    ///   the output epollfd as permanently ready and thus ensuring that all
-    ///   downstream clients will eventually take notice of the status change.
-    /// - Does not produce a result.
-    /// - Does not support futex-based status change notifications in general,
-    ///   but uses them to synchronize concurrent access to output epollfd from
-    ///   multiple threads. Synchronous wait performed via epoll_wait() under
-    ///   locking protection.
-    /// - Output file descriptor is an aforementioned epollfd that automatically
-    ///   forwards input readiness notifications. Client threads that receive
-    ///   this readiness notification proceed to lock the epollfd then read
-    ///   notifications via epoll_wait() and update status word, internal
-    ///   counter and epollfd interest list accordingly.
-    /// - Cancelation handled by switching to \ref STATE_RESULT with \ref
-    ///   OUTCOME_FAILURE_CANCELED then signaling clients with the outcome
-    ///   availability eventfd if `downstream_count` + state indicates that at
-    ///   least one downstream future monitors the epollfd.
-    /// - Liberation drains the cancelation eventfd as described for \ref
-    ///   TYPE_NETWORK_START, if canceled unregisters fds of all dependencies
-    ///   via `epoll_ctl()` while ignoring errors (not needed in successful case
-    ///   since all dependencies should already be unregistrered), then recycles
-    ///   coupled (epoll, eventfd) pair and future.
     TYPE_JOIN,
 
     /// Unordered (aka await any)
     ///
-    /// Implementation has several similarities to join, but with some obvious
-    /// and less obvious differences:
-    ///
-    /// - Not based on a single epollfd that combines dependencies and an
-    ///   outcome availability eventfd, instead two cascading epollfds are used:
-    ///     - An "inner" epollfd that is attached to the fds of the upstream
-    ///       futures that we depend on.
-    ///     - An "outer" epollfd that is attached to the inner epollfd and to
-    ///       the outcome availability eventfd.
-    /// - epoll_wait() is only ever used to query one single input event, this
-    ///   way we are never notified about more futures than we can report.
-    /// - While remaining dependencies are still tracked, successful completion
-    ///   is signaled when the **first** dependency reaches \ref
-    ///   OUTCOME_SUCCESS.
-    /// - Produces a result composed of the index of the input future that
-    ///   completed, and another unordered future with remaining dependency
-    ///   count decremented by 1 if the remaining dependency count of this
-    ///   future indicates that there should be another future afterwards. This
-    ///   other unordered future uses a different outer epollfd/eventfd pair,
-    ///   but attaches it to the same inner epollfd that contains our remaining
-    ///   dependencies, which is simultaneously unregistered from the outer
-    ///   epollfd of the parent future. All this epollfd shuffling is obviously
-    ///   done under lock protection, to ensure that from the perspective of
-    ///   other threads also waiting for the initial unordered future, we switch
-    ///   to a final state where the outer epollfd is only connected to the
-    ///   outcome availability eventfd, which is signaled, ensuring that these
-    ///   other threads can only get notifications about the eventfd.
     TYPE_UNORDERED,
 
     /// Single-shot/deadline timer
     ///
-    /// - No dependency.
-    /// - Driven to completion by the kernel signaling the underlying timerfd.
-    /// - Does not produce a result.
-    /// - Does not support futex-based status change notifications in general,
-    ///   but uses them to synchronize concurrent access to output timerfd from
-    ///   multiple threads. Synchronous wait is performed via read() under
-    ///   locking protection.
-    /// - Output file descriptor is an timerfd that automatically becomes ready
-    ///   once specified deadline is reached. Client threads that receive this
-    ///   readiness notification proceed to lock the epollfd then move the
-    ///   future to \ref STATE_RESULT with \ref OUTCOME_SUCCESS.
-    /// - Cancelation handled by switching to \ref STATE_RESULT with \ref
-    ///   OUTCOME_FAILURE_CANCELED then setting the timerfd to a tiny relative
-    ///   period so it gets instantly signaled.
-    /// - Liberation disarms the timerfd, then recycles it and the future.
     TYPE_TIMER_ONCE,
 
-    /// Multi-shot/repeating timer
+    /// Multi-shot/periodic timer
     ///
-    /// Much like unordered futures handle multi-shot signaling by using a
-    /// cascading epoll structure that makes it possible to migrate the
-    /// dependency eventfd to a different future, multi-shot timers also use
-    /// epollfds as a way to decouple the output fd from the inner timerfd so
-    /// that the latter can be reused by another future without disturbing the
-    /// former.
-    ///
-    /// - Output fd is an epollfd that is connected to the timerfd of interest
-    ///   and an eventfd that signals outcome availability.
-    /// - Each timer shot leads the timerfd to be "unplugged" from the epollfd
-    ///   and migrated to the next future emitted in the result, while on its
-    ///   side the eventfd is signaled to make sure that the original future
-    ///   remains in a perma-signaled state.
     TYPE_TIMER_REPEAT,
+
+    /// Not a true type, only needed to count how many types there are
+    ///
+    NUM_TYPES,
 
     // NOTE: If this enum gets more than 16 variants, reallocate the bit budget
     //       of the `type` field of the future_status_word_t accordingly.
@@ -410,43 +284,42 @@ typedef struct future_status_s {
     /// Number of threads or downstream futures that have expressed interest
     /// in this future's final state and have not processed it yet
     ///
-    /// This reference count is initialized to 1 at the time where a future
-    /// is created. It is incremented when...
+    /// This reference count is initialized to 0 at the time where a future
+    /// is created. It is incremented with `memory_order_acquire` when...
     ///
-    /// - This future is registered as a dependency to another future,
-    ///   either via an `after` option or the array parameter to a
-    ///   collective operation.
-    /// - A thread enters a udipe_wait() for this future.
+    /// - This future is registered as the `after` dependency of another
+    ///   operation (only possible for network operations at the time of
+    ///   writing).
+    /// - A collective join/unordered future is created and its array of
+    ///   upstream futures includes this future.
+    /// - A user thread enters a udipe_wait() for this future and observes a
+    ///   non-ready state, which means that it truly needs to wait.
     ///
-    /// ...and it is decremented when it is guaranteed that the
-    /// aforementioned waiter will not be accessing this future anymore. For
-    /// example when...
+    /// ...and it is decremented with `memory_order_release` when it is
+    /// guaranteed that the aforementioned waiter will not be accessing this
+    /// future anymore. For example when...
     ///
-    /// - A thread exists a udipe_wait() for this future.
+    /// - A user thread exists udipe_wait() for this future after waiting.
+    /// - A collective join/unordered future observed/acknowledged the final
+    ///   state of this future and has removed it from its epoll set accordingly.
     /// - A network operation scheduled after this future has read and
     ///   processed its final status, and either was canceled or started
     ///   executing as a result.
-    /// - A joined future that awaited this future is liberated via
-    ///   udipe_finish() or canceled via udipe_cancel().
-    /// - The last future in an unordered chain is liberated via
-    ///   udipe_finish() or any future in the chain is canceled via
-    ///   udipe_cancel().
-    /// - udipe_finish() is done reading out this future's final state and
-    ///   will not touch its internal state again.
     ///
-    /// The decrement that happens when this future is passed to
-    /// udipe_finish() is expected to take its `downstream_count` from 1 to
-    /// 0, and thus trigger the immediate liberation of the future. Any
-    /// nonzero remainder indicates that some kind of use-after-free or
-    /// reference counting bug is going on, and will therefore lead the
-    /// application to terminate with a fatal error log.
+    /// `downstream_count` works together with `available` to enable
+    /// use-after-finish detection:
     ///
-    /// Futures that only support fd-based signaling can additionally use
-    /// this counter in tandem with `state` to know if other futures or
-    /// threads are awaiting their output fd besides the worker that is
-    /// currently operating them. This can enabling eventfd signal elision
-    /// optimizations when that is not the case (TODO decide if this
-    /// optimization is worthwhile).
+    /// - By checking that `downstream_count` is zero at the time where the
+    ///   `available` flag gets cleared, we can assert that udipe_finish() is
+    ///   not called until all previous users of a future are done with it.
+    /// - By checking that `available` is set at the time where
+    ///   `downstream_count` gets manipulated, we can detect most of the cases
+    ///   where another future operation starts executing after udipe_finish()
+    ///   has begun.
+    ///
+    /// It also enables some optimizations where signaling of a future's status
+    /// word or output file descriptor can be elided because no one expects such
+    /// a signal.
     ///
     /// As this half-word is located in the leading bits of the bitfield, it
     /// can be incremented by incrementing the whole 32-bit word on little
@@ -467,6 +340,17 @@ typedef struct future_status_s {
     /// the attempt to attach a downstream future must be rejected).
     bool downstream_count_overflow : 1;
 
+    /// Truth that this future can be targeted by a public API
+    ///
+    /// This flag is initially cleared for unallocated futures. It is set with
+    /// `memory_order_acq_rel` at the time where a future is initialized, and
+    /// cleared with `memory_order_acq_rel` at the start of udipe_finish().
+    ///
+    /// In combination with `downstream_count` tracking, this enables
+    /// use-after-finish detection, as explained in the documentation of
+    /// `downstream_count`.
+    bool available : 1;
+
     /// Future state machine
     ///
     /// This tracks at which stage of the future lifecycle this future
@@ -480,22 +364,6 @@ typedef struct future_status_s {
     /// with this future. It is a \ref future_outcome_t value casted into an
     /// integer, see the documentation of this enum for more information.
     unsigned outcome : 3;
-
-    /// Truth that changes to this status word should be notified through a
-    /// call to wake_by_address_all()
-    ///
-    /// This flag is initially unset when a future is set up. It is set on
-    /// the first time where a thread starts waiting for state changes via
-    /// wait_on_address(), and cannot be unset afterwards until the future
-    /// is liberated. From the point where this flag is set, all status word
-    /// changes will be notified via wake_by_address_all().
-    ///
-    /// The reason why this is a sticky flag and not a counter of waiters is
-    /// that we don't have enough bits in this status word to afford more
-    /// than one counter of reasonable range... So we can afford to avoid
-    /// futex syscalls on futures that never need it, but not on futures
-    /// that intermittently need it.
-    bool notify_address : 1;
 
     // --- Byte boundary ---
 
@@ -511,54 +379,75 @@ typedef struct future_status_s {
     /// status bits in a future udipe version.
     unsigned type : 4;
 
-    union {
-        /// State lock for lazily updated futures
-        ///
-        /// "Lazy" future types are not eagerly updated by a thread which is
-        /// in charge of performing the asynchronous work. Instead they get
-        /// lazily updated, usually at the point where a user thread starts
-        /// directly or indirectly waiting for their output epollfd to
-        /// signal a status change.
-        ///
-        /// Because these future types may be concurrently awaited by
-        /// multiple threads, access to their lazily updated internal state
-        /// must be synchronized somehow. For collective and repeating timer
-        /// futures, which have complex internal state that cannot be
-        /// updated in a single atomic RMW operation, this is ensured by
-        /// using this flag as a lock. When such a future's output fd
-        /// becomes ready, indicating a possible state change, the thread
-        /// that gets awakened as a result must...
-        ///
-        /// - Check if this locking flag is already set.
-        ///     - If so, another thread is already in the process of
-        ///       querying the file descriptor, and this thread can do
-        ///       nothing but wait for the results. To do this set the
-        ///       `notify_address` flag if it is not set yet, then use a
-        ///       wait_on_address() loop to wait for the other thread that
-        ///       arrived first to report the final state (or release the
-        ///       lock in some other way).
-        ///     - If not, attempt to set this flag, and if successful
-        ///       perform any required state update operation finishing with
-        ///       the status word (clearing this lock flag along the way),
-        ///       then signal the status word change via
-        ///       wake_by_address_all() if `notify_address` is set.
-        bool lazy_update_lock : 1;
+    /// Truth that changes to this status word should be notified through a
+    /// call to wake_by_address_all()
+    ///
+    /// This flag is initially unset when a future is set up. It is set on the
+    /// first time where a thread starts waiting for state changes via
+    /// wait_on_address(), and cannot be unset afterwards until the future is
+    /// liberated. From the point where this flag is set, all status word
+    /// changes will be notified via a variant of `wake_by_address` (usually
+    /// wake_by_address_all(), but lazy futures also use
+    /// wake_by_address_single() to avoid thundering herds when they transfer
+    /// the lazy update lock from one waiter to another).
+    ///
+    /// The reason why this is a sticky flag and not a counter of waiters is
+    /// that we don't have enough bits in this status word to afford more than
+    /// one counter of reasonable range... So we can afford to avoid unnecessary
+    /// futex syscalls on futures that never need a futex syscall, but not on
+    /// futures that intermittently need these.
+    bool notify_address : 1;
 
-        /// Truth that changes to this status word should be signaled via
-        /// the output `eventfd`
-        ///
-        /// "Eager" futures support address-based signaling, in contrast to
-        /// "lazy" futures which only support file descriptor signaling.
-        /// Therefore eager futures do not always need to signal changes
-        /// through their output eventfd, and require a flag to enable this
-        /// form of signaling.
-        ///
-        /// This flag works just like `notify_address`: initially unset, set
-        /// the first time a thread expresses interest in receiving updates
-        /// through the file descriptor path, cannot be unset afterwards
-        /// until the future is destroyed.
-        bool notify_fd : 1;
-    };
+    /// Request for `eventfd` signaling or lazy future state locking
+    ///
+    /// The meaning of this field depends on whether you are dealing with an
+    /// "eager" future, whose status is automatically changed by a dedicated
+    /// thread, or with a "lazy" future, whose status is changed as a result of
+    /// polling a file descriptor.
+    ///
+    /// # Eager future: Request for `eventfd` signaling
+    ///
+    /// "Eager" futures support address-based signaling, in contrast to "lazy"
+    /// futures which only support file descriptor signaling. Therefore eager
+    /// futures do not always need to signal changes through their output
+    /// eventfd, and require a flag to enable this form of signaling.
+    ///
+    /// For these futures, this flag works just like `notify_address`: initially
+    /// unset, set the first time a thread expresses interest in receiving
+    /// updates through the file descriptor path, and cannot be unset afterwards
+    /// until the future is destroyed.
+    ///
+    /// # Lazy future: Lock for lazily updating the future state
+    ///
+    /// "Lazy" future types are not eagerly updated by a thread which is in
+    /// charge of performing the asynchronous work. Instead they get lazily
+    /// updated, usually at the point where a user thread starts directly or
+    /// indirectly waiting for their output epollfd to signal a status change.
+    ///
+    /// Because these future types may be concurrently awaited by multiple
+    /// threads, access to their lazily updated internal state must be
+    /// synchronized somehow. For collective and repeating timer futures, which
+    /// have complex internal state that cannot be updated in a single atomic
+    /// RMW operation, this is ensured by using this flag as a lock. When such a
+    /// future's output fd becomes ready, indicating a possible state change,
+    /// the thread that gets awakened as a result must...
+    ///
+    /// - Check if this locking flag is already set.
+    ///     - If so, another thread is already in the process of querying the
+    ///       file descriptor, and this thread can do nothing but wait for the
+    ///       results. To do this set the `notify_address` flag if it is not set
+    ///       yet, then use a wait_on_address() loop to wait for the other
+    ///       thread that arrived first to report the final state (or release
+    ///       the lock in some other way).
+    ///     - If not, attempt to set this flag, and if successful perform any
+    ///       required state update operation finishing with the status word
+    ///       (clearing this lock flag along the way), then signal the status
+    ///       word change via wake_by_address_all() if `notify_address` is set.
+    bool notify_fd_or_lazy_lock : 1;
+
+    /// Those spare bits are reserved for future use and must be set to 0
+    ///
+    unsigned reserved : 2;
 
     // NOTE: This bitfield cannot grow beyond the end of the above byte.
 } future_status_t;
@@ -596,17 +485,43 @@ typedef struct collective_upstream_s {
     /// Array of upstream futures that this future is awaiting
     ///
     /// This array must not be accessed after the point where `status_word` is
-    /// set to a completed state, as the user is allowed to liberate the
+    /// set to \ref STATE_RESULT, as the user is allowed to liberate the
     /// associated memory after this point.
     ///
     /// Must have been checked to contain no duplicates and no `NULL`s at
     /// collective future construction time. As long as we do not expose an
     /// output fd accessor that lets users call `dup()`, `epoll_ctl()` should
-    /// take care of the former at collective future construction time.
+    /// take care of the former for us.
     udipe_future_t* const* array;
 
-    // TODO: Consider adding a len field in debug builds, used
-    //       for bound-checking accesses to `array`.
+    /// Number of upstream futures in `array`
+    ///
+    /// This is needed in order to be able to detach all upstream futures when a
+    /// collective operation gets canceled. It can also be used for
+    /// bounds-checking assertions in debug builds.
+    //
+    // TODO: Make sure len is not above UINT32_MAX when creating a collective.
+    uint32_t length;
+
+    /// Number of upstream futures that have not yet reached \ref
+    /// OUTCOME_SUCCESS
+    ///
+    /// This counter is initialized to `len` then decremented every time one of
+    /// the upstream futures reaches \ref OUTCOME_SUCCESS. If it reaches 0,
+    /// all upstream futures have reached \ref OUTCOME_SUCCESS.
+    ///
+    /// - Join futures do not switch to \ref OUTCOME_SUCCESS until all upstream
+    ///   futures have reached \ref OUTCOME_SUCCESS.
+    /// - Unordered futures emit a new future whenever this counter is
+    ///   decremented, with a `next` pointer that points to a successor future
+    ///   if this counter has not reached zero yet. If this counter has reached
+    ///   zero, `next` is set to `NULL`, marking the end of the unordered chain.
+    ///
+    /// When one of the upstream futures reaches a non-successful outcome, this
+    /// counter becomes useless and is allowed to take any value.
+    ///
+    /// This counter must be read and written under `lazy_lock` protection.
+    uint32_t remaining;
 } collective_upstream_t;
 
 /// eventfd used to mark a lazy future as permanently ready once it has reached
@@ -615,10 +530,10 @@ typedef struct collective_upstream_s {
 /// Most lazy futures (those whose status is set by the client thread that
 /// awaits them, as opposed to eager future which are processed by a background
 /// thread) must have an `output_fd` which is an epollfd. One limitation of
-/// epollfds as an output file descriptor is that they stop being ready once its
-/// readiness notifications have been processed, thus required an additional
-/// eventfd in the epollfd interest list to ensure continued readiness after the
-/// final status has becomes available.
+/// epollfds as an output file descriptor is that they stop being ready after
+/// their readiness notifications have been processed, thus requiring an
+/// additional eventfd in the epollfd interest list to ensure continued
+/// readiness after the final status has becomes available.
 ///
 /// The exception is \ref TYPE_TIMER_ONCE, which is simple enough to avoid the
 /// need for an output epollfd, and can instead expose its internal timerfd
@@ -626,21 +541,27 @@ typedef struct collective_upstream_s {
 /// read by clients and can thus remain in the perpetually ready unread state,
 /// which acts as that future type's output readiness notification.
 ///
-/// These eventfds must be written to under `lazy_update_lock` protection, and
+/// These eventfds must be written to under `lazy_lock` protection, and
 /// must be reset and recycled along with the associated output epollfd at the
 /// time where the associated future is liberated.
 //
 // TODO: Windows version, based on NT semaphores?
-typedef int outcome_eventfd_t;
+typedef event_t outcome_event_t;
 
 /// \copydoc udipe_future_t
 struct udipe_future_s {
+    /// udipe context which this future belongs to
+    ///
+    /// Used to ensure that future methods do not need an additional context
+    /// parameter after future allocation.
+    alignas(FALSE_SHARING_GRANULARITY) udipe_context_t* context;
+
     /// State that is specific to a particular future type
     ///
     /// At most one of these fields will be set. Which will be set (if any)
     /// depends on the \ref future_type_t that is set inside of the bitpacked
     /// `status_word`.
-    alignas(FALSE_SHARING_GRANULARITY) union {
+    union {
         /// Eager command result
         ///
         /// Eager commands are, as the name suggests, eagerly processed by some
@@ -669,7 +590,7 @@ struct udipe_future_s {
             /// This union variant will be set before signaling \ref
             /// OUTCOME_SUCCESS if the \ref future_type_t is \ref TYPE_CUSTOM.
             udipe_custom_payload_t custom;
-        } eager_payload;
+        } eager;
 
         /// Joined future state
         ///
@@ -683,20 +604,11 @@ struct udipe_future_s {
             ///
             collective_upstream_t upstream;
 
-            /// Number of upstream futures that have not yet reached \ref
-            /// OUTCOME_SUCCESS
-            ///
-            /// If this number reaches 0, then this future can switch to \ref
-            /// STATE_RESULT with \ref OUTCOME_SUCCESS.
-            ///
-            /// Must be read and written under `lazy_update_lock` protection.
-            size_t remaining;
-
             /// eventfd used to mark this future as permanently ready after it
             /// has reached its final outcome
             ///
-            /// See \ref outcome_eventfd_t for more information.
-            outcome_eventfd_t outcome_eventfd;
+            /// See \ref outcome_event_t for more information.
+            outcome_event_t outcome_event;
         } join;
 
         /// Unordered future state and result
@@ -717,7 +629,7 @@ struct udipe_future_s {
             /// indicates which of the upstream futures became ready and how to
             /// await the rest of the upstream futures.
             ///
-            /// Must be written under `lazy_update_lock` protection.
+            /// Must be written under `lazy_lock` protection.
             udipe_unordered_payload_t payload;
 
             /// Inner epollfd that contains the set of upstream futures, which
@@ -727,11 +639,13 @@ struct udipe_future_s {
             /// set to successor unordered futures without affecting clients of
             /// this specific unordered future.
             ///
-            /// Must be awaited under `lazy_update_lock` protection, and
-            /// detached from the output epollfd and attached to the successor
-            /// future (if any) once a result is ready. Must be reset by
-            /// detaching all remaining upstream fds then recycled when the
-            /// future is liberated.
+            /// Must be awaited under `lazy_lock` protection, detached from the
+            /// output epollfd and attached to the successor future (if any)
+            /// once a result is ready. Must be reset by detaching all remaining
+            /// upstream fds then recycled when the future is liberated.
+            ///
+            /// Unlike the output epollfd, the epoll set does not contain an
+            /// eventfd.
             //
             // TODO: Windows version, based on NT service threads?
             int upstream_epollfd;
@@ -739,8 +653,8 @@ struct udipe_future_s {
             /// eventfd used to mark this future as permanently ready after it
             /// has reached its final outcome
             ///
-            /// See \ref outcome_eventfd_t for more information.
-            outcome_eventfd_t outcome_eventfd;
+            /// See \ref outcome_event_t for more information.
+            outcome_event_t outcome_event;
         } unordered;
 
         /// Repeating timer state
@@ -762,23 +676,23 @@ struct udipe_future_s {
             /// to successor unordered futures without affecting clients of this
             /// specific unordered future.
             ///
-            /// Must be read under `lazy_update_lock` protection, and detached
-            /// from the output epollfd then attached to the successor future's
-            /// output epollfd when a result is ready. Must be destroyed when
-            /// the future is liberated, for now. May switch to disarming and
+            /// Must be read under `lazy_lock` protection, and detached from the
+            /// output epollfd then attached to the successor future's output
+            /// epollfd when a result is ready. Must be destroyed when the
+            /// future is liberated, for now. May switch to disarming and
             /// recycling if timerfd creation/destruction ever becomes a
             /// bottleneck, but that seems unlikely under correct usage since
             /// recuring timerfds largely void the need for repeatedly creating
             /// and destroying lots of one-shot timerfds.
             //
-            // TODO: Windows version, based on NT timer threads?
+            // TODO: Windows version, based on waitable timers?
             int timerfd;
 
             /// eventfd used to mark this future as permanently ready after it
             /// has reached its final outcome
             ///
-            /// See \ref outcome_eventfd_t for more information.
-            outcome_eventfd_t outcome_eventfd;
+            /// See \ref outcome_event_t for more information.
+            outcome_event_t outcome_event;
         } timer_repeat;
     } specific;
 
@@ -816,7 +730,7 @@ struct udipe_future_s {
     /// variant of this union you are dealing with, then read the associated
     /// description for more info.
     //
-    // TODO: Windows version, based on NT semaphores?
+    // TODO: Windows version, based on NT sync objects?
     union {
         /// eventfd in non-semaphore mode, used for eager futures
         ///
@@ -837,17 +751,16 @@ struct udipe_future_s {
         /// word, completing the synchronization transaction.
         ///
         /// Must be reset via readout and recycled when the future is liberated.
-        int event;
+        event_t event;
 
-        /// epollfd with a cancelation eventfd, used for collective futures and
-        /// repeating timers.
+        /// epollfd with a readiness signaling eventfd in its epoll set
         ///
         /// This output file descriptor type is mainly used for "collective"
         /// future types that await several other futures. It is, as the name
-        /// and previous description suggest, an epollfd that monitors the
-        /// readiness of the output file descriptors of all upstream futures,
-        /// along with an additional eventfd which indicates availability of
-        /// this future's (successful or failing) outcome.
+        /// suggests, an epollfd that monitors the readiness of the output file
+        /// descriptors of all upstream futures, along with an additional
+        /// eventfd which indicates availability of this future's (successful or
+        /// failing) outcome.
         ///
         /// How exactly dependencies are awaited depends on the kind of
         /// future that you are dealing with:
@@ -855,28 +768,28 @@ struct udipe_future_s {
         /// - Join futures use a single epollfd that encompasses all fds of
         ///   interest. Dependency fds use their index in the array of
         ///   dependencies as epoll metadata, while the outcome availability
-        ///   eventfd uses an easily identifiable invalid index.
+        ///   eventfd uses an easily identifiable invalid index of `UINT64_MAX`.
         /// - Unordered futures use a cascaded pair of epollfds. Their
         ///   dependencies are attached to an "inner" epollfd with index-based
-        ///   signaling as before, but this "inner" epollfd is in turn attached
-        ///   to an "outer" epollfd which is additionally attached to the
-        ///   outcome availability eventfd. This curious cascading epollfd
-        ///   structure makes it easy to migrate the inner epollfd from an
-        ///   unordered future to the next future in the unordered chain, while
-        ///   leaving the original epollfd attached only to a signaled eventfd
-        ///   which is left in a perpetually signaled state to advertise that
-        ///   the outcome is now available.
+        ///   signaling as before, but no accompanying eventfd. This "inner"
+        ///   epollfd is in turn attached to an "outer" epollfd which is
+        ///   additionally attached to the outcome availability eventfd. This
+        ///   curious cascading epollfd structure makes it easy to migrate the
+        ///   inner epollfd from an unordered future to the next future in the
+        ///   unordered chain, while leaving the original epollfd attached only
+        ///   to a signaled eventfd which is left in a perpetually signaled
+        ///   state to advertise that the outcome is now available.
         /// - Repeating timers handle multiple output futures using the same
-        ///   trick, except instead of cascading epollfds they instead simply
-        ///   have an output epollfd which is connected to a timerfd (that
-        ///   performs time-based signaling and can be detached and migrated to
-        ///   the next future in the chain) and an eventfd (that eventually
-        ///   remains attached to the epollfd in a perpetually signaled state to
+        ///   trick, except instead of cascading epollfds they simply have an
+        ///   output epollfd which is connected to a timerfd (that performs
+        ///   time-based signaling and can be detached and migrated to the next
+        ///   future in the chain) and an eventfd (that eventually remains
+        ///   attached to the epollfd in a perpetually signaled state to
         ///   broadcast the information that the final outcome is available).
         ///
         /// Because epoll's API design is not very friendly to multi-threaded
         /// use, `epoll_wait()` on the inner epollfds requires
-        /// `lazy_update_lock` protection, which effectively acts as a mutex to
+        /// `lazy_lock` protection, which effectively acts as a mutex to
         /// control access to the epollfd and associated future state.
         ///
         /// Whenever `epoll_wait()` output indicates that a particular upstream
@@ -890,10 +803,10 @@ struct udipe_future_s {
         /// signaled via the dedicated eventfd if at least one other future
         /// awaited this future, as indicated by `downstream_count`.
         ///
-        /// Must be reset by detaching all remaining fds except for the outcome
-        /// signaling eventfd, then recycled alongside said eventfd when the
-        /// future is liberated.
-        int epoll;
+        /// This epollfd must be reset by detaching all remaining fds except for
+        /// the outcome signaling eventfd, then recycled alongside said eventfd
+        /// when the future is liberated.
+        int epoll_with_event;
 
         /// timerfd, used for single-shot timer futures
         ///
@@ -908,9 +821,16 @@ struct udipe_future_s {
         ///
         /// Must be destroyed when the future is liberated, for now. May switch
         /// to disarming and recycling if timerfd creation/destruction ever
-        /// becomes a bottleneck, but that seems unlikely under correct usage
-        /// since recuring timerfds are a thing.
+        /// becomes a bottleneck, but that seems unlikely under correct udipe
+        /// API usage given that recuring timerfds are a thing.
         int timer;
+
+        /// Catch-all file descriptor type
+        ///
+        /// Use this union variant in situations where the active file
+        /// descriptors doesn't matter, such as when managing attachment of
+        /// output fds to collective future epollfds.
+        int any;
     } output_fd;
 };
 static_assert(alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
@@ -933,19 +853,166 @@ static_assert(sizeof(udipe_result_t) <= CACHE_LINE_SIZE,
 /// \name Future status word manipulation
 /// \{
 
+/// Check that a future's status word is internally consistent in debug builds
+///
+/// This function can be used whenever a new value of a future's status word is
+/// observed or injected, to ensure that no inconsistent state slips in as a
+/// result of a bug.
+///
+/// \param status is the observed/injected future status
+/// \param is_allocated indicates whether the future is currently allocated to
+///                     some work or simply lying around in some recycling pool
+///                     waiting to be picked up for another task.
+void future_status_debug_check(future_status_t status,
+                               bool is_allocated);
+
+/// How the downstream count of a future should be changed during a wait
+///
+/// The downstream count is a reference count, stored within a future's status
+/// word, which is used to detect use-after-free patterns where udipe_finish()
+/// is called before all users of a future are done with it.
+///
+/// When a thread waits for a future to be ready, it normally increments the
+/// downstream count at the beginning of the wait and decrements it at the end,
+/// as modeled by the `DOWNSTREAM_COUNT_CYCLE` variant of this enum. But there
+/// are a few exceptions to this general rule, motivated by performance and
+/// correctness reasons. Hence this tuning knob.
+typedef enum downstream_count_policy_e {
+    /// Increment the downstream count at the start and decrement it at the end
+    ///
+    /// This is the normal policy of udipe_wait(). Any other policy assumes
+    /// something about the way the future has been previously manipulated or
+    /// will be manipulated in the future, and must therefore only be used in
+    /// special circumstances.
+    DOWNSTREAM_COUNT_CYCLE = 0,
+
+    /// Do not change the downstream count during the waiting process
+    ///
+    /// This special policy is needed in two circumstances:
+    ///
+    /// - udipe_finish(), which ends a future's lifetime, does not manipulate
+    ///   the downstream count. It will instead clear the `available` flag at
+    ///   the beginning and make sure the downstream count is zero at that time.
+    /// - Collective futures like \ref TYPE_JOIN and \ref TYPE_UNORDERED stay
+    ///   attached to their upstream futures until they are done waiting for
+    ///   them. Thus the downstream count of upstream futures is incremented
+    ///   initially as the collective future is created, and only decremented as
+    ///   the collective future is liberated by udipe_finish(). This has two
+    ///   benefits:
+    ///     - The performance overhead of incrementing and decrementing the
+    ///       downstream count of upstream futures multiple times throughout the
+    ///       waiting process is avoided.
+    ///     - The downstream count stays at a nonzero value as long as the
+    ///       collective future may access it, thus reducing the odds of
+    ///       use-after-finish detection failure.
+    DOWNSTREAM_COUNT_KEEP,
+} downstream_count_policy_t;
+
+/// Apply the effect of future_downstream_count_try_inc() to a local status word
+///
+/// This function can be used when a thread is getting ready to await a
+/// non-ready future and needs to change fields of the status word other than
+/// the `downstream_count`. When no other status word field needs to be changed,
+/// future_downstream_count_try_inc() should be used instead.
+///
+/// Once you are ready to commit this status word change through a
+/// `compare_exchange` transaction, you should make sure that said transaction
+/// has a memory ordering of `acquire` or stronger (`acq_rel`, `seq_cst`) on
+/// success. This is needed to ensure that no later thread action targeting
+/// the future may be reordered before the `downstream_count` increment.
+///
+/// It only makes sense to apply this sort of fine-grained transaction to the
+/// status word of a live future that's allocated to some work. Unallocated
+/// futures can be manipulated by simply overwriting their status with
+/// future_status_store().
+///
+/// \param status should initially point to the latest known future status word,
+///               or a version of it which already started receiving some of the
+///               desired changes. This function will take care of applying any
+///               needed downstream_count change.
+/// \param count_policy indicates the downstream count policy which the caller
+///                     of this function operates under.
+UDIPE_NON_NULL_ARGS
+static inline
+void prepare_downstream_count_inc(future_status_t* status,
+                                  downstream_count_policy_t count_policy) {
+    future_status_debug_check(*status, true);
+    assert(status->state != STATE_RESULT);
+    ensure(!status->downstream_count_overflow);
+    switch (count_policy) {
+    case DOWNSTREAM_COUNT_CYCLE:
+        ensure_lt((size_t)status->downstream_count,
+                  (size_t)MAX_DOWNSTREAM_COUNT);
+        ++(status->downstream_count);
+        break;
+    case DOWNSTREAM_COUNT_KEEP:
+        break;
+    }
+}
+
+/// Apply the effect of future_downstream_count_dec() to a local status word
+///
+/// This function can be used when a thread is done awaiting a future and needs
+/// to change fields of the status word other than the `downstream_count`. When
+/// no other status word field needs to be changed,
+/// future_downstream_count_dec() should be used instead.
+///
+/// Once you are ready to commit this status word change through a
+/// `compare_exchange` transaction, you should make sure that said transaction
+/// has a memory ordering of `release` or stronger (`acq_rel`, `seq_cst`) on
+/// success. This is needed to ensure that no previous thread action targeting
+/// the future may be reordered after the `downstream_count` decrement.
+///
+/// It only makes sense to apply this sort of fine-grained transaction to the
+/// status word of a live future that's allocated to some work. Unallocated
+/// futures can be manipulated by simply overwriting their status with
+/// future_status_store().
+///
+/// \param status should initially point to the latest known future status word,
+///               or a version of it which already started receiving some of the
+///               desired changes. This function will take care of applying any
+///               needed downstream_count change.
+/// \param count_policy indicates the downstream count policy which the caller
+///                     of this function operates under.
+UDIPE_NON_NULL_ARGS
+static inline
+void prepare_downstream_count_dec(future_status_t* status,
+                                  downstream_count_policy_t count_policy) {
+    future_status_debug_check(*status, true);
+    ensure(!status->downstream_count_overflow);
+    switch (count_policy) {
+    case DOWNSTREAM_COUNT_CYCLE:
+        ensure_ge((size_t)status->downstream_count,
+                  (size_t)1);
+        --(status->downstream_count);
+        break;
+    case DOWNSTREAM_COUNT_KEEP:
+        break;
+    }
+}
+
+/// Check if two future status words are equal
+///
+static inline
+bool future_status_eq(future_status_t s1, future_status_t s2) {
+    return (future_status_word_t){ .as_bitfield = s1 }.as_word
+        == (future_status_word_t){ .as_bitfield = s2 }.as_word;
+}
+
 /// Initialize a future's status word
 ///
 /// This operation is not atomic and must never be called from multiple threads.
-/// It is only meant to be used when a future is initially allocated, and must
-/// never be called at a time where other threads might be accessing the future.
+/// It should only be used when a future is initially allocated, and must never
+/// be called at a time where other threads might be accessing the future.
 ///
 /// At any point of a future's lifetime after initialization, including when the
 /// future is recycled into a thread-local cache and later recalled from said
-/// cache, future_status_store() should be preferred to this function.
+/// cache, future_status_store() should be preferred over this function.
 UDIPE_NON_NULL_ARGS
 static inline
 void future_status_initialize(udipe_future_t* future,
                               future_status_t status) {
+    future_status_debug_check(status, false);
     atomic_init(&future->status_word,
                 (future_status_word_t){ .as_bitfield = status }.as_word);
 }
@@ -958,7 +1025,7 @@ void future_status_initialize(udipe_future_t* future,
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static inline
-future_status_t future_status_load(udipe_future_t* future,
+future_status_t future_status_load(const udipe_future_t* future,
                                    memory_order order) {
     return (future_status_word_t){
         .as_word = atomic_load_explicit(&future->status_word, order)
@@ -997,6 +1064,11 @@ void future_status_store(udipe_future_t* future,
 /// If the only field you want to change is the `downstream_count`, consider
 /// using `future_downstream_count_` operations as a more efficient alternative.
 ///
+/// It only makes sense to apply this sort of fine-grained transaction to the
+/// status word of a live future that's allocated to some work. Unallocated
+/// futures can be manipulated by simply overwriting their status with
+/// future_status_store().
+///
 /// \param future must be a future that was returned by an asynchronous function
 ///               (those whose name begins with `udipe_start_`) and has not been
 ///               liberated by udipe_finish() or udipe_cancel() since.
@@ -1024,6 +1096,8 @@ bool future_status_compare_exchange_strong(udipe_future_t* future,
                                            future_status_t desired,
                                            memory_order success,
                                            memory_order failure) {
+    future_status_debug_check(*expected, true);
+    future_status_debug_check(desired, true);
     future_status_word_t expected_word = (future_status_word_t){
         .as_bitfield = *expected
     };
@@ -1035,6 +1109,7 @@ bool future_status_compare_exchange_strong(udipe_future_t* future,
         failure
     );
     *expected = expected_word.as_bitfield;
+    if (!result) future_status_debug_check(*expected, true);
     return result;
 }
 
@@ -1053,6 +1128,8 @@ bool future_status_compare_exchange_weak(udipe_future_t* future,
                                          future_status_t desired,
                                          memory_order success,
                                          memory_order failure) {
+    future_status_debug_check(*expected, true);
+    future_status_debug_check(desired, true);
     future_status_word_t expected_word = (future_status_word_t){
         .as_bitfield = *expected
     };
@@ -1064,53 +1141,464 @@ bool future_status_compare_exchange_weak(udipe_future_t* future,
         failure
     );
     *expected = expected_word.as_bitfield;
+    if (!result) future_status_debug_check(*expected, true);
     return result;
 }
 
-/// Atomically increment a future's downstream count, returning its former
-/// status
+/// Wait for a future's status word to change away from a certain value, return
+/// truth that it may have changed (otherwise the wakeup was spurious)
 ///
-/// This should be done whenever a future is attached to a new downstream
-/// entity, such as a join future, and no other change to the future status word
-/// are required. If other changes are required, using
-/// `future_status_compare_exchange_` functions is better than first calling
-/// this function then calling `future_status_compare_exchange_`.
+/// This function has the same semantics as wait_on_address(), but it is meant
+/// to be called and operates on their status word in its decoded bitfield form.
 ///
-/// This operation is faillible. If the former status turned out to have a
-/// downstream count of \ref MAX_DOWNSTREAM_COUNT, then the operation should be
-/// rolled back with future_downstream_count_dec() and error out.
-UDIPE_NODISCARD
+/// It only makes sense to apply this sort of synchronization to the status word
+/// of a live future that's allocated to some work. Unallocated futures can be
+/// manipulated by simply overwriting their status with future_status_store().
+///
+/// This function must be called within the scope of with_logger().
 UDIPE_NON_NULL_ARGS
 static inline
-future_status_t future_downstream_count_inc(udipe_future_t* future,
-                                            memory_order order) {
-    return (future_status_word_t){
-        .as_word = atomic_fetch_add_explicit(&future->status_word,
-                                             1,
-                                             order)
-    }.as_bitfield;
+bool future_status_wait(udipe_future_t* future,
+                        future_status_t expected,
+                        udipe_duration_ns_t timeout) {
+    future_status_debug_check(expected, true);
+    return wait_on_address(
+        &future->status_word,
+        (future_status_word_t){ .as_bitfield = expected }.as_word,
+        timeout
+    );
 }
 
-/// Atomically decrement a future's downstream count, returning its former
+/// Atomically decrement a future's downstream count, return the new future
 /// status
 ///
 /// This should be done whenever a downstream entity, such as a join future, is
 /// done inspecting the state of this future and will never touch it again.
 ///
-/// This operation should never observe a `downstream_count` of 0. If it does,
-/// it indicates a major bug in the reference counting logic of futures that
-/// must be fixed, but is best handled by crashing the app.
-UDIPE_NODISCARD
+/// As with future_downstream_count_try_inc(), if you need to modify other
+/// fields of the future status word, you should batch these two updates into a
+/// single `future_status_compare_exchange_` transaction. In this case, you can
+/// use prepare_downstream_count_dec() as preparation for your custom CAS
+/// transaction.
+///
+/// It only makes sense to apply this sort of fine-grained transaction to the
+/// status word of a live future that's allocated to some work. Unallocated
+/// futures can be manipulated by simply overwriting their status with
+/// future_status_store().
+///
+/// \param future must be a future that was returned by an asynchronous function
+///               (those whose name begins with `udipe_start_`) and has not been
+///               liberated by udipe_finish() or udipe_cancel() since.
+/// \param order is the memory ordering associated with the downstream count
+///              decrement. To ensure that no future operation is reordered
+///              after the downstream count decrement, this ordering should
+///              almost always be `release` or stronger (`acq_rel`, `seq_cst`).
+///
+/// \returns the future status word after this operations has been applied. If
+///          you use or expose this value, the memory ordering of this operation
+///          should usually be at least `acq_rel` so that you synchronize-with
+///          future state changes signaled by other threads.
 UDIPE_NON_NULL_ARGS
 static inline
 future_status_t future_downstream_count_dec(udipe_future_t* future,
                                             memory_order order) {
-    return (future_status_word_t){
+    const future_status_t pre_op_status = (future_status_word_t){
         .as_word = atomic_fetch_sub_explicit(&future->status_word,
                                              1,
                                              order)
     }.as_bitfield;
+    future_status_debug_check(pre_op_status, true);
+    future_status_t result = pre_op_status;
+    assert(result.downstream_count >= 1);
+    --result.downstream_count;
+    future_status_debug_check(result, true);
+    return result;
 }
+
+/// Attempt to increment a future's downstream count as preparation for
+/// awaiting its result
+///
+/// This should be done in situations where...
+///
+/// - An application thread has observed that a future is not ready yet, and
+///   is getting ready to wait for that future to reach \ref STATE_RESULT.
+/// - No other change to the future status word is necessary.
+///
+/// If you need to perform other changes to the future's status word, then you
+/// should batch up all desired changes into a single
+/// `future_status_compare_exchange_` loop, as it will be more efficient than
+/// performing multiple RMW operations on the future status word. In this case,
+/// you can use prepare_downstream_count_inc() as preparation for your custom
+/// CAS transaction.
+///
+/// If the future switches to \ref STATE_RESULT as this change is being
+/// performed, then this function will either revert the `downstream_count`
+/// change or refrain from performing it at all, then return `false`. Otherwise
+/// it will return `true` and keep the `downstream_count` change in.
+///
+/// In both cases, the status word manipulations have acquire ordering:
+///
+/// - If the increment is successfully performed, this is necessary to ensure
+///   that no operation on the future state is reordered before the
+///   downstream_count increment, thus maximizing the odds that overly early
+///   calls to udipe_finish() and similar can be detected.
+/// - If the increment is not performed due to a switch to \ref STATE_RESULT,
+///   this is necessary to fully synchronize with the final future state.
+///
+/// In both cases, `latest_status`, which should initially be set to the latest
+/// known future status, will be updated to the new future status.
+///
+/// It only makes sense to apply this sort of fine-grained transaction to the
+/// status word of a live future that's allocated to some work. Unallocated
+/// futures can be manipulated by simply overwriting their status with
+/// future_status_store().
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by an asynchronous function
+///               (those whose name begins with `udipe_start_`) and has not been
+///               liberated by udipe_finish() or udipe_cancel() since.
+/// \param latest_status should be initially set to the latest known future
+///                      status. It will be updated to the final future status
+///                      after all operations have been performed.
+///
+/// \returns the truth that the downstream_count was incremented. The increment
+///          will either not be carried out or be rolled back (depending on
+///          which is fastest/most scalable on the host CPU) if the future
+///          concurrently switches to \ref STATE_RESULT.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+static inline
+bool future_downstream_count_try_inc(udipe_future_t* future,
+                                     future_status_t* latest_status) {
+    trace("Incrementing downstream_count...");
+    future_status_debug_check(*latest_status, true);
+    future_status_t pre_op_status = (future_status_word_t){
+        // Acquire ordering needed because subsequent operations on the future
+        // should not be reordered before this downstream_count increment.
+        .as_word = atomic_fetch_add_explicit(&future->status_word,
+                                             1,
+                                             memory_order_acquire)
+    }.as_bitfield;
+    future_status_debug_check(pre_op_status, true);
+    if (pre_op_status.downstream_count_overflow
+        || pre_op_status.downstream_count == MAX_DOWNSTREAM_COUNT)
+    {
+        errorf("Sorry, the current future implementation does not support "
+               "attaching more than %zu waiters to a future",
+               (size_t)MAX_DOWNSTREAM_COUNT);
+        exit(EXIT_FAILURE);
+    } else if (pre_op_status.state == STATE_RESULT) {
+        trace("Future concurrently switched to STATE_RESULT, reverting...");
+        // This is a rare case where the decrement does not need release
+        // ordering because it directly follows the acquire increment, without
+        // any other manipulation of the future meanwhile. An acquire barrier is
+        // still needed, however, because we do want to synchronize with the
+        // final future state if it changes again (which is unlikely).
+        *latest_status = future_downstream_count_dec(future,
+                                                     memory_order_acquire);
+        assert(latest_status->state == STATE_RESULT);
+        future_status_debug_check(*latest_status, true);
+        return false;
+    } {
+        trace("Updating latest_status after successful increment...");
+        *latest_status = pre_op_status;
+        ++(latest_status->downstream_count);
+        future_status_debug_check(*latest_status, true);
+        return true;
+    }
+}
+
+/// \}
+
+
+/// \name Basic future lifecycle
+/// \{
+
+/// Liberate a future
+///
+/// The future will be reset to an unallocated state, then shelved into a
+/// thread-local cache where later calls to future_allocate() will be able to
+/// find and reuse it instead of resorting to a global allocation.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param future must point to a future that was previously allocated to some
+///               asynchronous operation and has just been liberated via
+///               udipe_finish(). This future cannot be used again afterwards.
+//
+// TODO: implement. Set most values to zero-ish and the output fd to -1.
+// TODO: Add GNU attributes to mark this + future_allocate() as an
+//       allocator/liberator pair if possible.
+UDIPE_NON_NULL_ARGS
+void future_liberate(udipe_future_t* future);
+
+/// Allocate a future
+///
+/// The future is provided in an invalid state and must be initialized as
+/// appropriate for the asynchronous task that is starting. Status word
+/// initialization can be carried out using future_status_store() as the future
+/// is not shared across multiple threads yet.
+///
+/// This function must be called within the scope of with_logger().
+//
+// TODO: Implement. Should go through the thread-local cache first, then through
+//       the global cache after locking it, and if the global cache is empty too
+//       then should allocate a new page of futures, register it into the global
+//       cache for liberation by atexit(), release the global cache lock,
+//       put the futures in a zeroed/invalid state, and add all but one
+//       future to the thread-local cache. The future which we set aside will
+//       then be returned by this function.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_RESULT
+udipe_future_t* future_allocate();
+
+// TODO: Ensure that 1/when a user thread exits, its thread-local unallocated
+//       future cache is spilled into a global unallocated future cache and 2/on
+//       atexit(), this global future cache is fully wiped: not just individual
+//       futures, but also the memory pages as part of which these futures were
+//       allocated. I think it makes most sense for the global future cache to
+//       not be specific to any udipe context but shared across all udipe
+//       contexts.
+
+/// \}
+
+
+/// \name Awaiting future results
+/// \{
+
+/// Backend of udipe_wait() that returns the latest future status after the wait
+///
+/// The wait is considered successful if the final status has \ref STATE_RESULT,
+/// which should always be the case when using \ref UDIPE_DURATION_MAX and \ref
+/// UDIPE_DURATION_DEFAULT unbounded timeouts.
+///
+/// The output status is used by operations like udipe_finish() that not only
+/// await the final future status, but also process it.
+///
+/// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by an asynchronous function
+///               (those whose name begins with `udipe_start_`) and has not been
+///               liberated by udipe_finish() or udipe_cancel() since.
+/// \param timeout works as in wait_on_address(). In particular it cannot take
+///                value \ref UDIPE_DURATION_DEFAULT, which should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+///
+/// \returns the final future status at the end of the wait.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_status_t future_wait(udipe_future_t* future,
+                            udipe_duration_ns_t timeout,
+                            downstream_count_policy_t count_policy);
+
+/// Backend of future_wait() for all future types that get eagerly signaled by a
+/// separate thread
+///
+/// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by an asynchronous network
+///               operation (those whose name begins with `udipe_start_`) or by
+///               udipe_start_custom() and has not been liberated by
+///               udipe_finish() or udipe_cancel() since.
+/// \param latest_status should be the latest known future status at the time
+///                      where this function is called.
+/// \param timeout works as in wait_on_address(). In particular it cannot take
+///                value \ref UDIPE_DURATION_DEFAULT, which should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+///
+/// \returns the final future status.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_status_t future_wait_eager(udipe_future_t* future,
+                                  future_status_t latest_status,
+                                  udipe_duration_ns_t timeout,
+                                  downstream_count_policy_t count_policy);
+
+/// Backend of future_wait() for \ref TYPE_JOIN
+///
+/// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by udipe_start_join() and
+///               has not been liberated by udipe_finish() or udipe_cancel()
+///               since.
+/// \param latest_status should be the latest known future status at the time
+///                      where this function is called.
+/// \param timeout works as in wait_on_address(). In particular it cannot take
+///                value \ref UDIPE_DURATION_DEFAULT, which should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+///
+/// \returns the final future status.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_status_t future_wait_join(udipe_future_t* future,
+                                 future_status_t latest_status,
+                                 udipe_duration_ns_t timeout,
+                                 downstream_count_policy_t count_policy);
+
+/// Backend of future_wait() for \ref TYPE_UNORDERED
+///
+/// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by udipe_start_unordered()
+///               and has not been liberated by udipe_finish() or udipe_cancel()
+///               since.
+/// \param latest_status should be the latest known future status at the time
+///                      where this function is called.
+/// \param timeout works as in wait_on_address(). In particular it cannot take
+///                value \ref UDIPE_DURATION_DEFAULT, which should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+///
+/// \returns the final future status.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_status_t future_wait_unordered(udipe_future_t* future,
+                                      future_status_t latest_status,
+                                      udipe_duration_ns_t timeout,
+                                      downstream_count_policy_t count_policy);
+
+/// Backend of future_wait() for \ref TYPE_TIMER_ONCE
+///
+/// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by udipe_start_timer_once()
+///               and has not been liberated by udipe_finish() or udipe_cancel()
+///               since.
+/// \param latest_status should be the latest known future status at the time
+///                      where this function is called.
+/// \param timeout works as in wait_on_address(). In particular it cannot take
+///                value \ref UDIPE_DURATION_DEFAULT, which should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+///
+/// \returns the final future status.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_status_t future_wait_timer_once(udipe_future_t* future,
+                                       future_status_t latest_status,
+                                       udipe_duration_ns_t timeout,
+                                       downstream_count_policy_t count_policy);
+
+/// Backend of future_wait() for \ref TYPE_TIMER_REPEAT
+///
+/// Must be called within the scope of with_logger().
+///
+/// \param future must be a future that was returned by
+///               udipe_start_timer_repeat() and has not been liberated by
+///               udipe_finish() or udipe_cancel() since.
+/// \param latest_status should be the latest known future status at the time
+///                      where this function is called.
+/// \param timeout works as in wait_on_address(). In particular it cannot take
+///                value \ref UDIPE_DURATION_DEFAULT, which should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+///
+/// \returns the final future status.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_status_t future_wait_timer_repeat(udipe_future_t* future,
+                                         future_status_t latest_status,
+                                         udipe_duration_ns_t timeout,
+                                         downstream_count_policy_t count_policy);
+
+/// Outcome of future_wait_by_adress()
+///
+/// This type is returned by future_wait_by_address() to tell the caller what
+/// happened and what it should do next.
+typedef enum address_wait_outcome_e {
+    /// The target future reached \ref STATE_RESULT.
+    ///
+    ADDRESS_WAIT_SUCCESS,
+
+    /// The user-specified timeout elapsed without the target future reaching
+    /// \ref STATE_RESULT.
+    ADDRESS_WAIT_TIMEOUT,
+
+    /// The lock on the target future was released without the future reaching
+    /// \ref STATE_RESULT
+    ///
+    /// This outcome can only happen for future types like \ref TYPE_JOIN where
+    /// the waiting procedure involves awaiting an epollfd. Because the design
+    /// of epoll_wait() makes it hard to use from multiple threads, this waiting
+    /// method is implemented by having one thread probe the epollfd while other
+    /// threads wait for it to report its conclusion via a futex. The selection
+    /// of the thread that will call epoll_wait() is performed via simple
+    /// locking of a flag in the future status word.
+    ///
+    /// One limitation of this design, however is that something like the
+    /// following can happen:
+    ///
+    /// - Thread A starts waiting for future F with a timeout of 1s
+    /// - Thread A locks state and starts waiting via epoll_wait().
+    /// - Thread B starts waiting for future F with a timeout of 2s.
+    /// - Thread B observes that thread A got there first and starts waiting for
+    ///   thread A via the futex method.
+    /// - Thread A reaches its 1s timeout without getting a notification from
+    ///   epoll_wait(), so it stops waiting and reports the timeout.
+    /// - At this point, thread B still has 1s of timeout to go, but it cannot
+    ///   passively wait for thread A via the futex anymore, instead it must
+    ///   switch to active waiting via epoll_wait().
+    ///
+    /// This situation is handled by unblocking **one** of the threads that's
+    /// waiting on the futex (to avoid thundering herds), which will retult in
+    /// is future_wait_by_address() call returning this outcome. Upon receiving
+    /// this outcome, the thread must either lock the future status and start an
+    /// epoll_wait() or wake another futex waiter if it cannot call epoll_wait()
+    /// because its timeout elapsed at the same time.
+    ADDRESS_WAIT_UNLOCKED,
+} address_wait_outcome_t;
+
+/// Wait for a future's status to change via the wait-by-address path
+///
+/// This waiting path is used...
+///
+/// - Anytime an eager future (network & custom operations) does not initially
+///   have a ready status.
+/// - Whenever a lazy future does not initially have a ready status and another
+///   thread already has taken the lock to update its status.
+///
+/// Before calling this function, you must...
+///
+/// - Increment the `downstream_count` field of the future status word if
+///   directed by the \ref downstream_count_policy_t.
+/// - Set the `notify_address` field of said status word.
+/// - Perform any other setup step required by the specific future type.
+///
+/// ...with at least acquire memory ordering, so that no future manipulation is
+/// reordered before the status word setup.
+///
+/// After calling this function, you must decrement the `downstream_count` field
+/// of the future status word if directed by the \ref downstream_count_policy_t,
+/// with at least release ordering, so that no future manipulation is reordered
+/// after the downstream count decrement.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param future must be a future that supports address-based wakeup, which has
+///               not been liberated by udipe_finish() or udipe_cancel(). Its
+///               status word must have been updated as directed above, and may
+///               need to be updated again after calling this function as
+///               directed above..
+/// \param latest_status must be initially set to the latest known future status
+///                      at the time where this function is called. It will be
+///                      updated to the latest known future status at the time
+///                      where this function returns.
+/// \param timeout should initially be set to the desired timeout with respect
+///                to the timestamp denoted by `stopwatch`. This initial value
+///                cannot be \ref UDIPE_DURATION_DEFAULT, it should have been
+///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+///                By the time this function returns, the timeout will have been
+///                updated to correspond to the latest value of `stopwatch`.
+/// \param stopwatch must be a stopwatch that was initialized at the start of
+///                  the future waiting procedure. It may be updated in an
+///                  unspecified fashion.
+///
+/// \returns a summary of the final status of the future and the actions that
+///          must be taken by the caller.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+address_wait_outcome_t future_wait_by_adress(udipe_future_t* future,
+                                             future_status_t* latest_status,
+                                             udipe_duration_ns_t* timeout,
+                                             stopwatch_t* stopwatch);
 
 /// \}
 

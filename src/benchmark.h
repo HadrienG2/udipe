@@ -11,9 +11,9 @@
 
     #include <udipe/benchmark.h>
 
+    #include <udipe/duration.h>
     #include <udipe/nodiscard.h>
     #include <udipe/pointer.h>
-    #include <udipe/time.h>
 
     #include "arch.h"
     #include "benchmark/distribution.h"

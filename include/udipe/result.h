@@ -14,22 +14,25 @@
 #include <stddef.h>
 
 
+// TODO: Extract to a dedicated operation.h header and fill in the blanks
+typedef int udipe_send_result_t;
+typedef int udipe_recv_result_t;
+
 /// Result payloads from network futures
 ///
-/// This result payload pairs with a \ref udipe_result_type_t that indicates what
-/// network command produced the result in question.
+/// This result payload pairs with a \ref udipe_result_type_t that indicates
+/// what network command produced the result in question.
 ///
 /// \internal
 ///
 /// The size of this union should be kept such that \ref udipe_future_t fits in
-/// one single cache line on all CPU platforms of interest. With the current
-/// implementation, this amounts to a size limit of 56B.
+/// one single cache line on all CPU platforms of interest. A static_assert()
+/// will fail the build if you blow this byte budget.
 typedef union udipe_network_payload_u {
     udipe_connect_result_t connect;  ///< Result of udipe_connect()
     udipe_disconnect_result_t disconnect;  ///< Result of udipe_disconnect()
-    // TODO: Add and implement
-    /*udipe_send_result_t send;  ///< Result of udipe_send()
-    udipe_recv_result_t recv;  ///< Result of udipe_recv()*/
+    udipe_send_result_t send;  ///< Result of udipe_send()
+    udipe_recv_result_t recv;  ///< Result of udipe_recv()
 } udipe_network_payload_t;
 
 /// Result payload from custom futures created via udipe_start_custom()
@@ -42,13 +45,15 @@ typedef union udipe_network_payload_u {
 /// \internal
 ///
 /// The size of `bytes` should be maintained such that it is as large as the
-/// largest variant of \ref udipe_network_payload_t, but in a manual way such
+/// largest variant of \ref udipe_result_t::payload, but in a manual way such
 /// that we will not accidentally shrink it later as the implementation and API
 /// of network operations evolves. Indeed, the number of bytes available here is
 /// part of udipe's public API contract.
 typedef struct udipe_custom_payload_s {
-    /// Bytes of data that you can fill with any payload of your choosing
+    /// Word-aligned buffer that you can fill with any payload of your choosing
     ///
+    /// The size of this buffer may increase in future releases of udipe, but it
+    /// is guaranteed not to decrease.
     alignas(void*) char bytes[2*sizeof(void*)];
 } udipe_custom_payload_t;
 
@@ -60,8 +65,8 @@ typedef struct udipe_future_s udipe_future_t;
 /// \internal
 ///
 /// The size of this struct should be kept such that \ref udipe_future_t fits in
-/// one single cache line on all CPU platforms of interest. With the current
-/// implementation, this corresponds to a size limit of 40B.
+/// one single cache line on all CPU platforms of interest. A static_assert()
+/// will fail the build if you blow this byte budget.
 typedef struct udipe_unordered_payload_s {
     /// Index of the future that reached completion within the `futures` array
     /// that was specified at the time where udipe_start_unordered() was called.
@@ -84,8 +89,8 @@ typedef struct udipe_unordered_payload_s {
 /// \internal
 ///
 /// The size of this struct should be kept such that \ref udipe_future_t fits in
-/// one single cache line on all CPU platforms of interest. With the current
-/// implementation, this corresponds to a size limit of 48B.
+/// one single cache line on all CPU platforms of interest. A static_assert()
+/// will fail the build if you blow this byte budget.
 typedef struct udipe_timer_repeat_payload_s {
     /// Number of timer ticks that were missed since the last reported timer
     /// result, or since the timer was initially set if no result was reported
@@ -109,19 +114,17 @@ typedef struct udipe_timer_repeat_payload_s {
 /// result of some issue. See the documentation of these sentinel values for
 /// more information.
 ///
-/// Note that absence of a sentinel values does NOT imply that the operation was
-/// successful, only that it ran far enough to produce a result of the intended
-/// type. That result may itself be nothing but an error code. Check
-/// operation-specific result types for more information.
+/// Note that absence of one of these sentinel values does NOT imply that the
+/// operation was successful, only that the operation ran far enough to produce
+/// a result of the intended type. That result may itself be nothing but an
+/// error code. Check operation-specific result types for more information.
 typedef enum udipe_result_type_e {
-    // TODO describe associated payload types
-    UDIPE_CONNECT = 1,  ///< udipe_start_connect()
-    UDIPE_DISCONNECT,  ///< udipe_start_disconnect()
-    // TODO: Add and implement
-    /*UDIPE_SEND,  ///< udipe_start_send()
-    UDIPE_RECV,  ///< udipe_start_recv()*/
-    UDIPE_CUSTOM, ///< udipe_start_custom()
-    UDIPE_JOIN,  ///< udipe_start_join()
+    UDIPE_CONNECT = 1,  ///< Payload is in `payload.network.connect`
+    UDIPE_DISCONNECT,  ///< Payload is in `payload.network.disconnect`
+    UDIPE_SEND,  ///< Payload is in `payload.network.send`
+    UDIPE_RECV,  ///< Payload is in `payload.network.recv`
+    UDIPE_CUSTOM, ///< Payload is in `payload.custom`
+    UDIPE_JOIN,  ///< No payload for this result type
     UDIPE_UNORDERED, ///< udipe_start_unordered()
     UDIPE_TIMER_ONCE, ///< udipe_start_timer_once()
     UDIPE_TIMER_REPEAT, ///< udipe_start_timer_repeat()

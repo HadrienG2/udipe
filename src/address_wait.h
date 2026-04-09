@@ -12,8 +12,8 @@
 //! API lands much closer to the Windows API, which is why we borrowed the
 //! Windows names for it.
 
+#include <udipe/duration.h>
 #include <udipe/pointer.h>
-#include <udipe/time.h>
 
 #include <stdatomic.h>
 #include <stdbool.h>
