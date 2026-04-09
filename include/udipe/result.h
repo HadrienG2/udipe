@@ -45,13 +45,15 @@ typedef union udipe_network_payload_u {
 /// \internal
 ///
 /// The size of `bytes` should be maintained such that it is as large as the
-/// largest variant of \ref udipe_network_payload_t, but in a manual way such
+/// largest variant of \ref udipe_result_t::payload, but in a manual way such
 /// that we will not accidentally shrink it later as the implementation and API
 /// of network operations evolves. Indeed, the number of bytes available here is
 /// part of udipe's public API contract.
 typedef struct udipe_custom_payload_s {
-    /// Bytes of data that you can fill with any payload of your choosing
+    /// Word-aligned buffer that you can fill with any payload of your choosing
     ///
+    /// The size of this buffer may increase in future releases of udipe, but it
+    /// is guaranteed not to decrease.
     alignas(void*) char bytes[2*sizeof(void*)];
 } udipe_custom_payload_t;
 
