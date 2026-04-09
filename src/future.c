@@ -67,7 +67,7 @@ void future_status_debug_check(future_status_t status,
     bool has_dependencies;
     bool has_processing;
     bool has_dedicated_thread;
-    bool is_fd_based;
+    bool is_lazy;
     bool requires_locking;
     switch (status.type) {
     case TYPE_INVALID:
@@ -75,7 +75,7 @@ void future_status_debug_check(future_status_t status,
         has_dependencies = false;
         has_processing = false;
         has_dedicated_thread = false;
-        is_fd_based = false;
+        is_lazy = false;
         requires_locking = false;
         break;
     case TYPE_NETWORK_CONNECT:
@@ -86,7 +86,7 @@ void future_status_debug_check(future_status_t status,
         has_dependencies = true;
         has_processing = true;
         has_dedicated_thread = true;
-        is_fd_based = false;
+        is_lazy = false;
         requires_locking = false;
         break;
     case TYPE_CUSTOM:
@@ -94,7 +94,7 @@ void future_status_debug_check(future_status_t status,
         has_dependencies = false;
         has_processing = true;
         has_dedicated_thread = true;
-        is_fd_based = false;
+        is_lazy = false;
         requires_locking = false;
         break;
     case TYPE_JOIN:
@@ -103,7 +103,7 @@ void future_status_debug_check(future_status_t status,
         has_dependencies = true;
         has_processing = false;
         has_dedicated_thread = false;
-        is_fd_based = true;
+        is_lazy = true;
         requires_locking = true;
         break;
     case TYPE_TIMER_ONCE:
@@ -111,7 +111,7 @@ void future_status_debug_check(future_status_t status,
         has_dependencies = false;
         has_processing = true;
         has_dedicated_thread = false;
-        is_fd_based = true;
+        is_lazy = true;
         requires_locking = false;
         break;
     case TYPE_TIMER_REPEAT:
@@ -119,7 +119,7 @@ void future_status_debug_check(future_status_t status,
         has_dependencies = false;
         has_processing = true;
         has_dedicated_thread = false;
-        is_fd_based = true;
+        is_lazy = true;
         requires_locking = true;
         break;
     case NUM_TYPES:
@@ -128,7 +128,7 @@ void future_status_debug_check(future_status_t status,
         has_dependencies = false;
         has_processing = false;
         has_dedicated_thread = false;
-        is_fd_based = false;
+        is_lazy = false;
         requires_locking = false;
     }
 
@@ -197,20 +197,21 @@ void future_status_debug_check(future_status_t status,
     }
 
     if (is_allocated) {
-        if (is_fd_based) {
+        if (is_lazy) {
             // notify_address can be switched on from the fist state onwards,
             // and remains on after being turned on. Or it may never be switched
             // on. So we can't tell anything about its value. On the other hand,
             // we know of some cases where lazy_lock cannot be set.
-            if (status.notify_fd_or_lazy_lock) assert(could_be_locked);
+            if (status.notify_event_or_lazy_lock) assert(could_be_locked);
         } else {
-            // notify_address and notify_fd can be switched on from the WAITING
-            // state, and remain on after being turned on. They may also never
-            // be switched on. So we can't tell anything about their values.
+            // notify_address and notify_event can be switched on from the
+            // WAITING state, and remain on after being turned on. They may also
+            // never be switched on. So we can't tell anything about their
+            // values.
         }
     } else {
         assert(!status.notify_address);
-        assert(!status.notify_fd_or_lazy_lock);
+        assert(!status.notify_event_or_lazy_lock);
     }
 
     assert(status.reserved == 0);
@@ -221,7 +222,18 @@ void future_status_debug_check(future_status_t status,
 
 UDIPE_NON_NULL_ARGS
 void future_liberate(udipe_future_t* /*future*/) {
-    // TODO implement. Set most values to zero-ish and the output fd to -1.
+    // TODO: Implement.
+    // TODO: Check initial status, using swap in debug builds.
+    // TODO: Set most values to zero-ish and the output fd to -1 before
+    //       recycling the future into the thread-local pool.
+    // TODO: For the initial version, recycle the future itself and any eventfd
+    //       within it, but not the epollfds or timerfds. epollfds should not be
+    //       recycled because tearing them down into a recyclable state can be
+    //       expensive (one epoll_ctl() per upstream future) and building them
+    //       is always going to be expensive even if allocation is avoided (one
+    //       epoll_ctl() per new upstream future) so it's dubious if there's any
+    //       benefit. On their side, timerfds should not need to be created
+    //       often because they can recur.
     exit_with_error("Not implemented yet!");
 }
 
@@ -543,14 +555,14 @@ future_status_t future_wait_join(udipe_future_t* future,
         do {
             future_status_t desired_status = latest_status;
             prepare_downstream_count_inc(&desired_status, count_policy);
-            previously_locked = latest_status.notify_fd_or_lazy_lock;
+            previously_locked = latest_status.notify_event_or_lazy_lock;
             if (previously_locked) {
                 trace("Another thread is already awaiting this future, "
                       "will await this thread via the futex path...");
                 desired_status.notify_address = true;
             } else {
                 trace("No thread is waiting yet, try to acquire the lock.");
-                desired_status.notify_fd_or_lazy_lock = true;
+                desired_status.notify_event_or_lazy_lock = true;
             }
 
             if (future_status_eq(desired_status, latest_status)) {
@@ -782,8 +794,8 @@ future_status_t future_wait_join(udipe_future_t* future,
                         } else {
                             assert(reached_timeout);
                         }
-                        assert(latest_status.notify_fd_or_lazy_lock);
-                        desired_status.notify_fd_or_lazy_lock = false;
+                        assert(latest_status.notify_event_or_lazy_lock);
+                        desired_status.notify_event_or_lazy_lock = false;
 
                         future_status_debug_check(desired_status, true);
                         const bool success = future_status_compare_exchange_weak(
@@ -1038,7 +1050,7 @@ address_wait_outcome_t future_wait_by_adress(
         lazy = true;
         // This function should only be called if waiting for the epollfd
         // directly is not possible because another thread is polling it.
-        assert(latest_status->notify_fd_or_lazy_lock);
+        assert(latest_status->notify_event_or_lazy_lock);
         break;
     case TYPE_INVALID:
     case TYPE_TIMER_ONCE:
@@ -1063,7 +1075,7 @@ address_wait_outcome_t future_wait_by_adress(
             if (latest_status->state == STATE_RESULT) {
                 trace("Future result is now available: we're done.");
                 break;
-            } else if (lazy && !latest_status->notify_fd_or_lazy_lock) {
+            } else if (lazy && !latest_status->notify_event_or_lazy_lock) {
                 trace("Lazy future has been unlocked: must switch to epoll_wait() or wake up next waiter.");
                 break;
             }
@@ -1087,7 +1099,7 @@ address_wait_outcome_t future_wait_by_adress(
     trace("Assessing final status...");
     if (latest_status->state == STATE_RESULT) {
         return ADDRESS_WAIT_SUCCESS;
-    } else if (lazy && !latest_status->notify_fd_or_lazy_lock) {
+    } else if (lazy && !latest_status->notify_event_or_lazy_lock) {
         return ADDRESS_WAIT_UNLOCKED;
     } else {
         return ADDRESS_WAIT_TIMEOUT;
@@ -1269,23 +1281,23 @@ void udipe_join(udipe_context_t* context,
         switch (wait_style) {
         case 0:  // Unallocated
             result.notify_address = false;
-            result.notify_fd_or_lazy_lock = false;
+            result.notify_event_or_lazy_lock = false;
             break;
         case 1:  // Eager
             result.notify_address = rand() % 2;
-            result.notify_fd_or_lazy_lock = rand() % 2;
+            result.notify_event_or_lazy_lock = rand() % 2;
             break;
         case 2:  // Lazy
             result.notify_address = rand() % 2;
             if (could_be_locked) {
-                result.notify_fd_or_lazy_lock = rand() % 2;
+                result.notify_event_or_lazy_lock = rand() % 2;
             } else {
-                result.notify_fd_or_lazy_lock = false;
+                result.notify_event_or_lazy_lock = false;
             }
             break;
         }
         trace_expr((size_t)result.notify_address);
-        trace_expr((bool)result.notify_fd_or_lazy_lock);
+        trace_expr((bool)result.notify_event_or_lazy_lock);
 
         result.reserved = 0;
         return result;

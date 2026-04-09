@@ -150,6 +150,10 @@ void event_reset(event_t event) {
 /// This function should be called at a time where no client is waiting for the
 /// event object and no client could start waiting for it.
 ///
+/// Note that building event objects is relatively expensive, and therefore
+/// resetting and recycling should usually be preferred over destroying and
+/// recreating them.
+///
 /// This function must be called within the scope of with_logger().
 ///
 /// \param event must point to an event_t that was initialized with
