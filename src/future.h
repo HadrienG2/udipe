@@ -541,9 +541,9 @@ typedef struct collective_upstream_s {
 /// read by clients and can thus remain in the perpetually ready unread state,
 /// which acts as that future type's output readiness notification.
 ///
-/// These eventfds must be written to under `lazy_lock` protection, and
-/// must be reset and recycled along with the associated output epollfd at the
-/// time where the associated future is liberated.
+/// These eventfds should be set to under `lazy_lock` protection, and must be
+/// reset and recycled along with the associated output epollfd at the time
+/// where the associated future is liberated.
 //
 // TODO: Windows version, based on NT semaphores?
 typedef event_t outcome_event_t;
