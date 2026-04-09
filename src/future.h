@@ -1388,6 +1388,12 @@ void future_liberate(udipe_future_t* future);
 ///
 /// This function must be called within the scope of with_logger().
 //
+// TODO: Add a parameter specifying the future type and use that to return a
+//       future where the type field of the status word is set and all inner fd
+//       members are initialized. May need to replace the boolean switch of
+//       future_status_debug_check() with a 3-states enum to account for the
+//       fact that futures will now have three states: unallocated, allocated
+//       but not yet fully initialized, and under active use.
 // TODO: Implement. Should go through the thread-local cache first, then through
 //       the global cache after locking it, and if the global cache is empty too
 //       then should allocate a new page of futures, register it into the global

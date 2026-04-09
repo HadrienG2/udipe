@@ -226,14 +226,9 @@ void future_liberate(udipe_future_t* /*future*/) {
     // TODO: Check initial status, using swap in debug builds.
     // TODO: Set most values to zero-ish and the output fd to -1 before
     //       recycling the future into the thread-local pool.
-    // TODO: For the initial version, recycle the future itself and any eventfd
-    //       within it, but not the epollfds or timerfds. epollfds should not be
-    //       recycled because tearing them down into a recyclable state can be
-    //       expensive (one epoll_ctl() per upstream future) and building them
-    //       is always going to be expensive even if allocation is avoided (one
-    //       epoll_ctl() per new upstream future) so it's dubious if there's any
-    //       benefit. On their side, timerfds should not need to be created
-    //       often because they can recur.
+    // TODO: See udipe_future_t field descriptions to see which inner file
+    //       descriptors should be recycled and which should be
+    //       destroyed/recreated.
     exit_with_error("Not implemented yet!");
 }
 
