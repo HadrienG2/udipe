@@ -548,7 +548,8 @@ typedef struct collective_upstream_s {
 /// which acts as that future type's output readiness notification.
 ///
 /// These eventfds should be set to under `lazy_lock` protection, and must be
-/// reset and recycled at the time where the associated future is liberated.
+/// reset and recycled along with their host epollfd at the time where the
+/// associated future is liberated.
 //
 // TODO: Find the Windows equivalent of this pattern. Since windows does not
 //       have epoll, the simplest option might be to make all futures eager and
@@ -830,18 +831,24 @@ struct udipe_future_s {
         ///
         /// At least for joined futures, this epollfd must be destroyed along
         /// with the host future. There seems to be little point in trying to
-        /// recycling epollfds as resetting them requires an arbitrary amount of
-        /// epoll_ctl() calls and setting up the next one also requires an
-        /// arbitrary amount of epoll_ctl() calls, so it's dubious that epollfd
-        /// allocation/liberation will ever be a bottleneck.
+        /// recycling epollfds for these futures as resetting their epollfd
+        /// requires an arbitrary amount of epoll_ctl() calls and setting up the
+        /// next epollfd for another futures also requires an arbitrary amount
+        /// of epoll_ctl() calls. It is therefore dubious that epollfd
+        /// allocation/liberation will ever be such a bottleneck that the extra
+        /// overhead of recycling (which is high in the case of epollfds)
+        /// becomes worthwhile.
+        ///
+        /// For unordered and periodic timer futures, however, the epollfd only
+        /// has a small amount of futures attached to it (1 eventfd + one
+        /// epollfd for unordered/one timerfd for periodic timers), and many
+        /// such epollfd+eventfd pairs may be needed by the arbitrary many
+        /// continuation futures that will follow. In this case, it is expected
+        /// that recycling the output epollfd along with its (still-attached)
+        /// associated \ref outcome_event_t could be worthwhile.
         //
         // TODO: Prove the above assertion through benchmarking and profiling of
-        //       real-world workloads. It may be false for repeating timer and
-        //       unordered futures, whose output epollfd is only connected to up
-        //       to two file descriptors. And since these future types generate
-        //       an arbitrarily large amount of identically structured children
-        //       futures, amortizing the repeated epollfd+eventfd allocation and
-        //       eventfd binding may turn out to be worthwhile for them.
+        //       real-world workloads.
         // TODO: Find an epoll replacement for Windows. Will most likely be
         //       based on the Win32 thread pool driving an event object.
         int epoll_with_event;
