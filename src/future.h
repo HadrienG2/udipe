@@ -31,6 +31,7 @@
 //       definitions, one for the status word manipulations, one for the
 //       allocator, one for the waiting functions...
 
+
 /// \name Future data structure
 /// \{
 
@@ -41,7 +42,7 @@
 ///
 /// It is encoded into selected bits of the \ref future_status_word_t so that
 /// 1/it can be atomically checked and modified along with other aspects of the
-/// future state and 2/changes to it can be awaited using address_wait() for
+/// future state and 2/changes to it can be awaited using wait_on_address() for
 /// future types that support it.
 typedef enum future_state_e /* : _BitInt(3) */ {
     /// Uninitialized state
@@ -62,15 +63,15 @@ typedef enum future_state_e /* : _BitInt(3) */ {
     ///
     /// Most futures remain in this state as long as **all** dependencies are in
     /// \ref STATE_WAITING or \ref STATE_PROCESSING, and exit it as soon as one
-    /// dependency exits this state. But join futures instead remain in this
-    /// state until either 1/**no** dependency is in \ref STATE_WAITING or \ref
-    /// STATE_PROCESSING state anymore or 2/at least one dependency has a moved
+    /// dependency exits this state. Join futures instead remain in this state
+    /// until either 1/**no** dependency is in \ref STATE_WAITING or \ref
+    /// STATE_PROCESSING state anymore; or 2/at least one dependency has a moved
     /// to \ref STATE_RESULT with a failure outcome.
     STATE_WAITING,
 
     /// Work-in-progress state
     ///
-    /// Futures that await something other than a dependency (such a network
+    /// Futures that await something other than another future (such a network
     /// operation, a user thread notification, a timer tick...) either begin in
     /// this state if all dependencies are initially ready or transition to this
     /// state after dependencies become ready.
@@ -146,7 +147,7 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
     /// Future types that exhibit non-fatal failure modes (e.g. packet loss in
     /// UDP) should supplement such a "successful" outcome with warning
     /// information, reported via logging and/or supplementary status fields in
-    /// the result payload specific to this future type.
+    /// the result payload that is specific to this future type.
     OUTCOME_SUCCESS,
 
     /// Dependency-induced failure
@@ -202,13 +203,13 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
 /// The future type is currently stored in the future status word because there
 /// is enough room for it and it saves client threads from the trouble of
 /// needing to read two different future fields to tell what future they're
-/// dealing with and in which state it is. However, since it is constant
-/// metadata that does not change, it never needs to be atomically modified
-/// along with other status information, and therefore does not _need_ to be
-/// stored into the future status word. It is therefore fine to extract this
-/// enum from the status word to another field if either that identifier grows
-/// too large or too many extra status bits end up being needed for other
-/// purposes.
+/// dealing with and in which state it is. However, since this field is constant
+/// metadata that does not change during a future's lifetime, it never needs to
+/// be atomically modified along with other status information, and therefore
+/// does not _need_ to be stored into the future status word. It is therefore
+/// fine to extract this enum from the status word to another field if either
+/// that identifier grows too large or too many extra status bits end up being
+/// needed for other purposes.
 typedef enum future_type_e /* : _BitInt(4) */ {
     /// Invalid future type
     ///
@@ -305,8 +306,8 @@ typedef struct future_status_s {
     /// future anymore. For example when...
     ///
     /// - A user thread exists udipe_wait() for this future after waiting.
-    /// - A collective join/unordered future observed/acknowledged the final
-    ///   state of this future and has removed it from its epoll set accordingly.
+    /// - A collective join/unordered future that had this future as a
+    ///   dependency is liberated by udipe_finish().
     /// - A network operation scheduled after this future has read and
     ///   processed its final status, and either was canceled or started
     ///   executing as a result.
@@ -439,16 +440,17 @@ typedef struct future_status_s {
     /// the thread that gets awakened as a result must...
     ///
     /// - Check if this locking flag is already set.
-    ///     - If so, another thread is already in the process of querying the
-    ///       file descriptor, and this thread can do nothing but wait for the
-    ///       results. To do this set the `notify_address` flag if it is not set
-    ///       yet, then use a wait_on_address() loop to wait for the other
-    ///       thread that arrived first to report the final state (or release
-    ///       the lock in some other way).
-    ///     - If not, attempt to set this flag, and if successful perform any
-    ///       required state update operation finishing with the status word
-    ///       (clearing this lock flag along the way), then signal the status
-    ///       word change via wake_by_address_all() if `notify_address` is set.
+    ///   - If so, another thread is already in the process of querying the file
+    ///     descriptor, and this thread can do nothing but wait. To do this, set
+    ///     the `notify_address` flag if needed, then use a wait_on_address()
+    ///     loop to wait for the other thread that arrived first to report the
+    ///     final state (or release the lock in some other way).
+    ///   - If not, attempt to set this flag, and if successful perform any
+    ///     required state update operation finishing with the status word
+    ///     (clearing this lock flag along the way), then signal the status word
+    ///     change via wake_by_address_all() if `notify_address` is set. If you
+    ///     need to exit before the outcome is available due to a timeout, then
+    ///     pass on the lock to the next waiter with wake_by_address_single().
     bool notify_event_or_lazy_lock : 1;
 
     /// Those spare bits are reserved for future use and must be set to 0
@@ -537,19 +539,20 @@ typedef struct collective_upstream_s {
 /// awaits them, as opposed to eager future which are processed by a background
 /// thread) must have an `output_fd` which is an epollfd. One limitation of
 /// epollfds as an output file descriptor is that they stop being ready after
-/// their readiness notifications have been processed, thus requiring an
-/// additional eventfd in the epollfd interest list to ensure continued
-/// readiness after the final status has becomes available.
+/// their readiness notifications have been processed and the associated file
+/// descriptor has been detached, thus requiring an additional eventfd in the
+/// epollfd interest list to ensure continued readiness after the final status
+/// has becomes available.
 ///
 /// The exception is \ref TYPE_TIMER_ONCE, which is simple enough to avoid the
 /// need for an output epollfd, and can instead expose its internal timerfd
-/// directly as its output file descriptor. This timerfd does not need to be
-/// read by clients and can thus remain in the perpetually ready unread state,
-/// which acts as that future type's output readiness notification.
+/// directly as its `output.timer`. This timerfd does not need to be read by
+/// clients and can thus remain in the perpetually ready unread state, which
+/// acts as that future type's output readiness notification.
 ///
 /// These eventfds should be set to under `lazy_lock` protection, and must be
-/// reset and recycled along with their host epollfd at the time where the
-/// associated future is liberated.
+/// reset and recycled along with the associated `output.epoll_with_event` at
+/// the time where the associated future is liberated.
 //
 // TODO: Find the Windows equivalent of this pattern. Since windows does not
 //       have epoll, the simplest option might be to make all futures eager and
@@ -680,7 +683,7 @@ struct udipe_future_s {
         /// Repeating timer state
         ///
         /// This union variant corresponds to \ref TYPE_TIMER_REPEAT. It tracks
-        /// the state needed to report how many timer ticks were need and how to
+        /// the state needed to report how many timer ticks elapsed and how to
         /// await subsequent timer ticks.
         struct {
             /// Result of the asynchronous operation
@@ -703,8 +706,9 @@ struct udipe_future_s {
             /// Must be destroyed when the future is liberated, for now. May
             /// switch to disarming and recycling if timerfd
             /// creation/destruction ever becomes a bottleneck, but that seems
-            /// unlikely under correct usage since recuring timerfds largely
-            /// void the need for repeatedly creating and destroying timerfds.
+            /// unlikely under correct usage since there is no envisioned use
+            /// case where one would need lots of periodic futures with
+            /// different periods..
             //
             // TODO: Prove the above assertion through benchmarking and
             //       profiling of real-world workloads.
@@ -757,7 +761,7 @@ struct udipe_future_s {
     //
     // TODO: Windows version, based on NT synchronization objects?
     union {
-        /// Event object, used by eager futures
+        /// Event object, used for eager futures
         ///
         /// This output type is used for "eager" future types where the
         /// asynchronous operation is processed by a dedicated thread, namely
@@ -767,8 +771,9 @@ struct udipe_future_s {
         /// via a mere atomic RMW operation when no one is waiting for
         /// completion yet, event signaling is optional for these future types
         /// and must be explicitly requested by setting the
-        /// `notify_event_or_lazy_lock` bit of `status_word` before registering
-        /// interest in this event object.
+        /// `notify_event_or_lazy_lock` bit of `status_word` before awaiting
+        /// this event object (and checking that the status word did not switch
+        /// to a ready state concurrently).
         ///
         /// When the task's outcome has been filed into the status word, if
         /// `notify_event_event_or_lazy_lock` is set, the event object will be
@@ -779,81 +784,7 @@ struct udipe_future_s {
         /// Must be reset and recycled when the future is liberated.
         event_t event;
 
-        /// epollfd with a readiness signaling eventfd in its epoll set
-        ///
-        /// This output file descriptor type is mainly used for "collective"
-        /// future types that await several other futures. It is, as the name
-        /// suggests, an epollfd that monitors the readiness of the output file
-        /// descriptors of all upstream futures, along with an additional
-        /// eventfd which indicates availability of this future's (successful or
-        /// failing) outcome.
-        ///
-        /// How exactly dependencies are awaited depends on the kind of
-        /// future that you are dealing with:
-        ///
-        /// - Join futures use a single epollfd that encompasses all fds of
-        ///   interest. Dependency fds use their index in the array of
-        ///   dependencies as epoll metadata, while the outcome availability
-        ///   eventfd uses an easily identifiable invalid index of `UINT64_MAX`.
-        /// - Unordered futures use a cascaded pair of epollfds. Their
-        ///   dependencies are attached to an "inner" epollfd with index-based
-        ///   signaling as before, but no accompanying eventfd. This "inner"
-        ///   epollfd is in turn attached to an "outer" epollfd which is
-        ///   additionally attached to the outcome availability eventfd. This
-        ///   curious cascading epollfd structure makes it easy to migrate the
-        ///   inner epollfd from an unordered future to the next future in the
-        ///   unordered chain, while leaving the original epollfd attached only
-        ///   to a signaled eventfd which is left in a perpetually signaled
-        ///   state to advertise that the outcome is now available.
-        /// - Repeating timers handle multiple output futures using the same
-        ///   trick, except instead of cascading epollfds they simply have an
-        ///   output epollfd which is connected to a timerfd (that performs
-        ///   time-based signaling and can be detached and migrated to the next
-        ///   future in the chain) and an eventfd (that eventually remains
-        ///   attached to the epollfd in a perpetually signaled state to
-        ///   broadcast the information that the final outcome is available).
-        ///
-        /// Because epoll's API design is not very friendly to multi-threaded
-        /// use, `epoll_wait()` on the inner epollfds requires
-        /// `lazy_lock` protection, which effectively acts as a mutex to
-        /// control access to the epollfd and associated future state.
-        ///
-        /// Whenever `epoll_wait()` output indicates that a particular upstream
-        /// future has underwent a status change or this future has been
-        /// canceled, the status word of the upstream future (if any) must be
-        /// checked, then the fields of this collective future must be modified
-        /// accordingly, and finally any other thread which registered to be
-        /// notified of state changes while we were probing `epoll_wait()` must
-        /// be notified via wake_by_address_all(). Once the future outcome is
-        /// known, whether successful or unsuccessful, its availability must be
-        /// signaled via the dedicated eventfd if at least one other future
-        /// awaited this future, as indicated by `downstream_count`.
-        ///
-        /// At least for joined futures, this epollfd must be destroyed along
-        /// with the host future. There seems to be little point in trying to
-        /// recycling epollfds for these futures as resetting their epollfd
-        /// requires an arbitrary amount of epoll_ctl() calls and setting up the
-        /// next epollfd for another futures also requires an arbitrary amount
-        /// of epoll_ctl() calls. It is therefore dubious that epollfd
-        /// allocation/liberation will ever be such a bottleneck that the extra
-        /// overhead of recycling (which is high in the case of epollfds)
-        /// becomes worthwhile.
-        ///
-        /// For unordered and periodic timer futures, however, the epollfd only
-        /// has a small amount of futures attached to it (1 eventfd + one
-        /// epollfd for unordered/one timerfd for periodic timers), and many
-        /// such epollfd+eventfd pairs may be needed by the arbitrary many
-        /// continuation futures that will follow. In this case, it is expected
-        /// that recycling the output epollfd along with its (still-attached)
-        /// associated \ref outcome_event_t could be worthwhile.
-        //
-        // TODO: Prove the above assertion through benchmarking and profiling of
-        //       real-world workloads.
-        // TODO: Find an epoll replacement for Windows. Will most likely be
-        //       based on the Win32 thread pool driving an event object.
-        int epoll_with_event;
-
-        /// timerfd, used for single-shot timer futures
+        /// timerfd, used for \ref TYPE_TIMER_ONCE
         ///
         /// This output file descriptor type is used for single-shot "timer"
         /// futures that become ready once the system clock reaches a certain
@@ -867,13 +798,89 @@ struct udipe_future_s {
         /// Must be destroyed when the future is liberated, for now. May switch
         /// to disarming and recycling if timerfd creation/destruction ever
         /// becomes a bottleneck, but that seems unlikely under correct udipe
-        /// API usage given that recuring timerfds are a thing.
+        /// API usage given that recuring timerfds seem to cover the main use
+        /// case for creating lots of single-shot timers.
         //
         // TODO: Prove the above assertion through benchmarking and profiling of
         //       real-world workloads.
-        // TODO: Find a Windows equivalent, could be based on Win32 waitable
-        //       timer objects?
+        // TODO: Find a Windows equivalent, could likely be a Win32 waitable
+        //       timer object?
         int timer;
+
+        /// epollfd with an attached \ref outcome_event_t, for most lazy futures
+        ///
+        /// This output file descriptor type is mainly used for "collective"
+        /// future types that await several other futures. It is, as the name
+        /// implies, an epollfd that monitors the readiness of the output file
+        /// descriptors of all upstream futures, along with an additional
+        /// eventfd which indicates availability of this future's (successful or
+        /// failing) outcome.
+        ///
+        /// How exactly dependencies are awaited depends on the kind of
+        /// future that you are dealing with:
+        ///
+        /// - Join futures use a single epollfd that encompasses all fds of
+        ///   interest. Dependency fds use their index in the array of
+        ///   dependencies as an epoll identifier, while the outcome
+        ///   availability eventfd uses an identifier of `UINT64_MAX`.
+        /// - Unordered futures use a cascaded pair of epollfds. Their
+        ///   dependencies are attached to an "inner"
+        ///   `specific.unordered.upstream_epollfd` with index-based signaling
+        ///   as before, but no accompanying eventfd. This "inner" epollfd is in
+        ///   turn attached with identifier 0 to this "outer" epollfd, which is
+        ///   additionally attached to the \ref outcome_event_t with identifier
+        ///   `UINT64_MAX`. This curious cascading epollfd structure makes it
+        ///   possible to later detach the inner epollfd and migrate it to the
+        ///   next future in the unordered chain, while leaving the original
+        ///   future's `output.epoll_with_event` in a signaled state.
+        /// - Repeating timers produce a chain output futures using the same
+        ///   trick, except instead of cascading epollfds they simply have one
+        ///   output epollfd which is connected to a timerfd (that performs
+        ///   time-based signaling and can be detached and migrated to the next
+        ///   future in the chain) and an eventfd (that eventually remains
+        ///   attached to the epollfd in a perpetually signaled state to
+        ///   broadcast the information that the final outcome is available).
+        ///
+        /// Because epoll's API design is not very friendly to multi-threaded
+        /// use, `epoll_wait()` on the inner epollfds requires `lazy_lock`
+        /// protection, which effectively acts as a mutex to control access to
+        /// the epollfd and associated future state.
+        ///
+        /// Whenever `epoll_wait()` output indicates that a particular upstream
+        /// future has underwent a status change or this future has been
+        /// canceled, the status word of the upstream future (if any) must be
+        /// checked, then the fields of this collective future must be modified
+        /// accordingly, and finally any other thread which registered to be
+        /// notified of state changes while we were probing `epoll_wait()` must
+        /// be notified via `wake_by_address_`. Once the future outcome is
+        /// known, whether successful or unsuccessful, its availability must be
+        /// signaled via the dedicated eventfd if at least one other future
+        /// awaited this future, as indicated by `downstream_count`.
+        ///
+        /// At least for joined futures, this epollfd must be destroyed along
+        /// with the host future. There seems to be little point in trying to
+        /// recycle epollfds for these futures, because resetting their epollfd
+        /// requires an arbitrary amount of epoll_ctl() calls and setting up the
+        /// next epollfd for another futures also requires an arbitrary amount
+        /// of epoll_ctl() calls. It is therefore dubious that epollfd
+        /// allocation/liberation will ever be such a bottleneck that the extra
+        /// overhead of recycling (which is high in the case of epollfds)
+        /// becomes worthwhile.
+        ///
+        /// For unordered and periodic timer futures, however, the epollfd only
+        /// has a small amount of futures attached to it (1 eventfd + either one
+        /// epollfd for unordered or one timerfd for periodic timers), and many
+        /// such epollfd+eventfd pairs may be needed by the arbitrary many
+        /// continuation futures that will follow in the chain. In this case, it
+        /// is expected that recycling the output epollfd along with its
+        /// (still-attached) associated \ref outcome_event_t could be
+        /// worthwhile.
+        //
+        // TODO: Prove the above assertions through benchmarking and profiling
+        //       of real-world workloads.
+        // TODO: Find an epoll replacement for Windows. Will most likely be
+        //       based on the Win32 thread pool driving an event object.
+        int epoll_with_event;
 
         /// Catch-all file descriptor type
         ///
@@ -881,9 +888,10 @@ struct udipe_future_s {
         /// descriptors doesn't matter, such as when managing attachment of
         /// output fds to collective future epollfds.
         //
-        // TODO: Figure out if Windows can have this too, I think that is the
-        //       case if we use HANDLE as the catch-all type for all Win32
-        //       synchronization objects. Just need to adjust the wording then.
+        // TODO: Figure out if Windows can have this convenience too, I think
+        //       that is the case if we use `HANDLE` as the catch-all type for
+        //       all Win32 synchronization objects. In that case, we just need
+        //       to make the wording less file descriptor-specific.
         int any;
     } output_fd;
 };
@@ -1378,8 +1386,9 @@ bool future_downstream_count_try_inc(udipe_future_t* future,
 /// This function must be called within the scope of with_logger().
 ///
 /// \param future must point to a future that was previously allocated to some
-///               asynchronous operation and has just been liberated via
-///               udipe_finish(). This future cannot be used again afterwards.
+///               asynchronous operation, and has been liberated via
+///               udipe_finish() if it was ever exposed to the user. This future
+///               cannot be used again afterwards.
 //
 // TODO: Add GNU attributes to mark this + future_allocate() as an
 //       allocator/liberator pair if possible.
@@ -1388,16 +1397,57 @@ void future_liberate(udipe_future_t* future);
 
 /// Allocate a future
 ///
-/// The future is provided in an invalid state and must be initialized as
-/// appropriate for the asynchronous task that is starting. Status word
-/// initialization can be carried out using future_status_store() as the future
-/// is not shared across multiple threads yet.
+/// The future is provided in a partially initialized state:
+///
+/// - `context` pointer is forwarded from this function's parameter
+/// - `status_word` has...
+///   * `downstream_count` set to 0
+///   * `downstream_count_overflow` cleared
+///   * `active` bit cleared (must be set once this future is ready for use)
+///   * \ref STATE_UNINITIALIZED (must be set according to the presence/absence
+///     of upstream futures, their initial status, etc.)
+///   * \ref OUTCOME_UNKNOWN (may need to be set if the outcome is determined
+///     right from the start).
+///   * `type` set as appropriate to the specified future type.
+///   * `notify_address` unset.
+///   * `notify_event_or_lazy_lock` unset.
+/// - `output` and `specific` are partially configured according to the future
+///   type, in such a way that all required system resources are preallocated
+///   and relations between these are already set up, but other state which
+///   requires access to other future configuration parameters is not set up.
+///   * `output.event`, is is allocated and in an unsignaled state.
+///   * `output.timer` is allocated but in an unspecified state. It may be set
+///     to a particular deadline/period or be unset. You must set it to the
+///     desired deadline with no period before use.
+///   * `output.epoll_with_event` (Linux-only) is already allocated and attached
+///     to the \ref outcome_event_t with identifier `U64_MAX`, and...
+///     - ...nothing else yet for \ref TYPE_JOIN. You must attach to it the
+///       output fds of upstream futures, identified with their index in \ref
+///       concurrent_upstream_t before use.
+///     - ...the `upstream_epollfd` for \ref TYPE_UNORDERED, which is
+///       preallocated but not yet attached to any file descriptor. See the \ref
+///       TYPE_JOIN case described above, except upstream fds must be attached
+///       to `upstream_epollfd` not `output.epoll`.
+///     - ...the `timerfd` for \ref TYPE_TIMER_REPEAT, which must be configured
+///       as in the case of `output.timer` above, but with a period.
+///
+/// No other type-specific state is initially configured. For example the \ref
+/// collective_upstream_t of collective futures is left uninitialized as
+/// configuring it requires extra information unknown to this function.
 ///
 /// This function must be called within the scope of with_logger().
+///
+/// \param context must be a udipe context that was set up with
+///                udipe_initialized() and not yet liberated with
+///                udipe_finalize(). It must not be liberated until the output
+///                future is liberated.
+/// \param type indicates the type of the future that is being built. It will
+///             be used to allocate associated system resources which are
+///             partially type-specific.
+///
+/// \returns a future that must later be liberated with future_liberate().
 //
-// TODO: Add a parameter specifying the future type and use that to return a
-//       future where the type field of the status word is set and all inner fd
-//       members are initialized. May need to replace the boolean switch of
+// TODO: May need to replace the boolean switch of
 //       future_status_debug_check() with a 3-states enum to account for the
 //       fact that futures will now have three states: unallocated, allocated
 //       but not yet fully initialized, and under active use.
@@ -1409,8 +1459,10 @@ void future_liberate(udipe_future_t* future);
 //       future to the thread-local cache. The future which we set aside will
 //       then be returned by this function.
 UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
-udipe_future_t* future_allocate();
+udipe_future_t* future_allocate(udipe_context_t* context,
+                                future_type_t type);
 
 // TODO: Ensure that 1/when a user thread exits, its thread-local unallocated
 //       future cache is spilled into a global unallocated future cache and 2/on
