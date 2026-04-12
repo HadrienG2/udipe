@@ -224,6 +224,39 @@
 /// udipe developers so that we can figure out together how to provide better
 /// support for your use case.
 ///
+/// # Optimization
+///
+/// While the asynchronous udipe API is designed to tolerate arbitrary usage
+/// patterns, the following advice is expected to improve peak performance,
+/// especially as multi-threaded workloads get closer to peak system parallelism
+/// and perform more fine-grained tasks per second:
+///
+/// - Whenever possible, prefer awaiting asynchronous operations on the thread
+///   that started them. Due to a mixture of hardware constraints and
+///   implementation choices, the convenience of sharing futures across threads
+///   may come at a performance cost.
+/// - If futures do need to be transferred between threads, try to at least
+///   ensure that each application thread starts and finishes a comparable
+///   amount of asynchronous operations. Avoid having threads that mainly start
+///   operations and threads that mainly finish operations.
+/// - Make the amount of asynchronous operations in flight (concurrency) tunable,
+///   then tune it on realistic systems and workloads. As you increase operation
+///   concurrency, application performance is expected to...
+///   1. Initially increase as the udipe implementation leverages the extra
+///      concurrency you expose to better utilize system resources.
+///   2. Reach an optimal plateau as some software and hardware resources
+///      become saturated, reducing the benefit of extra concurrency.
+///   3. Eventually decrease as the overhead of managing more concurrent
+///      operations starts costing more than it benefits you.
+///
+/// The concurrency at which optimal performance is achieved depends on system
+/// resources and application workloads. It cannot be easily predicted and is
+/// best tuned empirically. Failing that, modeling application performance
+/// through machine learning techniques may give you a fair estimate of the
+/// optimal concurrency level for a particular system, as long as the system
+/// you're running on is not too different from the ones you've tuned the
+/// algorithm on.
+///
 /// # Alternatives to the asynchronous API
 ///
 /// TODO: Put some of this in a toplevel documentation too

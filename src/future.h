@@ -641,7 +641,9 @@ struct udipe_future_s {
             /// indicates which of the upstream futures became ready and how to
             /// await the rest of the upstream futures.
             ///
-            /// Must be written under `lazy_lock` protection.
+            /// Must be written under `lazy_lock` protection. Inner future (if
+            /// any) must not be recycled on udipe_finish(), as it will be fed
+            /// to the caller which is responsible for liberating it.
             udipe_unordered_payload_t payload;
 
             /// Inner epollfd that contains the set of upstream futures, which
@@ -657,7 +659,7 @@ struct udipe_future_s {
             ///
             /// Must be destroyed when the latest future in the unordered chain
             /// is liberated. There seems to be little point in trying to
-            /// recycling epollfds attached to all upstreams because resetting
+            /// recycle epollfds attached to all upstreams because resetting
             /// them requires an arbitrary amount of epoll_ctl() calls and
             /// setting up the next future also requires an arbitrary amount of
             /// epoll_ctl() calls, so it's not expected that epollfd
@@ -708,7 +710,7 @@ struct udipe_future_s {
             /// creation/destruction ever becomes a bottleneck, but that seems
             /// unlikely under correct usage since there is no envisioned use
             /// case where one would need lots of periodic futures with
-            /// different periods..
+            /// different periodicities.
             //
             // TODO: Prove the above assertion through benchmarking and
             //       profiling of real-world workloads.
@@ -799,7 +801,7 @@ struct udipe_future_s {
         /// to disarming and recycling if timerfd creation/destruction ever
         /// becomes a bottleneck, but that seems unlikely under correct udipe
         /// API usage given that recuring timerfds seem to cover the main use
-        /// case for creating lots of single-shot timers.
+        /// case for which one might want to create lots of single-shot timers.
         //
         // TODO: Prove the above assertion through benchmarking and profiling of
         //       real-world workloads.
