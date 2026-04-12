@@ -232,7 +232,7 @@ jobs:
         run: |
             lychee --config lychee.toml --no-progress --root-dir pages pages
       - name: Generate and upload the artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@v5.0.0
         with:
           path: pages/
 
