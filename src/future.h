@@ -28,7 +28,7 @@
 #include <stdint.h>
 
 
-// TODO: This code module is becoming too big and should be split into a
+// TODO: This code module is becoming way too big and should be split into a
 //       directory of smaller code modules. Could be one module for the struct
 //       definitions, one for the status word manipulations, one for the
 //       allocator, one for the waiting functions...
@@ -648,34 +648,37 @@ struct udipe_future_s {
             /// to the caller which is responsible for liberating it.
             udipe_unordered_payload_t payload;
 
-            /// Inner epollfd that contains the set of upstream futures, which
-            /// is awaited by the output epollfd
-            ///
-            /// This epollfd indirection is used to easily migrate the waiting
-            /// set to successor unordered futures without affecting clients of
-            /// this specific unordered future.
-            ///
-            /// Must be awaited under `lazy_lock` protection, detached from the
-            /// output epollfd and attached to the successor future (if any)
-            /// once a result is ready.
-            ///
-            /// Must be destroyed when the latest future in the unordered chain
-            /// is liberated. There seems to be little point in trying to
-            /// recycle epollfds attached to all upstreams because resetting
-            /// them requires an arbitrary amount of epoll_ctl() calls and
-            /// setting up the next future also requires an arbitrary amount of
-            /// epoll_ctl() calls, so it's not expected that epollfd
-            /// allocation/liberation will ever be the bottleneck.
-            //
-            // TODO: Prove the above assertion through benchmarking and
-            //       profiling of real-world workloads.
-            ///
-            /// Unlike the output epollfd, this epoll set does not contain an
-            /// eventfd and will only yield valid upstream indices.
-            //
-            // TODO: Find an epoll replacement for Windows. Will most likely be
-            //       based on the Win32 thread pool driving an eager future.
-            int upstream_epollfd;
+            #ifdef __linux__
+                /// Inner epollfd that contains the set of upstream futures,
+                /// which is awaited by the output epollfd
+                ///
+                /// This epollfd indirection is used to easily migrate the
+                /// waiting set to successor unordered futures without affecting
+                /// clients of this specific unordered future.
+                ///
+                /// Must be awaited under `lazy_lock` protection, detached from
+                /// the output epollfd and attached to the successor future (if
+                /// any) once a result is ready.
+                ///
+                /// Must be destroyed when the latest future in the unordered
+                /// chain is liberated. There seems to be little point in trying
+                /// to recycle epollfds attached to all upstreams because
+                /// resetting them requires an arbitrary amount of epoll_ctl()
+                /// calls and setting up the next future also requires an
+                /// arbitrary amount of epoll_ctl() calls, so it's not expected
+                /// that epollfd allocation/liberation will ever be the
+                /// bottleneck.
+                //
+                // TODO: Prove the above assertion through benchmarking and
+                //       profiling of real-world workloads.
+                ///
+                /// Unlike the output epollfd, this epoll set does not contain
+                /// an eventfd and will only yield valid upstream indices.
+                //
+                // TODO: Find an epoll replacement for Windows. Will likely be
+                //       based on the Win32 thread pool driving an eager future.
+                int upstream_epollfd;
+            #endif
 
             /// Event object used to mark this future as permanently ready after
             /// it has reached its final outcome
@@ -811,80 +814,87 @@ struct udipe_future_s {
         //       timer object?
         int timer;
 
-        /// epollfd with an attached \ref outcome_event_t, for most lazy futures
-        ///
-        /// This output file descriptor type is mainly used for "collective"
-        /// future types that await several other futures. It is, as the name
-        /// implies, an epollfd that monitors the readiness of the output file
-        /// descriptors of all upstream futures, along with an additional
-        /// eventfd which indicates availability of this future's (successful or
-        /// failing) outcome.
-        ///
-        /// How exactly dependencies are awaited depends on the kind of
-        /// future that you are dealing with:
-        ///
-        /// - Join futures use a single epollfd that encompasses all fds of
-        ///   interest. Dependency fds use their index in the array of
-        ///   dependencies as an epoll identifier, while the outcome
-        ///   availability eventfd uses an identifier of `UINT64_MAX`.
-        /// - Unordered futures use a cascaded pair of epollfds. Their
-        ///   dependencies are attached to an "inner"
-        ///   `specific.unordered.upstream_epollfd` with index-based signaling
-        ///   as before, but no accompanying eventfd. This "inner" epollfd is in
-        ///   turn attached with identifier 0 to this "outer" epollfd, which is
-        ///   additionally attached to the \ref outcome_event_t with identifier
-        ///   `UINT64_MAX`. This curious cascading epollfd structure makes it
-        ///   possible to later detach the inner epollfd and migrate it to the
-        ///   next future in the unordered chain, while leaving the original
-        ///   future's `output.epoll_with_event` in a signaled state.
-        /// - Repeating timers produce a chain output futures using the same
-        ///   trick, except instead of cascading epollfds they simply have one
-        ///   output epollfd which is connected to a timerfd (that performs
-        ///   time-based signaling and can be detached and migrated to the next
-        ///   future in the chain) and an eventfd (that eventually remains
-        ///   attached to the epollfd in a perpetually signaled state to
-        ///   broadcast the information that the final outcome is available).
-        ///
-        /// Because epoll's API design is not very friendly to multi-threaded
-        /// use, `epoll_wait()` on the inner epollfds requires `lazy_lock`
-        /// protection, which effectively acts as a mutex to control access to
-        /// the epollfd and associated future state.
-        ///
-        /// Whenever `epoll_wait()` output indicates that a particular upstream
-        /// future has underwent a status change or this future has been
-        /// canceled, the status word of the upstream future (if any) must be
-        /// checked, then the fields of this collective future must be modified
-        /// accordingly, and finally any other thread which registered to be
-        /// notified of state changes while we were probing `epoll_wait()` must
-        /// be notified via `wake_by_address_`. Once the future outcome is
-        /// known, whether successful or unsuccessful, its availability must be
-        /// signaled via the dedicated eventfd if at least one other future
-        /// awaited this future, as indicated by `downstream_count`.
-        ///
-        /// At least for joined futures, this epollfd must be destroyed along
-        /// with the host future. There seems to be little point in trying to
-        /// recycle epollfds for these futures, because resetting their epollfd
-        /// requires an arbitrary amount of epoll_ctl() calls and setting up the
-        /// next epollfd for another futures also requires an arbitrary amount
-        /// of epoll_ctl() calls. It is therefore dubious that epollfd
-        /// allocation/liberation will ever be such a bottleneck that the extra
-        /// overhead of recycling (which is high in the case of epollfds)
-        /// becomes worthwhile.
-        ///
-        /// For unordered and periodic timer futures, however, the epollfd only
-        /// has a small amount of futures attached to it (1 eventfd + either one
-        /// epollfd for unordered or one timerfd for periodic timers), and many
-        /// such epollfd+eventfd pairs may be needed by the arbitrary many
-        /// continuation futures that will follow in the chain. In this case, it
-        /// is expected that recycling the output epollfd along with its
-        /// (still-attached) associated \ref outcome_event_t could be
-        /// worthwhile.
-        //
-        // TODO: Prove the above assertions through benchmarking and profiling
-        //       of real-world workloads.
-        // TODO: Find an epoll replacement for Windows. Will most likely be
-        //       based on the Win32 thread pool driving an event object.
-        int epoll_with_event;
+        #ifdef __linux__
+            /// epollfd with an attached \ref outcome_event_t, for most lazy
+            /// futures
+            ///
+            /// This output file descriptor type is mainly used for "collective"
+            /// future types that await several other futures. It is, as the
+            /// name implies, an epollfd that monitors the readiness of the
+            /// output file descriptors of all upstream futures, along with an
+            /// additional eventfd which indicates availability of this future's
+            /// (successful or failing) outcome.
+            ///
+            /// How exactly dependencies are awaited depends on the kind of
+            /// future that you are dealing with:
+            ///
+            /// - Join futures use a single epollfd that encompasses all fds of
+            ///   interest. Dependency fds use their index in the array of
+            ///   dependencies as an epoll identifier, while the outcome
+            ///   availability eventfd uses an identifier of `UINT64_MAX`.
+            /// - Unordered futures use a cascaded pair of epollfds. Their
+            ///   dependencies are attached to an "inner"
+            ///   `specific.unordered.upstream_epollfd` with index-based
+            ///   signaling as before, but no accompanying eventfd. This "inner"
+            ///   epollfd is in turn attached with identifier 0 to this "outer"
+            ///   epollfd, which is additionally attached to the \ref
+            ///   outcome_event_t with identifier `UINT64_MAX`. This curious
+            ///   cascading epollfd structure makes it possible to later detach
+            ///   the inner epollfd and migrate it to the next future in the
+            ///   unordered chain, while leaving the original future's
+            ///   `output.epoll_with_event` in a signaled state.
+            /// - Repeating timers produce a chain output futures using the same
+            ///   trick, except instead of cascading epollfds they simply have
+            ///   one output epollfd which is connected to a timerfd (that
+            ///   performs time-based signaling and can be detached and migrated
+            ///   to the next future in the chain) and an eventfd (that
+            ///   eventually remains attached to the epollfd in a perpetually
+            ///   signaled state to broadcast the information that the final
+            ///   outcome is available).
+            ///
+            /// Because epoll's API design is not very friendly to
+            /// multi-threaded use, `epoll_wait()` on the inner epollfds
+            /// requires `lazy_lock` protection, which effectively acts as a
+            /// mutex to control access to the epollfd and associated future
+            /// state.
+            ///
+            /// Whenever `epoll_wait()` output indicates that a particular
+            /// upstream future has underwent a status change or this future has
+            /// been canceled, the status word of the upstream future (if any)
+            /// must be checked, then the fields of this collective future must
+            /// be modified accordingly, and finally any other thread which
+            /// registered to be notified of state changes while we were probing
+            /// `epoll_wait()` must be notified via `wake_by_address_`. Once the
+            /// future outcome is known, whether successful or unsuccessful, its
+            /// availability must be signaled via the dedicated eventfd if at
+            /// least one other future awaited this future, as indicated by
+            /// `downstream_count`.
+            ///
+            /// At least for joined futures, this epollfd must be destroyed
+            /// along with the host future. There seems to be little point in
+            /// trying to recycle epollfds for these futures, because resetting
+            /// their epollfd requires an arbitrary amount of epoll_ctl() calls
+            /// and setting up the next epollfd for another futures also
+            /// requires an arbitrary amount of epoll_ctl() calls. It is
+            /// therefore dubious that epollfd allocation/liberation will ever
+            /// be such a bottleneck that the extra overhead of recycling (which
+            /// is high in the case of epollfds) becomes worthwhile.
+            ///
+            /// For unordered and periodic timer futures, however, the epollfd
+            /// only has a small amount of futures attached to it (1 eventfd +
+            /// either one epollfd for unordered or one timerfd for periodic
+            /// timers), and many such epollfd+eventfd pairs may be needed by
+            /// the arbitrary many continuation futures that will follow in the
+            /// chain. In this case, it is expected that recycling the output
+            /// epollfd along with its (still-attached) associated \ref
+            /// outcome_event_t could be worthwhile.
+            //
+            // TODO: Prove the above assertions through benchmarking and profiling
+            //       of real-world workloads.
+            // TODO: Find an epoll replacement for Windows. Will most likely be
+            //       based on the Win32 thread pool driving an event object.
+            int epoll_with_event;
+        #endif
 
         /// Catch-all file descriptor type
         ///
@@ -1386,28 +1396,28 @@ typedef struct future_storage_page_s future_storage_page_t;
 
 /// Memory page allocated to future storage + link to other pages
 ///
-/// This is one node of a linked list of memory pages that were allocated for
-/// the purpose of storing future objects.
+/// This is one node of a singly linked list of memory pages that were allocated
+/// for the purpose of storing future objects.
 ///
 /// At the time of writing, these memory pages are allocated for the entire
 /// lifetime of the host proces and cannot be liberated until the host process
 /// exits. The reason for this is that futures are not guaranteed to be
 /// liberated on the thread that allocated them (as a future can be passed to
 /// another thread between the start of the asynchronous operation and
-/// udipe_finish()). As a result, given the thread-local and
-/// synchronization-free design of the unallocated future caches, it is already
-/// hard to assess whether all futures in a page are unused and can be
-/// liberated, and it would be even harder (impossible ?) to remove liberated
-/// futures from the associated caches without adding undesirable thread
-/// synchronization overhead and associated scalability issues.
+/// udipe_finish()). Given this and the thread-local and synchronization-free
+/// design of the unallocated future caches, it is already hard to assess
+/// whether all futures in a page are unused and can be liberated, and it seems
+/// even harder (impossible ?) to remove liberated futures from the associated
+/// caches without adding undesirable thread synchronization overhead and
+/// associated many-core scalability issues.
 ///
 /// We expect the potential memory overhead of the current "don't liberate until
 /// atexit() but recycle before allocating more" strategy to be acceptable. But
 /// only production experience will tell whether that is actually the case...
 ///
-/// Because futures are manipulated by realtime network threads, these pages are
-/// allocated with realtime_allocate() and must be eventually liberated with
-/// realtime_liberate().
+/// Because future objects are manipulated by realtime network threads, these
+/// pages are allocated with realtime_allocate() and must be eventually
+/// liberated with realtime_liberate().
 struct future_storage_page_s {
     /// Next memory page allocated to future storage, if any, otherwise `NULL`
     ///
@@ -1416,7 +1426,7 @@ struct future_storage_page_s {
     // NOTE: On CPU architectures with doubleword false sharing granularity,
     //       which are the most common ones at the time of writing, there is
     //       room for one more word of metadata here that would use otherwise
-    //       unallocated padding space.
+    //       lost padding space.
 
     /// Futures allocated as part of this memory page
     ///
@@ -1430,8 +1440,7 @@ static_assert(offsetof(future_storage_page_t, futures) <= sizeof(udipe_future_t)
 ///
 /// This is the length of the `futures` flexible array member of \ref
 /// future_storage_page_t. Its size is not known until runtime because it
-/// depends on the page size used by the host operating system, which itself is
-/// not known until runtime.
+/// depends on the page size used by the host operating system.
 UDIPE_NODISCARD
 static inline
 size_t future_storage_page_len() {
@@ -1450,8 +1459,7 @@ typedef struct future_pointer_page_s future_pointer_page_t;
 /// for the purpose of storing pointers to unallocated future objects.
 ///
 /// That doubly linked list is used as part of a more complex hierarchical data
-/// structure, which is somewhat of an hybrid between a segmented stack and a
-/// double ended queue:
+/// structure, which is a sort of segmented stack / ring buffer hybrid:
 ///
 /// - Each page holds a fixed size array of future pointers, some of which may
 ///   be valid or `NULL`. This "inner" array is partitioned such that all valid
@@ -1501,22 +1509,22 @@ typedef struct future_pointer_page_s future_pointer_page_t;
 ///   for CPU cache locality) and no inter-thread synchronization is needed as
 ///   the global cache is never touched. Conversely, when futures do need to
 ///   spill to the global cache, we spill futures from the bottom of the stack,
-///   which are coldest in the current thread's cache.
+///   which are coldest in the current CPU's cache.
 /// - If some user threads start more asynchronous operations and others threads
 ///   finish more asynchronous operations (disregarding documentation advice),
 ///   unbounded future leaks are avoided by bounding the size of local caches
 ///   and eventually spilling futures into the global cache. Spilling futures
 ///   into the global cache makes them become available for re-use for other
-///   threads, so the amount of "leaked" futures at any point in time is
-///   bounded by the size of the local future cache of each thread.
+///   threads, so the amount of leaked futures at any point in time is bounded
+///   by the finite capacity of each thread's local future cache.
 /// - Exchanges between the local and global cache are batched at the very
 ///   coarse granularity of entire pages of pointers (with 4 KiB memory pages,
 ///   that's 510 future pointers!). This amortizes the overhead of locking the
 ///   global cache's mutex and interacting with the global state, which has poor
-///   cache locality due to MOESI caching logic and NUMA effects. In addition to
-///   making interactions with the global cache more efficient, the odds of
-///   application threads contending for access to the shared global cache are
-///   also greatly reduced by this batching.
+///   cache locality due to MOESI logic and is susceptible to harmful NUMA
+///   effects. In addition to making interactions with the global cache more
+///   efficient, the odds of application threads contending for access to the
+///   shared global cache are also greatly reduced by this batching.
 /// - Because each page contains many pointers, there is only a low probability
 ///   of ending up in the pathological slow path of segmented stacks, where
 ///   pushes and pops keep alternating between the top of a segment and the
@@ -1526,21 +1534,21 @@ typedef struct future_pointer_page_s future_pointer_page_t;
 ///   single page of local cache. Second, we can't imagine a realistic scenario
 ///   where this behavior could happen across more than three storage pages, and
 ///   we believe that modern CPUs should handle two pages well enough.
-/// - In spite of all these good properties, the data structure remains rather
-///   simple, and a typical future allocation/liberation transaction should only
-///   requires a couple of CPU instructions. So the flexibility we get does not
-///   come at the cost of compromising fast path performance.
+/// - In spite of all these good properties, the data structure remains
+///   relatively simple, and a typical future allocation/liberation transaction
+///   should only requires a couple of CPU instructions. So the above good
+///   properties do not come at the cost of compromising fast path performance.
 ///
-/// Of course, a full evaluation will need to wait for production experience.
+/// Of course, a full evaluation will need to wait for production experience...
 //
 // TODO: Add microbenchmarks once we can have them.
 struct future_pointer_page_s {
     /// Previous page of future pointers, or `NULL` if this is the first page of
-    /// the doubly linked list (which will always be the bottom page).
+    /// the doubly linked list (which will always be the bottom page)
     future_pointer_page_t* previous;
 
     /// Next page of future pointers, or `NULL` if this is the last page of the
-    /// doubly linked list (which may not be the top page).
+    /// doubly linked list (which may not be the top page)
     future_pointer_page_t* next;
 
     /// Future pointers held within this page, partitioned by `NULL`-ity.
@@ -1560,8 +1568,7 @@ struct future_pointer_page_s {
 ///
 /// This is the length of the `futures` flexible array member of \ref
 /// future_pointer_page_t. Its size is not known until runtime because it
-/// depends on the page size used by the host operating system, which itself is
-/// not known until runtime.
+/// depends on the page size used by the host operating system.
 UDIPE_NODISCARD
 static inline
 size_t future_pointer_page_len() {
@@ -1571,7 +1578,7 @@ size_t future_pointer_page_len() {
     return available_bytes / sizeof(udipe_future_t*);
 }
 
-/// `udipe_future_t storage and unallocated pointers thereof
+/// Future storage pages and unallocated future pointers
 ///
 /// This struct tracks 1/memory pages that were previously allocated to store
 /// \ref udipe_future_t objects, and 2/`udipe_future_t*` pointers that are not
@@ -1612,8 +1619,137 @@ typedef struct future_cache_s {
     size_t num_top_futures;
 } future_cache_t;
 
-// TODO: event_cache_t
-// TODO: epoll_event_cache_t
+/// Indices for ring buffer cache management
+///
+/// File descriptor caches currently use a ring buffer layout, where this pair
+/// of indices is used to implement the ring buffer logic.
+typedef struct ring_indices_s {
+    /// Index of the newest entry, if any
+    ///
+    /// When this index is equal to `before_oldest`, the cache is empty.
+    uint8_t newest;
+
+    /// Index before that of the oldest event object, if any
+    ///
+    /// If an attempt to advance `newest` makes it reach this value, the cache
+    /// is full, and at least one older entry must be discarded.
+    uint8_t before_oldest;
+} ring_indices_t;
+
+/// Event cache capacity
+///
+/// Consider increasing this limit if profiling shows that application
+/// performance is limited by the performance of allocating and liberating event
+/// objects. The reason why a conservative capacity was chosen in the initial
+/// implementation is that Unix systems have an absurdly low default limit on
+/// the maximum number of file descriptors that a process can use, and cached
+/// event objects eat into this precious resource. However, sysadmins can easily
+/// bump the file descriptor limit, and that should be the preferred option if
+/// we make a convincing case that doing so enables better performance.
+///
+/// You should probably keep this a power of two, as otherwise the performance
+/// of the ring buffer integer arithmetic performed by the event cache is
+/// expected to decrease dramatically.
+#define EVENT_CACHE_CAPACITY  ((size_t)8)
+
+/// Cache for unallocated and unsignaled event objects
+///
+/// This cache uses a simple ring buffer layout, where newly liberated event
+/// objects are inserted at `indices.newest` (which increments it with circular
+/// wraparound) and allocated events are grabbed from the same end of the ring
+/// (which decrements `indices.newest` with circular wraparound).
+///
+/// The ring buffer is considered empty when `indices.before_oldest ==
+/// indices.newest` and it is considered full when `indices.before_oldest` is
+/// `indices.newest - 1` modulo \ref EVENT_CACHE_CAPACITY. Attempting to
+/// liberate an event into a full local event cache is handled by...
+///
+/// - Checking if the global event cache is also full.
+/// - When it is not full, transfering up to half of the oldest events from this
+///   local cache (on the `indices.before_oldest` end) to the global cache, thus
+///   making room for the newly liberated event.
+/// - When it is full, destroying the oldest event (at index
+///   `indices.before_oldest + 1` modulo \ref EVENT_CACHE_CAPACITY) to make room
+///   for the new event.
+///
+/// Similarly, attempting to allocate an event from an empty local event cache
+/// is handled by...
+///
+/// - Checking if the global event cache is also empty.
+/// - If it is not empty, transferring as many events as possible from the
+///   global cache to this local cache, then allocating one of these events.
+/// - If it is empty, creating a new event object.
+typedef struct event_cache_s {
+    /// Storage for unallocated and unsignaled event objects
+    ///
+    /// To make resource management bugs easier to detect, unused entries should
+    /// be set to \ref EVENT_INVALID, at least in debug builds.
+    event_t events[EVENT_CACHE_CAPACITY];
+
+    /// Indices of the newest and oldest event objects, if any
+    ///
+    ring_indices_t indices;
+} event_cache_t;
+
+#ifdef __linux__
+    /// epollfd+eventfd cache capacity
+    ///
+    /// Tune this capacity up if allocating epollfds and binding eventfds to
+    /// them becomes a bottleneck, following the same rules as for \ref
+    /// EVENT_CACHE_CAPACITY.
+    #define EPOLL_EVENT_CACHE_CAPACITY  ((size_t)4)
+
+    /// Cache for epollfds with pre-attached eventfds
+    ///
+    /// On Linux, many future types follow the pattern of exposing an epollfd as
+    /// their output file descriptor, which is attached to an eventfd which is
+    /// used to signal task completion, and also to some other file descriptors
+    /// of interest that signal progress towards task completion.
+    ///
+    /// For future types where only one more file descriptor is attached to the
+    /// epollfd, the overhead of allocating the epollfd and attaching an eventfd
+    /// to it, then eventually destroying the epollfd and eventfd, is expected
+    /// to be significant. Therefore, pre-coupled (epollfd, eventfd) pairs are
+    /// recycled and kept around in this cache.
+    ///
+    /// For \ref TYPE_JOIN where arbitrarily many file descriptors are attached
+    /// to the epollfd in addition to the eventfd, the overhead associated with
+    /// the core epollfd+eventfd pair is expected to be smaller with respect to
+    /// the overhead of attaching all other file descriptors, and the overhead
+    /// of resetting the epollfd back to the initial state is also potentially
+    /// greatly increased. Therefore epollfd+eventfd pairs are not currently
+    /// cached for this future type. If this turns out to be a performance
+    /// problem in the future, this policy can be revisited in favor of a more
+    /// nuanced policy where the epollfd+eventfd pair is recycled for
+    /// "sufficiently small" joins.
+    ///
+    /// Aside from the fact that each cache entry index corresponds to two
+    /// pre-coupled file descriptors (one in `epolls`, one in `events`), this
+    /// cache works exactly like \ref event_cache_t.
+    typedef struct epoll_event_cache_s {
+        /// Storage for epollfds
+        ///
+        /// For each valid index `i`, `epolls[i]` should be an epollfd that is
+        /// attached to `events[i]` and no other file descriptor.
+        ///
+        /// To make resource management bugs easier to detect, unused entries
+        /// should be set to -1, at least in debug builds.
+        int epolls[EPOLL_EVENT_CACHE_CAPACITY];
+
+        /// Storage for event objects, which are eventfds on Linux
+        ///
+        /// For each valid index `i`, `events[i]` should be an eventfd in an
+        /// unsignaled state.
+        ///
+        /// To make resource management bugs easier to detect, unused entries
+        /// should be set to \ref EVENT_INVALID, at least in debug builds.
+        event_t events[EPOLL_EVENT_CACHE_CAPACITY];
+
+        /// Indices of the newest and oldest epollfd+eventfd pairs, if any
+        ///
+        ring_indices_t indices;
+    } epoll_event_cache_t;
+#endif
 
 /// Cache for unallocated futures and associated resources
 ///
@@ -1625,47 +1761,45 @@ typedef struct future_cache_s {
 ///   building blocks are recycled upon liberation. When a new future is
 ///   allocated, resources are fetched from this cache if available, which is
 ///   the fastest path as it requires no syscalls and no synchronization with
-///   other threads. If the thread-local cache does not have one of the required
-///   resources, it is then looked up in the global cache.
+///   other threads. If the thread-local cache does not have some of the
+///   required resources, the global cache is queried for those resources.
 /// - The entire process gets a mutex-protected global cache, shared across all
-///   udipe contexts. This cache is where thread-local caches spill when the
-///   associated application thread exits, and where user threads go looking for
-///   resources when their thread-local cache is empty. When the process exits,
-///   resources from this global cache are finally liberated, thus avoiding leak
-///   reports from dynamic analysis tools.
-/// - When a desired resource is no available in either the thread-local or
+///   udipe contexts. This cache is where thread-local caches spill when they
+///   are full or the associated thread exits. User threads go looking for
+///   resources in this global cache when their thread-local cache is empty.
+///   When the process exits, resources from this global cache are finally
+///   liberated, thus avoiding leak reports from dynamic analysis tools.
+/// - When a desired resource is not available in either the thread-local or the
 ///   global cache, a new batch of this resource is allocated and inserted into
 ///   the thread-local cache, where it is available for both the current and
 ///   future allocations.
 ///
 /// Each level of cache has the same structure described below, but the global
-/// cache supplements this common structure with an extra mutex used to
-/// synchronize access to it.
+/// cache supplements this common structure with an extra mutex + some atomic
+/// flags to enable multi-threaded access.
 typedef struct future_resource_cache_s {
     /// `udipe_future_t` storage and unallocated pointers thereof
     ///
     /// See \ref future_cache_t for more information.
     future_cache_t futures;
 
-    /// Unallocated unsignaled `event_t`s
-    //
-    // TODO: design data structure and finish docs
+    /// Unallocated unsignaled event objects
+    ///
+    /// See \ref event_cache_t for more information.
     event_cache_t events;
 
-    /// Unallocated epollfds with pre-attached `event_t`s
-    //
-    // TODO: design data structure and finish docs
-    epoll_event_cache_t epolls_with_events;
+    #ifdef __linux__
+        /// Unallocated epollfds with pre-attached eventfds
+        ///
+        /// See \ref epoll_event_cache_t for more information.
+        epoll_event_cache_t epolls_with_events;
+    #endif
 } future_resource_cache_t;
 
 /// Global future cache
 ///
 /// See the documentation of \ref future_resource_cache_t for more information
 /// on the overall cache structure.
-//
-// TODO: Transfer ressources from the global cache to the thread-local cache in
-//       bulk to ensure that the overhead of locking the global cache is
-//       amortized.
 typedef struct future_global_cache_s {
     /// Mutex used to synchronize access to the global cache
     ///
@@ -1674,6 +1808,31 @@ typedef struct future_global_cache_s {
     /// Actual cache whose accesses must be mutex-protected
     ///
     future_resource_cache_t cache;
+
+    /// Truth that the event cache is full
+    ///
+    /// To minimize thread contention, this flag + the next one are on a
+    /// separate false sharing granule that only contains read-mostly variables.
+    //
+    // TODO: Remember to update this on global cache manipulations
+    alignas(FALSE_SHARING_GRANULARITY) atomic_bool event_cache_full;
+
+    /// Truth that the event cache is empty
+    ///
+    // TODO: Remember to update this on global cache manipulations
+    atomic_bool event_cache_empty;
+
+    #ifdef __linux__
+        /// Truth that the epollfd + eventfd cache is full
+        ///
+        // TODO: Remember to update this on global cache manipulations
+        atomic_bool epoll_event_cache_full;
+
+        /// Truth that the epollfd + eventfd cache is empty
+        ///
+        // TODO: Remember to update this on global cache manipulations
+        atomic_bool epoll_event_cache_empty;
+    #endif
 } future_global_cache_t;
 
 /// Liberate a future
