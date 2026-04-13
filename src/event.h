@@ -41,6 +41,18 @@
     #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
 #endif
 
+/// Invalid event object identifier
+///
+/// This identifier is recognized as invalid by the operating system and can be
+/// used as a safe placeholder value when you have storage for an event object
+/// that does not currently hold an actual event object.
+#ifdef __linux__
+    #define EVENT_INVALID  ((event_t)-1)
+#else
+    // TODO add windows version, most likely a null handle
+    #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
+#endif
+
 /// Set up an unsignaled \ref event_t
 ///
 /// The event object can be signaled with event_signal() and reset to an
@@ -165,11 +177,11 @@ void event_finalize(event_t* event) {
     #ifdef __linux__
         ensure_ge(*event, 0);
         exit_on_negative(close(*event), "Failed to close eventfd");
-        *event = -1;
     #else
         // TODO add windows version based on CloseEvent() + set to NULL
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
+    *event = EVENT_INVALID;
 }
 
 // TODO: Add unit tests
