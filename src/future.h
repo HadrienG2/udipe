@@ -1881,7 +1881,7 @@ void future_liberate(udipe_future_t* future);
 ///     to the \ref outcome_event_t with identifier `U64_MAX`, and...
 ///     - ...nothing else yet for \ref TYPE_JOIN. You must attach to it the
 ///       output fds of upstream futures, identified with their index in \ref
-///       concurrent_upstream_t before use.
+///       collective_upstream_t before use.
 ///     - ...the `upstream_epollfd` for \ref TYPE_UNORDERED, which is
 ///       preallocated but not yet attached to any file descriptor. See the \ref
 ///       TYPE_JOIN case described above, except upstream fds must be attached
@@ -1953,6 +1953,8 @@ udipe_future_t* future_allocate(udipe_context_t* context,
 /// \param timeout works as in wait_on_address(). In particular it cannot take
 ///                value \ref UDIPE_DURATION_DEFAULT, which should have been
 ///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+/// \param count_policy controls how the future's downstream count should be
+///                     manipulated as part of this waiting transaction.
 ///
 /// \returns the final future status at the end of the wait.
 UDIPE_NODISCARD
@@ -1975,6 +1977,8 @@ future_status_t future_wait(udipe_future_t* future,
 /// \param timeout works as in wait_on_address(). In particular it cannot take
 ///                value \ref UDIPE_DURATION_DEFAULT, which should have been
 ///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+/// \param count_policy controls how the future's downstream count should be
+///                     manipulated as part of this waiting transaction.
 ///
 /// \returns the final future status.
 UDIPE_NODISCARD
@@ -1996,6 +2000,8 @@ future_status_t future_wait_eager(udipe_future_t* future,
 /// \param timeout works as in wait_on_address(). In particular it cannot take
 ///                value \ref UDIPE_DURATION_DEFAULT, which should have been
 ///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+/// \param count_policy controls how the future's downstream count should be
+///                     manipulated as part of this waiting transaction.
 ///
 /// \returns the final future status.
 UDIPE_NODISCARD
@@ -2017,6 +2023,8 @@ future_status_t future_wait_join(udipe_future_t* future,
 /// \param timeout works as in wait_on_address(). In particular it cannot take
 ///                value \ref UDIPE_DURATION_DEFAULT, which should have been
 ///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+/// \param count_policy controls how the future's downstream count should be
+///                     manipulated as part of this waiting transaction.
 ///
 /// \returns the final future status.
 UDIPE_NODISCARD
@@ -2038,6 +2046,8 @@ future_status_t future_wait_unordered(udipe_future_t* future,
 /// \param timeout works as in wait_on_address(). In particular it cannot take
 ///                value \ref UDIPE_DURATION_DEFAULT, which should have been
 ///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+/// \param count_policy controls how the future's downstream count should be
+///                     manipulated as part of this waiting transaction.
 ///
 /// \returns the final future status.
 UDIPE_NODISCARD
@@ -2059,6 +2069,8 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
 /// \param timeout works as in wait_on_address(). In particular it cannot take
 ///                value \ref UDIPE_DURATION_DEFAULT, which should have been
 ///                translated into \ref UDIPE_DURATION_MAX higher up the stack.
+/// \param count_policy controls how the future's downstream count should be
+///                     manipulated as part of this waiting transaction.
 ///
 /// \returns the final future status.
 UDIPE_NODISCARD
