@@ -220,6 +220,91 @@ void future_status_debug_check(future_status_t status,
 
 // === Basic future lifecycle ===
 
+/// Global future resource cache implementation
+///
+/// This cache must not be accessed directly. Use the global_cache() accessor
+/// instead, which will take care of initializing it on first access and setting
+/// it up for automated teardown on process exit.
+static future_global_cache_t global_cache_impl;
+
+/// Destroy the global future resource cache
+///
+/// This will run at process exit time and take care of liberating all contents
+/// of the global resource cache.
+///
+/// This is actually not needed to ensure proper resource liberation, as the OS
+/// liberates all resources at process exit time. But automated resource leak
+/// analyzers like valgrind cannot tell the difference between a voluntary and
+/// involuntary resource leak, and we would rather not break those useful tools.
+static void global_cache_finalize(void) {
+    // TODO: Destroy everything in the global cache. Must not use the logger
+    //       here. Same goes for the thread exit hook of the local cache.
+    // TODO: Leave the global cache in such a state that
+    fprintf(stderr, "Not implemented yet!\n");
+    exit(EXIT_FAILURE);
+}
+
+/// Initialize the global future resource cache
+///
+/// This will run on the first call to global_cache() and take care of setting
+/// up the global resource cache and making sure that it gets liberated by
+/// global_cache_finalize() at process exit time.
+///
+/// This function must be called within the scope of with_logger().
+static void global_cache_initialize(void) {
+    // TODO: Set up the global cache
+    exit_with_error("Not implemented yet!");
+    atexit(global_cache_finalize);
+}
+
+/// Access the global future resource cache
+///
+/// See \ref future_resource_cache_t for more information on the overall
+/// structure of the future resource cache.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \returns a pointer to the global resource cache
+UDIPE_NODISCARD
+UDIPE_NON_NULL_RESULT
+static future_global_cache_t* global_cache() {
+    static once_flag global_cache_created = ONCE_FLAG_INIT;
+    call_once(&global_cache_created, &global_cache_initialize);
+    return &global_cache_impl;
+}
+
+/// Thread-local storage key used to retrieve a thread's future resource cache
+///
+/// The low-level `tss_t` API must be used here because any resources kept in
+/// the thread-local cache must be spilled to the global cache on thread exit.
+static tss_t thread_cache_key;
+
+// TODO: Initializer and finalizers for thread_cache_key
+
+/// Access the thread-local future resource cache
+///
+/// The cache will be set up the first time a particular thread allocates and
+/// liberates a future. It will be spilled to the global cache on thread exit.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_RESULT
+static future_resource_cache_t* thread_local_cache() {
+    // TODO: Lazily allocate thread_cache_key using a once flag, try to fetch
+    //       the local cache pointer from it with tss_get(), if there is none
+    //       create a cache and return it with tss_set(), eventually return a
+    //       pointer to the initialized cache.
+    exit_with_error("Not implemented yet!");
+}
+
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+UDIPE_NON_NULL_RESULT
+udipe_future_t* future_allocate(udipe_context_t* context,
+                                future_type_t type) {
+    // TODO: Implement (see function docs)
+    // TODO: Check initial status, using swap in debug builds.
+    exit_with_error("Not implemented yet!");
+}
+
 UDIPE_NON_NULL_ARGS
 void future_liberate(udipe_future_t* /*future*/) {
     // TODO: Implement.
