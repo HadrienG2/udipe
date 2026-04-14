@@ -110,7 +110,7 @@ static once_flag thread_name_init = ONCE_FLAG_INIT;
 /// Ensure that the thread name buffer is allocated with a certain capacity
 UDIPE_NODISCARD
 UDIPE_NON_NULL_RESULT
-thread_name_t* ensure_thread_name_capacity(size_t capacity) {
+static thread_name_t* ensure_thread_name_capacity(size_t capacity) {
     // WARNING: This function is called by the logger implementation and must
     //          therefore not perform any logging. Normal events and non-fatal
     //          errors should not be signaled at all, fatal errors should be

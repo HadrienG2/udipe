@@ -1811,7 +1811,7 @@ typedef struct future_global_cache_s {
 
     /// Truth that the event cache is full
     ///
-    /// To minimize thread contention, this flag + the next one are on a
+    /// To minimize thread contention, this flag + the next ones are on a
     /// separate false sharing granule that only contains read-mostly variables.
     //
     // TODO: Remember to update this on global cache manipulations
@@ -1834,24 +1834,6 @@ typedef struct future_global_cache_s {
         atomic_bool epoll_event_cache_empty;
     #endif
 } future_global_cache_t;
-
-/// Liberate a future
-///
-/// The future will be reset to an unallocated state, then shelved into a
-/// thread-local cache where later calls to future_allocate() will be able to
-/// find and reuse it instead of resorting to a global allocation.
-///
-/// This function must be called within the scope of with_logger().
-///
-/// \param future must point to a future that was previously allocated to some
-///               asynchronous operation, and has been liberated via
-///               udipe_finish() if it was ever exposed to the user. This future
-///               cannot be used again afterwards.
-//
-// TODO: Add GNU attributes to mark this + future_allocate() as an
-//       allocator/liberator pair if possible.
-UDIPE_NON_NULL_ARGS
-void future_liberate(udipe_future_t* future);
 
 /// Allocate a future
 ///
@@ -1921,6 +1903,24 @@ UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 udipe_future_t* future_allocate(udipe_context_t* context,
                                 future_type_t type);
+
+/// Liberate a future
+///
+/// The future will be reset to an unallocated state, then shelved into a
+/// thread-local cache where later calls to future_allocate() will be able to
+/// find and reuse it instead of resorting to a global allocation.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param future must point to a future that was previously allocated to some
+///               asynchronous operation, and has been liberated via
+///               udipe_finish() if it was ever exposed to the user. This future
+///               cannot be used again afterwards.
+//
+// TODO: Add GNU attributes to mark this + future_allocate() as an
+//       allocator/liberator pair if possible.
+UDIPE_NON_NULL_ARGS
+void future_liberate(udipe_future_t* future);
 
 // TODO: Ensure that 1/when a user thread exits, its thread-local unallocated
 //       future cache is spilled into a global unallocated future cache and 2/on
