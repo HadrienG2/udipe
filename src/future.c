@@ -256,6 +256,9 @@ static void global_cache_finalize(void) {
     // TODO: Leave the global cache in such a state that if something goes wrong
     //       and the cache is accessed after this finalization, the client will
     //       be able to notice it.
+    // TODO: Extract into a function that can also be called by the thread local
+    //       cache teardown, only changing whether resources are transferred to
+    //       the global cache or discarded.
     fprintf(stderr, "Not implemented yet!\n");
     exit(EXIT_FAILURE);
 
@@ -277,6 +280,10 @@ static void global_cache_initialize(void) {
     }
 
     // TODO: Set up the inner cache
+    // TODO: Extract into a function that can also be called
+    //       by the thread cache setup, only changing quantitative parameters
+    //       that differ between the two caches (local cache comes with
+    //       preallocated future storage pages, global cache doesn't)
     exit_with_error("Not implemented yet!");
     atexit(global_cache_finalize);
 
