@@ -791,30 +791,32 @@ struct udipe_future_s {
         /// Must be reset and recycled when the future is liberated.
         event_t event;
 
-        /// timerfd, used for \ref TYPE_TIMER_ONCE
-        ///
-        /// This output file descriptor type is used for single-shot "timer"
-        /// futures that become ready once the system clock reaches a certain
-        /// time point.
-        ///
-        /// When this file descriptor becomes ready, \ref OUTCOME_SUCCESS must
-        /// be signaled by one of the thread which observes this status to be
-        /// unset, without reading the timerfd. The timerfd will therefore stay
-        /// ready and thus remain effective as a downstream readiness signal.
-        ///
-        /// Must be destroyed when the future is liberated, for now. May switch
-        /// to disarming and recycling if timerfd creation/destruction ever
-        /// becomes a bottleneck, but that seems unlikely under correct udipe
-        /// API usage given that recuring timerfds seem to cover the main use
-        /// case for which one might want to create lots of single-shot timers.
-        //
-        // TODO: Prove the above assertion through benchmarking and profiling of
-        //       real-world workloads.
-        // TODO: Find a Windows equivalent, could likely be a Win32 waitable
-        //       timer object?
-        int timer;
-
         #ifdef __linux__
+            /// timerfd, used for \ref TYPE_TIMER_ONCE
+            ///
+            /// This output file descriptor type is used for single-shot "timer"
+            /// futures that become ready once the system clock reaches a
+            /// certain time point.
+            ///
+            /// When this file descriptor becomes ready, \ref OUTCOME_SUCCESS
+            /// must be signaled by one of the thread which observes this status
+            /// to be unset, without reading the timerfd. The timerfd will
+            /// therefore stay ready and thus remain effective as a downstream
+            /// readiness signal.
+            ///
+            /// Must be destroyed when the future is liberated, for now. May
+            /// switch to disarming and recycling if timerfd
+            /// creation/destruction ever becomes a bottleneck, but that seems
+            /// unlikely under correct udipe API usage given that recuring
+            /// timerfds seem to cover the main use case for which one might
+            /// want to create lots of single-shot timers.
+            //
+            // TODO: Prove the above assertion through benchmarking and
+            //       profiling of real-world workloads.
+            // TODO: Find a Windows equivalent, could likely be a Win32 waitable
+            //       timer object?
+            int timer;
+
             /// epollfd with an attached \ref outcome_event_t, for most lazy
             /// futures
             ///
@@ -894,19 +896,20 @@ struct udipe_future_s {
             // TODO: Find an epoll replacement for Windows. Will most likely be
             //       based on the Win32 thread pool driving an event object.
             int epoll_with_event;
-        #endif
 
-        /// Catch-all file descriptor type
-        ///
-        /// Use this union variant in situations where the active file
-        /// descriptors doesn't matter, such as when managing attachment of
-        /// output fds to collective future epollfds.
-        //
-        // TODO: Figure out if Windows can have this convenience too, I think
-        //       that is the case if we use `HANDLE` as the catch-all type for
-        //       all Win32 synchronization objects. In that case, we just need
-        //       to make the wording less file descriptor-specific.
-        int any;
+            /// Catch-all file descriptor type
+            ///
+            /// Use this union variant in situations where the active file
+            /// descriptors doesn't matter, such as when managing attachment of
+            /// output fds to collective future epollfds.
+            //
+            // TODO: Figure out if Windows can have this convenience too, I
+            //       think that is the case if we use `HANDLE` as the catch-all
+            //       type for all Win32 synchronization objects. In that case,
+            //       we just need to make the wording less file
+            //       descriptor-specific.
+            int any;
+        #endif
     } output_fd;
 };
 static_assert(alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
@@ -1449,6 +1452,38 @@ size_t future_storage_page_len() {
     assert(available_bytes >= sizeof(udipe_future_t));
     return available_bytes / sizeof(udipe_future_t);
 }
+
+/// Set up a page of futures and link it to previously allocated pages
+///
+/// Given a pointer to the head of a list of future storage pages (which may be
+/// `NULL` if the list is initially empty), this function will allocate a new
+/// page of futures, initialize them, and insert them at the head of the storage
+/// page list.
+///
+/// All storage allocated this way must eventually be liberated using
+/// future_storage_liberate_all(), but this function may not be called until a
+/// point in program execution where no future could still be in use. At the
+/// time of writing, this is only true at process exit time.
+///
+/// \param next must point to the head of the list of storage pages, where a new
+///             page of futures will be allocated, initialized and inserted.
+UDIPE_NON_NULL_ARGS
+void future_storage_allocate(future_storage_page_t** next);
+
+/// Liberate a linked list of future storage pages
+///
+/// Given a pointer to the head of the list of future storage pages, this
+/// function will liberate all of them and reset the head pointer to `NULL`.
+///
+/// This function must not be called until a point of program execution where no
+/// future is reachable from other threads of the program, which at the time of
+/// writing is only true at process exit time.
+///
+/// \param first must point to the head of the list of storage pages. All inner
+///              pages will be liberated, then this pointer will be reset to
+///              `NULL`.
+UDIPE_NON_NULL_ARGS
+void future_storage_liberate_all(future_storage_page_t** first);
 
 /// \copydoc future_pointer_page_s
 typedef struct future_pointer_page_s future_pointer_page_t;
