@@ -50,7 +50,19 @@
 ///   allocating a buffer of >1 events is useless.
 //
 // TODO: Tune based on benchmarking on realistic use cases
-#define MAX_JOIN_EPOLL_EVENTS (size_t)4
+#define MAX_JOIN_EPOLL_EVENTS ((size_t)4)
+
+/// Minimum number of \ref future_pointer_page_t in a \ref future_cache_t
+///
+/// A \ref future_cache_t should contain at least two \ref
+/// future_pointer_page_t. Why? Because as futures get liberated, the current
+/// thread's local cache fills up. And when it becomes full, we want to be able
+/// to transfer one full page of futures to the global cache and replace it with
+/// an empty page, without this bulk transfer process resulting in a full
+/// emptying of the thread's local future cache.
+//
+// TODO: Tune based on benchmarking on realistic use cases
+#define MIN_FUTURE_POINTER_PAGES ((size_t)2)
 
 
 // === Future status word manipulation ===
@@ -1279,7 +1291,7 @@ void udipe_join(udipe_context_t* context,
 
 #ifdef UDIPE_BUILD_TESTS
 
-    #define NUM_TRIALS  (size_t)(50*1000)
+    #define NUM_TRIALS  ((size_t)(50*1000))
 
     typedef enum random_status_kind_e {
         STATUS_KIND_UNALLOCATED = 0,

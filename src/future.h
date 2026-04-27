@@ -1679,12 +1679,13 @@ typedef struct future_cache_s {
 ///          at thread exit time if it is a thread-local cache; or 2/destroyed
 ///          with future_cache_finalize_global() at process exit time if it is
 ///          the global process cache.
-// TODO implement
+// TODO implement, leverage MIN_FUTURE_POINTER_PAGES
 UDIPE_NODISCARD
 future_cache_t future_cache_initialize(bool global);
 
 // TODO future_cache_allocate() and future_cache_liberate() for future pointer
-//      allocation and liberation.
+//      allocation and liberation, plan ahead hooks for loading from and
+//      spilling to the global cache.
 
 /// Recycle a thread-local future cache's contents into the global process cache
 ///

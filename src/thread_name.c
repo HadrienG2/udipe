@@ -159,10 +159,10 @@ static thread_name_t* ensure_thread_name_capacity(size_t capacity) {
 }
 
 /// First printable ASCII char
-#define FIRST_PRINTABLE_ASCII (char)0x21
+#define FIRST_PRINTABLE_ASCII ((char)0x21)
 
 /// Last printable ASCII char
-#define LAST_PRINTABLE_ASCII (char)0x7e
+#define LAST_PRINTABLE_ASCII ((char)0x7e)
 
 UDIPE_NON_NULL_ARGS
 void set_thread_name(const char* name) {
