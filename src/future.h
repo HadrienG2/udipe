@@ -1402,14 +1402,14 @@ typedef struct future_storage_page_s future_storage_page_t;
 /// At the time of writing, these memory pages are allocated for the entire
 /// lifetime of the host proces and cannot be liberated until the host process
 /// exits. The reason for this is that futures are not guaranteed to be
-/// liberated on the thread that allocated them (as a future can be passed to
+/// liberated by the thread that allocated them (as a future can be passed to
 /// another thread between the start of the asynchronous operation and
 /// udipe_finish()). Given this and the thread-local and synchronization-free
 /// design of the unallocated future caches, it is already hard to assess
 /// whether all futures in a page are unused and can be liberated, and it seems
-/// even harder (impossible ?) to remove liberated futures from the associated
-/// caches without adding undesirable thread synchronization overhead and
-/// associated many-core scalability issues.
+/// even harder (impossible ?) to remove pages of liberated futures from the
+/// associated caches without adding undesirable thread synchronization overhead
+/// and associated many-core scalability issues.
 ///
 /// We expect the potential memory overhead of the current "don't liberate until
 /// atexit() but recycle before allocating more" strategy to be acceptable. But
