@@ -1654,6 +1654,76 @@ typedef struct future_cache_s {
     size_t num_top_futures;
 } future_cache_t;
 
+/// Set up a future cache
+///
+/// The freshly created cache may either be designated as a thread-local cache
+/// or as the global process cache. At the time of writing, the differences
+/// between these two kinds of future caches are that...
+///
+/// - Thread-local caches are set up with one storage page of pre-initialized
+///   futures and some headroom for storing more futures and spilling them to
+///   the global cache.
+/// - The global process cache initially contains no preallocated futures, it is
+///   only set up to gradually receive futures from thread-local caches.
+/// - Thread-local caches get spilled to the global cache with
+///   future_cache_spill_local() on thread exit.
+/// - The global process cache gets eventually liberated with
+///   future_cache_finalize_global() on process exit.
+///
+/// \param global controls whether the cache that is being created is the global
+///               cache shared between all threads (if true) or the local cache
+///               of a single thread (if false).
+///
+/// \returns a freshly initialized future cache that must eventually be
+///          1/recycled into the global cache with future_cache_recycle_local()
+///          at thread exit time if it is a thread-local cache; or 2/destroyed
+///          with future_cache_finalize_global() at process exit time if it is
+///          the global process cache.
+// TODO implement
+UDIPE_NODISCARD
+future_cache_t future_cache_initialize(bool global);
+
+// TODO future_cache_allocate() and future_cache_liberate() for future pointer
+//      allocation and liberation.
+
+/// Recycle a thread-local future cache's contents into the global process cache
+///
+/// This function must be called at thread exit time to spill the contents of
+/// the active thread's local future cache into the process-wide global cache.
+///
+/// Users are advised to pay close attention to the order of function
+/// parameters, as swapping them will result in a spectacularly bad outcome. The
+/// C type system is unfortunately too bad at newtypes for a compile-time
+/// safeguard to feel worthwhile on this rarely-called function.
+///
+/// \param local designates the thread-local cache whose contents will be
+///              spilled into the global cache. It should have been set up with
+///              future_cache_initialize(false) and must not be used again after
+///              this function has been called.
+/// \param global designates the global cache into which the thread-local cache
+///               will be spilled. It should have been set up with
+///               future_cache_initialize(true) and not have been destroyed with
+///               future_cache_finalize_global() yet.
+// TODO implement
+UDIPE_NON_NULL_ARGS
+void future_cache_recycle_local(future_cache_t* local, future_cache_t* global);
+
+/// Destroy the global (process-wide) future cache
+///
+/// This function must not be used to destroy thread-local future caches,
+/// because those contain storage that other thread-local caches may still point
+/// to. Instead, the contents of these caches must be spilled to the global
+/// cache with future_cache_recycle_local() at thread exit time.
+///
+/// At the time of writing, this function is only safe to call at process exit
+/// time. In normal usage, this will be handled by an atexit() hook.
+///
+/// \param global_cache must point to the global future cache, which must not be
+///                     used again after the call to this function.
+// TODO implement
+UDIPE_NON_NULL_ARGS
+void future_cache_finalize_global(future_cache_t* global_cache);
+
 /// Indices for ring buffer cache management
 ///
 /// File descriptor caches currently use a ring buffer layout, where this pair
