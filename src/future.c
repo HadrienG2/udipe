@@ -382,7 +382,7 @@ void future_cache_local_recycle(future_cache_t* local, future_cache_t* global) {
     }
 }
 
-// TODO: future_cache_global_finalize
+// TODO: future_cache_global_finalize + use in global_cache_finalize()
 
 /// Global future resource cache implementation
 ///
@@ -401,15 +401,15 @@ static future_global_cache_t global_cache_impl;
 /// analyzers like valgrind cannot tell the difference between a voluntary and
 /// involuntary resource leak, and we would rather not break those useful tools.
 static void global_cache_finalize(void) {
-    future_global_cache_t* cache = &global_cache_impl;
+    future_global_cache_t* global = &global_cache_impl;
 
-    atomic_store_explicit(&cache->event_cache_full, true, memory_order_relaxed);
-    atomic_store_explicit(&cache->event_cache_empty, true, memory_order_relaxed);
+    atomic_store_explicit(&global->event_cache_full, true, memory_order_relaxed);
+    atomic_store_explicit(&global->event_cache_empty, true, memory_order_relaxed);
     #ifdef __linux__
-        atomic_store_explicit(&cache->epoll_event_cache_full,
+        atomic_store_explicit(&global->epoll_event_cache_full,
                               true,
                               memory_order_relaxed);
-        atomic_store_explicit(&cache->epoll_event_cache_empty,
+        atomic_store_explicit(&global->epoll_event_cache_empty,
                               true,
                               memory_order_relaxed);
     #endif
@@ -425,7 +425,7 @@ static void global_cache_finalize(void) {
     fprintf(stderr, "Not implemented yet!\n");
     exit(EXIT_FAILURE);
 
-    mtx_destroy(&cache->mutex);
+    mtx_destroy(&global->mutex);
 }
 
 /// Initialize the global future resource cache
@@ -436,25 +436,24 @@ static void global_cache_finalize(void) {
 ///
 /// This function must be called within the scope of with_logger().
 static void global_cache_initialize(void) {
-    future_global_cache_t* cache = &global_cache_impl;
+    future_global_cache_t* global = &global_cache_impl;
 
-    if (mtx_init(&cache->mutex, mtx_plain) != thrd_success) {
+    if (mtx_init(&global->mutex, mtx_plain) != thrd_success) {
         exit_after_c_error("Failed to initialize global future cache mutex");
     }
 
-    // TODO: Set up the inner cache
-    // TODO: Extract into a function that can also be called
-    //       by the thread cache setup, only changing quantitative parameters
-    //       that differ between the two caches (local cache comes with
-    //       preallocated future storage pages, global cache doesn't)
+    global->cache = (future_resource_cache_t){ 0 };
+    future_resource_cache_t* cache = &global->cache;
+    cache->futures = future_cache_initialize(true);
+    // TODO: Set up the events and epolls_with_event cache
     exit_with_error("Not implemented yet!");
     atexit(global_cache_finalize);
 
-    atomic_init(&cache->event_cache_full, false);
-    atomic_init(&cache->event_cache_empty, true);
+    atomic_init(&global->event_cache_full, false);
+    atomic_init(&global->event_cache_empty, true);
     #ifdef __linux__
-        atomic_init(&cache->event_cache_full, false);
-        atomic_init(&cache->event_cache_empty, true);
+        atomic_init(&global->event_cache_full, false);
+        atomic_init(&global->event_cache_empty, true);
     #endif
 }
 
