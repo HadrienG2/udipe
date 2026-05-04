@@ -1613,6 +1613,24 @@ size_t future_pointer_page_len() {
     return available_bytes / sizeof(udipe_future_t*);
 }
 
+/// Create a future pointer page with `NULL` previous/next pointers and
+/// all-`NULL` inner futures.
+///
+/// The future pointer page must then be...
+///
+/// - Linked to previous/next future pointer pages in the same future cache
+/// - Targeted by the bottom and top pointers of the future cache if it is the
+///   first pointer page in said cache.
+/// - Targeted by the top pointer of the future cache if new futures are meant
+///   to be inserted here.
+/// - Eventually liberated with realtime_liberate() after unlinking it from any
+///   other pointer page that continue to exist within the same cache.
+///
+/// \returns a new empty future pointer page
+UDIPE_NODISCARD
+UDIPE_NON_NULL_RESULT
+future_pointer_page_t* future_pointer_page_initialize();
+
 /// Future storage pages and unallocated future pointers
 ///
 /// This struct tracks 1/memory pages that were previously allocated to store
@@ -1630,13 +1648,6 @@ size_t future_pointer_page_len() {
 /// because while it is great for ergonomics, it also heavily constrains the
 /// cache's ressource management policy on the implementation side.
 typedef struct future_cache_s {
-    /// Linked list of memory pages allocated to `udipe_future_t`s
-    ///
-    /// These pages are allocated when a thread runs out of futures and none is
-    /// available in the global cache. They cannot be liberated until process
-    /// exit time. See the documentation of \ref future_storage_page_t.
-    future_storage_page_t* storage;
-
     /// Bottom of the stack of unallocated future pointers pages
     ///
     /// See the documentation of \ref future_pointer_page_t.
@@ -1652,6 +1663,13 @@ typedef struct future_cache_s {
     /// This field can only be zero when no future pointers are available. See
     /// the documentation of \ref future_pointer_page_t.
     size_t num_top_futures;
+
+    /// Linked list of memory pages allocated to `udipe_future_t`s
+    ///
+    /// These pages are allocated when a thread runs out of futures and none is
+    /// available in the global cache. They cannot be liberated until process
+    /// exit time. See the documentation of \ref future_storage_page_t.
+    future_storage_page_t* storage;
 } future_cache_t;
 
 /// Set up a future cache
@@ -1679,7 +1697,6 @@ typedef struct future_cache_s {
 ///          at thread exit time if it is a thread-local cache; or 2/destroyed
 ///          with future_cache_global_finalize() at process exit time if it is
 ///          the global process cache.
-// TODO implement, honor MIN_FUTURE_POINTER_PAGES
 UDIPE_NODISCARD
 future_cache_t future_cache_initialize(bool global);
 
@@ -1717,7 +1734,6 @@ future_cache_t future_cache_initialize(bool global);
 ///
 /// \returns an uninitialized future object if available, or `NULL` if no future
 ///          object is available in this thread-local cache.
-// TODO implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 udipe_future_t* future_cache_local_allocate(future_cache_t* local_cache);
@@ -1751,7 +1767,6 @@ udipe_future_t* future_cache_local_allocate(future_cache_t* local_cache);
 ///
 /// \returns true if the future was successfully liberated, false if it could
 ///          not be liberated because the target local cache is full.
-// TODO implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 bool future_cache_local_liberate(future_cache_t* local_cache,
@@ -1790,7 +1805,6 @@ bool future_cache_local_liberate(future_cache_t* local_cache,
 ///
 /// \returns a page containing at least one future pointer on success or `NULL`
 ///          on failure.
-// TODO implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 future_pointer_page_t* future_cache_extract_futures(future_cache_t* cache);
@@ -1819,7 +1833,6 @@ future_pointer_page_t* future_cache_extract_futures(future_cache_t* cache);
 ///              future_cache_global_finalize() yet.
 ///
 /// \returns a page containing only `NULL` future pointers.
-// TODO implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
@@ -1844,7 +1857,6 @@ future_pointer_page_t* future_cache_obtain_empty(future_cache_t* cache);
 ///                composed only of valid pointers. This page should have been
 ///                obtained via future_cache_extract_futures() on a cache of the
 ///                opposite type.
-// TODO implement
 UDIPE_NON_NULL_ARGS
 void future_cache_insert_futures(future_cache_t* cache,
                                  future_pointer_page_t* futures);
@@ -1866,7 +1878,6 @@ void future_cache_insert_futures(future_cache_t* cache,
 /// \param futures must point to a \ref future_pointer_page_t that contains only
 ///                `NULL` pointers. This page should have been obtained via
 ///                future_cache_obtain_empty() on a cache of the opposite type.
-// TODO implement
 UDIPE_NON_NULL_ARGS
 void future_cache_insert_empty(future_cache_t* cache,
                                future_pointer_page_t* empty);
@@ -1881,7 +1892,6 @@ void future_cache_insert_empty(future_cache_t* cache,
 /// \param local_cache must point to a thread-local cache that was set up
 ///                    with future_cache_initialize(false) and wasn't destroyed
 ///                    with future_cache_local_recycle() yet.
-// TODO implement
 UDIPE_NON_NULL_ARGS
 void future_cache_local_refill(future_cache_t* local_cache);
 
@@ -1903,7 +1913,6 @@ void future_cache_local_refill(future_cache_t* local_cache);
 ///               will be spilled. It should have been set up with
 ///               future_cache_initialize(true) and not have been destroyed with
 ///               future_cache_global_finalize() yet.
-// TODO implement
 UDIPE_NON_NULL_ARGS
 void future_cache_local_recycle(future_cache_t* local, future_cache_t* global);
 
@@ -1919,7 +1928,6 @@ void future_cache_local_recycle(future_cache_t* local, future_cache_t* global);
 ///
 /// \param global_cache must point to the global future cache, which must not be
 ///                     used again after the call to this function.
-// TODO implement
 UDIPE_NON_NULL_ARGS
 void future_cache_global_finalize(future_cache_t* global_cache);
 
