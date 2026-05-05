@@ -1399,37 +1399,45 @@ typedef struct future_storage_page_s future_storage_page_t;
 
 /// Memory page allocated to future storage + link to other pages
 ///
-/// This is one node of a singly linked list of memory pages that were allocated
-/// for the purpose of storing future objects.
+/// This is one node from a singly linked list of realtime-safe memory pages
+/// that were allocated for the purpose of holding future objects.
 ///
-/// At the time of writing, these memory pages are allocated for the entire
-/// lifetime of the host proces and cannot be liberated until the host process
-/// exits. The reason for this is that futures are not guaranteed to be
-/// liberated by the thread that allocated them (as a future can be passed to
-/// another thread between the start of the asynchronous operation and
-/// udipe_finish()). Given this and the thread-local and synchronization-free
-/// design of the unallocated future caches, it is already hard to assess
-/// whether all futures in a page are unused and can be liberated, and it seems
-/// even harder (impossible ?) to remove pages of liberated futures from the
-/// associated caches without adding undesirable thread synchronization overhead
-/// and associated many-core scalability issues.
+/// These pages are allocated as a context-global entity and only liberated when
+/// the host \ref udipe_context_t is finalized, a simple resource management
+/// policy which offers several benefits:
 ///
-/// We expect the potential memory overhead of the current "don't liberate until
-/// atexit() but recycle before allocating more" strategy to be acceptable. But
-/// only production experience will tell whether that is actually the case...
+/// - The high overhead of realtime-safe memory allocation is well amortized.
+/// - By not attempting to free storage pages when no future within them is in
+///   use, we do not need to track the usage of individual futures within a
+///   page, which would require lots of thread synchronization because futures
+///   can be liberated on a thread other than the one that allocated them.
 ///
-/// Because future objects are manipulated by realtime network threads, these
-/// pages are allocated with realtime_allocate() and must be eventually
+/// However, this policy also comes at the expense of constantly keeping
+/// future-associated memory footprint at the highest it's been since the udipe
+/// context was created, with no way to trim it down other than destroying and
+/// recreating the udipe context (which is not something we expect from users).
+///
+/// This is not considered a big problem as long as allocated future objects can
+/// be indefinitely reused, even in pathological scenarios where e.g. one user
+/// thread only allocates futures and sends them to another user thread which
+/// only liberates them.
+///
+/// And that issue, in turn, is taken care of by other components of the future
+/// allocator such as \ref future_cache_t, which enable maximally efficient
+/// thread-local operation in well-behaved applications while still enabling a
+/// reasonable degree of future reuse in less well-behaved applications.
+///
+/// Because future objects are manipulated by realtime network threads, future
+/// storage pages must be allocated with realtime_allocate() and eventually
 /// liberated with realtime_liberate().
 struct future_storage_page_s {
     /// Next memory page allocated to future storage, if any, otherwise `NULL`
     ///
     future_storage_page_t* next;
 
-    // NOTE: On CPU architectures with doubleword false sharing granularity,
-    //       which are the most common ones at the time of writing, there is
-    //       room for one more word of metadata here that would use otherwise
-    //       lost padding space.
+    // NOTE: If needed, there is room for a lot more metadata here. For example,
+    //       on x86_64, where pointers are 8 bytes and false sharing granules
+    //       are 128 bytes, 120 bytes of padding are currently available here.
 
     /// Futures allocated as part of this memory page
     ///
@@ -1444,6 +1452,8 @@ static_assert(offsetof(future_storage_page_t, futures) <= sizeof(udipe_future_t)
 /// This is the length of the `futures` flexible array member of \ref
 /// future_storage_page_t. Its size is not known until runtime because it
 /// depends on the page size used by the host operating system.
+///
+/// This function must be called within the scope of with_logger().
 UDIPE_NODISCARD
 static inline
 size_t future_storage_page_len() {
@@ -1461,9 +1471,9 @@ size_t future_storage_page_len() {
 /// page list.
 ///
 /// All storage allocated this way must eventually be liberated using
-/// future_storage_liberate_all(), but this function may not be called until a
-/// point in program execution where no future could still be in use. At the
-/// time of writing, this is only true at process exit time.
+/// future_storage_liberate_all().
+///
+/// This function must be called within the scope of with_logger().
 ///
 /// \param next must point to the head of the list of storage pages, where a new
 ///             page of futures will be allocated, initialized and inserted.
@@ -1476,8 +1486,11 @@ void future_storage_allocate(future_storage_page_t** next);
 /// function will liberate all of them and reset the head pointer to `NULL`.
 ///
 /// This function must not be called until a point of program execution where no
-/// future is reachable from other threads of the program, which at the time of
-/// writing is only true at process exit time.
+/// future is reachable from other threads of the program. At the time of
+/// writing, this is only guaranteed at the time where the host \ref
+/// udipe_context_t is finalized.
+///
+/// This function must be called within the scope of with_logger().
 ///
 /// \param first must point to the head of the list of storage pages. All inner
 ///              pages will be liberated, then this pointer will be reset to
@@ -1488,95 +1501,13 @@ void future_storage_liberate_all(future_storage_page_t** first);
 /// \copydoc future_pointer_page_s
 typedef struct future_pointer_page_s future_pointer_page_t;
 
-/// Memory page of unallocated `udipe_future_t*`s + link to other pages
+/// Memory page of pointers to unallocated future + link to other pages
 ///
-/// This is one node of a doubly linked list of memory pages that were allocated
-/// for the purpose of storing pointers to unallocated future objects.
+/// See \ref future_cache_t for more information on the host data structure.
 ///
-/// That doubly linked list is used as part of a more complex hierarchical data
-/// structure, which is a sort of segmented stack / ring buffer hybrid:
-///
-/// - Each page holds a fixed size array of future pointers, some of which may
-///   be valid or `NULL`. This "inner" array is partitioned such that all valid
-///   pointers go at the beginning and all `NULL` pointers go at the end.
-/// - The doubly linked list of pages is logically treated as a longer array of
-///   future pointers, not unlike some implementations of C++'s `std::deque`.
-///   The list of pages is fixed-size for thread-local caches and variable-sized
-///   for the global cache shared by all threads. Extending the above intra-page
-///   logic, the page list can in full generality start with some pages full of
-///   futures, followed by one page that starts with some futures and ends with
-///   some `NULL`s, and after that there are only pages full of `NULL`.
-/// - External metadata speeds up lookup in this "blocked array" by tracking the
-///   first page of the list (the "bottom"), the last page of the list that may
-///   have futures in it (the "top"), and the number of futures stored in this
-///   top page (which is only allowed to be 0 when the entire linked list of
-///   storage pages is empty).
-/// - When a future is liberated, it is inserted into the top page of the local
-///   cache of the current thread, if there is room for it. Otherwise the future
-///   goes into the page after that (which becomes the new top page), and so on
-///   until the end of the list is reached and all pages are full of futures. In
-///   the interest of making this explanation clearer, we defer discussion of
-///   what happens then.
-/// - When a future is allocated, it is taken from the top page of the local
-///   cache of the current thread if there is a future there, then the top
-///   pointer goes back to the previous page if that page becomes empty as a
-///   result and there is indeed a previous page in the linked list. Again, we
-///   defer discussion of what happens when the local cache is emptied.
-/// - When a future is liberated and the entire linked list is full, the bottom
-///   page of the list is extracted and migrated into the global cache. Then a
-///   new empty page is inserted at the top end of the local cache, where the
-///   newly liberated future can be inserted. Ideally this new empty page would
-///   be recycled from the global cache (we will later see how it gets there),
-///   but a new page can also be freshly allocated if none is available.
-/// - When a future is allocated and the local cache is empty, an attempt is
-///   made to grab a full page of futures from the global cache. On success,
-///   this page replaces the (empty) top page of the local cache, which is
-///   discarded into the global cache for later reuse (see above). On failure, a
-///   page of new futures is allocated and pointers to them are inserted into
-///   the current top page.
-/// - When a thread exits, futures from its cache are spilled into the global
-///   cache, thus making them available for use by other threads.
-///
-/// We believe this data structure should work quite well because...
-///
-/// - In the fast path where local cache overflow and underflow does not happen,
-///   future pointers are handled in a stack-like LIFO fashion (which is optimal
-///   for CPU cache locality) and no inter-thread synchronization is needed as
-///   the global cache is never touched. Conversely, when futures do need to
-///   spill to the global cache, we spill futures from the bottom of the stack,
-///   which are coldest in the current CPU's cache.
-/// - If some user threads start more asynchronous operations and others threads
-///   finish more asynchronous operations (disregarding documentation advice),
-///   unbounded future leaks are avoided by bounding the size of local caches
-///   and eventually spilling futures into the global cache. Spilling futures
-///   into the global cache makes them become available for re-use for other
-///   threads, so the amount of leaked futures at any point in time is bounded
-///   by the finite capacity of each thread's local future cache.
-/// - Exchanges between the local and global cache are batched at the very
-///   coarse granularity of entire pages of pointers (with 4 KiB memory pages,
-///   that's 510 future pointers!). This amortizes the overhead of locking the
-///   global cache's mutex and interacting with the global state, which has poor
-///   cache locality due to MOESI logic and is susceptible to harmful NUMA
-///   effects. In addition to making interactions with the global cache more
-///   efficient, the odds of application threads contending for access to the
-///   shared global cache are also greatly reduced by this batching.
-/// - Because each page contains many pointers, there is only a low probability
-///   of ending up in the pathological slow path of segmented stacks, where
-///   pushes and pops keep alternating between the top of a segment and the
-///   bottom of the next segment. First of all, this problematic pattern can
-///   only happen in applications that manipulate a very large number of
-///   futures, and we expect that most applications will be content with a
-///   single page of local cache. Second, we can't imagine a realistic scenario
-///   where this behavior could happen across more than three storage pages, and
-///   we believe that modern CPUs should handle two pages well enough.
-/// - In spite of all these good properties, the data structure remains
-///   relatively simple, and a typical future allocation/liberation transaction
-///   should only requires a couple of CPU instructions. So the above good
-///   properties do not come at the cost of compromising fast path performance.
-///
-/// Of course, a full evaluation will need to wait for production experience...
-//
-// TODO: Add microbenchmarks once we can have them.
+/// Because future pointers are only allocated and liberated by user threads and
+/// never touched by realtime network thread, these pages can be allocated using
+/// malloc() and will eventually need to be liberated using free().
 struct future_pointer_page_s {
     /// Previous page of future pointers, or `NULL` if this is the first page of
     /// the doubly linked list (which will always be the bottom page)
@@ -1588,12 +1519,13 @@ struct future_pointer_page_s {
 
     /// Future pointers held within this page, partitioned by `NULL`-ity.
     ///
-    /// As explained in the struct-level documentation...
+    /// As explained in the \ref future_cache_t documentation...
+    ///
     /// - Valid pointers come first, followed by `NULL` pointers
-    /// - A page may only contain valid pointers if it is the first page of the
-    ///   list or is preceded by a page full of valid pointers.
-    /// - A page may only contain `NULL` pointers if it is the last page of the
-    ///   list or is followed by a page full of `NULL` pointers.
+    /// - A page is only allowed to contain valid pointers if it is the first
+    ///   page of the list or all pages before it are full of valid pointers.
+    /// - A page is only allowed to contain `NULL` pointers if it is the last
+    ///   page of the list or all pages after it are full of `NULL` pointers.
     ///
     /// The length of this array is given by future_pointer_page_len().
     udipe_future_t* futures[];
@@ -1604,6 +1536,8 @@ struct future_pointer_page_s {
 /// This is the length of the `futures` flexible array member of \ref
 /// future_pointer_page_t. Its size is not known until runtime because it
 /// depends on the page size used by the host operating system.
+///
+/// This function must be called within the scope of with_logger().
 UDIPE_NODISCARD
 static inline
 size_t future_pointer_page_len() {
@@ -1618,85 +1552,201 @@ size_t future_pointer_page_len() {
 ///
 /// The future pointer page must then be...
 ///
-/// - Linked to previous/next future pointer pages in the same future cache
-/// - Targeted by the bottom and top pointers of the future cache if it is the
-///   first pointer page in said cache.
-/// - Targeted by the top pointer of the future cache if new futures are meant
-///   to be inserted here.
-/// - Eventually liberated with realtime_liberate() after unlinking it from any
-///   other pointer page that continue to exist within the same cache.
+/// - Linked to the future pointer pages from the target \ref future_cache_t
+///   that come before/after it via its `previous`/`next` members, the `next`
+///   member of its predecessor (if any), and the `previous` member of its
+///   successor (if any).
+/// - Targeted by the `bottom` pointer of the host \ref future_cache_t if it is
+///   the first inserted pointer page in said cache.
+/// - Targeted by the `top` pointer of the host \ref future_cache_t  if new
+///   futures are meant to be inserted here (which is also true if it is the
+///   first inserted page in said cache).
+/// - Eventually liberated with free() after unlinking it from any other pointer
+///   page that continue to exist within the same cache.
+///
+/// This function must be called within the scope of with_logger().
 ///
 /// \returns a new empty future pointer page
 UDIPE_NODISCARD
 UDIPE_NON_NULL_RESULT
 future_pointer_page_t* future_pointer_page_initialize();
 
-/// Future storage pages and unallocated future pointers
+/// Future (pointer) cache
 ///
-/// This struct tracks 1/memory pages that were previously allocated to store
-/// \ref udipe_future_t objects, and 2/`udipe_future_t*` pointers that are not
-/// currently in use and can be allocated to some asynchronous operations.
+/// This struct tracks `udipe_future_t*` pointers that are not currently in use
+/// and can be allocated to some asynchronous operations.
 ///
-/// Importantly, the `udipe_future_t*` pointers from one cache are not
-/// guaranteed to point to memory pages that were allocated by the same cache.
-/// Indeed, there is one cache per user thread, and users are allowed to start
-/// an operation in a thread A (which may cause the allocation of a new page of
-/// futures inside of A's cache), then later await the operation's result with
-/// udipe_finish() in another thread B (which recycles the associated
-/// `udipe_future_t*` pointer into B's cache). This ability to transfer future
-/// ownership across threads without much user precautions is highlighted
-/// because while it is great for ergonomics, it also heavily constrains the
-/// cache's ressource management policy on the implementation side.
+/// The pointers are held within a doubly linked list of \ref
+/// future_pointer_page_t, which functions as a hybrid between a ring buffer of
+/// pages and a segmented stack of futures:
+///
+/// - Each page holds a fixed size array of future pointers, some of which may
+///   be valid or `NULL`. This "inner" array is partitioned such that all valid
+///   future pointers go at the beginning and all `NULL` pointers go at the end.
+/// - The doubly linked list of pages is logically treated as a single long
+///   array of future pointers, similar to common implementations of C++'s
+///   `std::deque`. The list of pages is fixed-size for thread-local caches and
+///   variable-sized for the global \ref udipe_context_t cache shared by all
+///   threads. Extending the above intra-page logic, the page list can in full
+///   generality start with some pages full of futures, possibly followed by one
+///   page that starts with some futures and ends with some `NULL`s, and after
+///   that there can only be pages full of `NULL`.
+/// - Struct-wide metadata speeds up lookup in this segmented stack by tracking
+///   the first page of the list (`bottom`), the last page that may have futures
+///   in it (`top`), and the number of futures stored in the top page
+///   (`num_top_futures`, which is only 0 when all pages are full of `NULL`s).
+/// - When a future is liberated, it is inserted into the top page of the local
+///   cache of the current thread, if there is room for it. Otherwise the future
+///   goes into the page after that (which becomes the new top page), and so on
+///   until the end of the list is reached and all pages are full of futures. In
+///   the interest of making this explanation clearer, we defer discussion of
+///   what happens then.
+/// - When a future is allocated, it is taken from the top page of the local
+///   cache of the current thread if there is a future there, then the top
+///   pointer goes back to the previous page if that page becomes empty as a
+///   result and there is indeed a previous page in the linked list. Again, we
+///   defer discussion of what happens when no future is locally available.
+/// - When a future is liberated and the local cache is full, the bottom page of
+///   the list is extracted and migrated into the global cache. Then a new empty
+///   page is inserted at the top end of the local cache, where the newly
+///   liberated future can be inserted. Ideally this new empty page would be
+///   recycled from the global cache (how it gets there is discussed below), but
+///   a new page can also be freshly allocated if no such page is available in
+///   the global cache.
+/// - When a future is allocated and the local cache is empty, an attempt is
+///   made to grab a page with futures from the global cache. On success, this
+///   page replaces the (empty) top page of the local cache, which is discarded
+///   into the global cache for later reuse (see above). On failure, a page of
+///   new futures is allocated and pointers to these futures are inserted into
+///   the current top page of the local cache.
+/// - When a thread exits, futures from its cache are spilled into the global
+///   cache, thus making all of them available for use by other threads.
+///
+/// This data structure has many good properties for a future pointer cache:
+///
+/// - It is segmented at the granularity of pages because segments can migrate
+///   between threads and pages are the finest granularity at which the OS can
+///   migrate memory between NUMA nodes. This enables efficient migration
+///   between arbitrary threads that can reside on different NUMA nodes, without
+///   requiring complex NUMA-aware migration logic on the udipe side.
+/// - In the fast path where local cache overflow and underflow does not happen,
+///   future pointers are handled in a stack-like LIFO fashion (which is optimal
+///   for CPU cache locality) and no inter-thread synchronization is needed as
+///   the global cache is never touched. Conversely, when futures do need to
+///   spill to the global cache, we spill futures from the bottom of the stack,
+///   which are coldest in the current CPU's cache.
+/// - If some user threads start more asynchronous operations and others threads
+///   finish more asynchronous operations (disregarding documentation advice),
+///   unbounded future leaks are avoided by bounding the size of local caches
+///   and eventually spilling futures into the global cache. Spilling futures
+///   into the global cache makes them become available for re-use for other
+///   threads, so the amount of leaked futures at any point in time is bounded
+///   by the finite capacity of each thread's local future cache.
+/// - Exchanges between the local and global cache are batched at the very
+///   coarse granularity of entire pages of pointers (a 4 KiB memory page can
+///   hold 510 future pointers!). This amortizes the overhead of locking the
+///   global cache's mutex and interacting with the global state, which has poor
+///   cache locality due to MOESI logic and is susceptible to harmful NUMA
+///   effects. In addition to making interactions with the global cache more
+///   efficient, the odds of application threads contending for access to the
+///   shared global cache are also reduced by this batching.
+/// - Because each page holds many future pointers, there is only a low
+///   probability of ending up in the pathological slow path of segmented stack
+///   data structuress, where pushes and pops keep alternating between the top
+///   of a segment and the bottom of the next segment, for two reasons. First,
+///   this problematic pattern can only happen in applications where a single
+///   process manipulates a huge number of futures, where we expect that most
+///   applications will be content with a single page of local cache. Second, we
+///   can't imagine a realistic scenario where this behavior could happen across
+///   more than three storage pages, and we believe that modern CPUs should
+///   handle two pages well enough.
+/// - In spite of all these good properties, the data structure remains
+///   relatively simple, and a typical future allocation/liberation transaction
+///   should only requires a couple of CPU instructions. So the above good
+///   properties do not come at the cost of compromising fast path performance.
+///
+/// One unknown remains though, which is whether a full page of future pointers
+/// is too coarse. Consider a local cache that can hold a double buffer of
+/// pointer pages, each storing pointers to 510 futures on x86_64. These pages
+/// can point to a total of 1020 futures. A storage page holds 31 futures on
+/// x86_64, so a pathological user thread that only liberates futures without
+/// ever allocating any can end up holding hostage around 33 storage pages worth
+/// of futures, plus the two pointer pages needed to track them, totaling 140
+/// KiB of unused state per pathological thread. This overhead seems acceptable
+/// for the typical high-performance x86_64 server, which has an enormous amount
+/// of RAM per core, but can end up expensive on much smaller embedded
+/// platforms. If udipe ever ends up used on such platforms, we may need to
+/// expose a configurable that lets users artificially cap the capacity of \ref
+/// future_pointer_page_t below what a page can hold.
+//
+// TODO: Add microbenchmarks once we can have them.
 typedef struct future_cache_s {
     /// Bottom of the stack of unallocated future pointers pages
     ///
-    /// See the documentation of \ref future_pointer_page_t.
+    /// If any page has futures in it, this will point to the first page that
+    /// has futures in it. That page contains the futures that were inserted
+    /// into this cache the longest time ago, and are thus least expensive to
+    /// spill into the global cache from a cache locality perspective.
+    ///
+    /// If multiple pages have futures in it (as indicated by `bottom != top`),
+    /// this is additionally guaranteed to point to a page full of
+    /// least-recently-used futures.
     future_pointer_page_t* bottom;
 
     /// Top of the stack of unallocated future pointers pages
     ///
-    /// See the documentation of \ref future_pointer_page_t.
+    /// If any page has futures in it, this will point to the last page that has
+    /// futures in it. That page contains the futures that were most recently
+    /// inserted into this cache, and should thus be reused first for optimal
+    /// cache locality.
+    ///
+    /// This may not be the last page of the list, as there may be more empty
+    /// pages full of `NULL` after it.
     future_pointer_page_t* top;
 
     /// Number of unallocated future pointers in the top page of the stack
     ///
-    /// This field can only be zero when no future pointers are available. See
-    /// the documentation of \ref future_pointer_page_t.
+    /// This field can only be zero when all pointer pages are empty.
     size_t num_top_futures;
-
-    /// Linked list of memory pages allocated to `udipe_future_t`s
-    ///
-    /// These pages are allocated when a thread runs out of futures and none is
-    /// available in the global cache. They cannot be liberated until process
-    /// exit time. See the documentation of \ref future_storage_page_t.
-    future_storage_page_t* storage;
 } future_cache_t;
 
-/// Set up a future cache
+/// Create a future cache
 ///
-/// The freshly created cache may either be designated as a thread-local cache
-/// or as the global process cache. At the time of writing, the differences
-/// between these two kinds of future caches are that...
+/// The freshly created cache may either be set up as a thread-local cache or as
+/// the global cache of a \ref udipe_context_t. The respective role of these
+/// caches and the interplay between them is described in more details in the
+/// documentation of \ref future_cache_t, but at the time of writing, the main
+/// lifecycle differences between them is that...
 ///
-/// - Thread-local caches are set up with one storage page of pre-initialized
-///   futures and some headroom for storing more futures and spilling them to
-///   the global cache.
-/// - The global process cache initially contains no preallocated futures, it is
-///   only set up to gradually receive futures from thread-local caches.
-/// - Thread-local caches get spilled to the global cache with
-///   future_cache_local_recycle() on thread exit.
-/// - The global process cache gets eventually liberated with
-///   future_cache_global_finalize() on process exit.
+/// - Thread-local caches have fixed preallocated pointer storage capacity, and
+///   should be spilled to the global cache with future_cache_local_recycle() if
+///   the corresponding thread exits before the host context is destroyed by
+///   udipe_finalize(). When the host context is destroyed, it will liberate all
+///   remaining thread local caches after notifying the corresponding threads
+///   that they shouldn't spill to the global cache anymore.
+///     - TODO: Implement this logic using something like a reference-counted
+///       once_flag which is accessible both from the thread's TLS and the
+///       context, and only gets liberated once a thread has exited AND the
+///       context has been destroyed. Don't forget that thread exit and context
+///       liberation can occur in any order and that a thread can be associated
+///       with multiple thread-local cache in different contexts.
+/// - The global context cache has unbounded storage capacity with no
+///   preallocated pointer pages, and gets eventually liberated with
+///   future_cache_finalize() when the host context is destroyed by
+///   udipe_finalize().
+///
+/// This function must be called within the scope of with_logger().
 ///
 /// \param global controls whether the cache that is being created is the global
-///               cache shared between all threads (if true) or the local cache
-///               of a single thread (if false).
+///               context cache shared between all threads (if true) or the
+///               local cache of a single thread (if false).
 ///
-/// \returns a freshly initialized future cache that must eventually be
+/// \returns a freshly initialized future cache that must eventually be either
 ///          1/recycled into the global cache with future_cache_local_recycle()
-///          at thread exit time if it is a thread-local cache; or 2/destroyed
-///          with future_cache_global_finalize() at process exit time if it is
-///          the global process cache.
+///          at thread exit time, if it is a thread-local cache and the host
+///          context has not been destroyed yet; or 2/destroyed with
+///          future_cache_finalize() when the host context gets destroyed by
+///          udipe_finalize().
 UDIPE_NODISCARD
 future_cache_t future_cache_initialize(bool global);
 
@@ -1722,23 +1772,32 @@ future_cache_t future_cache_initialize(bool global);
 ///       future_cache_insert_futures() and future_cache_extract_empty(), then
 ///       dump the extracted empty page into the global cache with
 ///       future_cache_insert_empty().
-///     - If you fail, add more futures to the empty local cache with
-///       future_cache_local_refill().
+///     - If you fail, add a new future storage page to the global cache with
+///       future_storage_allocate() then add its futures to the empty local
+///       cache with future_cache_local_refill().
 /// - After you are done with the global cache, call
-///   future_cache_local_allocate() on the local cache again, and it will be
+///   future_cache_local_allocate() on the local cache again. It will then be
 ///   guaranteed to succeed.
+///
+/// This function must be called within the scope of with_logger().
 ///
 /// \param local_cache must point to a thread-local cache that was set up
 ///                    with future_cache_initialize(false) and wasn't destroyed
-///                    with future_cache_local_recycle() yet.
+///                    by future_cache_local_recycle() or
+///                    future_cache_finalize() yet.
 ///
 /// \returns an uninitialized future object if available, or `NULL` if no future
-///          object is available in this thread-local cache.
+///          object is available in this thread-local cache (what to do
+///          then is described above).
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 udipe_future_t* future_cache_local_allocate(future_cache_t* local_cache);
 
 /// Attempt to liberate a future object from a thread-local cache
+///
+/// A future does not need to be liberated into the exact cache from which it
+/// was previously allocated, but it does need to have been allocated from a
+/// cache that belongs to the same \ref udipe_context_t as the target cache.
 ///
 /// Liberation can fail if the thread-local cache is full of future objects.
 /// When this happens, you need to...
@@ -1748,25 +1807,28 @@ udipe_future_t* future_cache_local_allocate(future_cache_t* local_cache);
 ///   into the local cache and which ones must spill into the global cache.
 /// - Once you are done enumerating what must spill into the global cache, lock
 ///   it and (among other things) obtain a page of empty futures from it with
-///   future_cache_obtain_empty(), then swap it with a full page from the local
-///   cache with a combination of future_cache_insert_empty() and
-///   future_cache_extract_futures(), then dump that full page into the global
-///   cache with future_cache_insert_futures().
+///   future_cache_obtain_empty(). Then swap this empty page with a full page
+///   from the local cache with a combination of future_cache_insert_empty() and
+///   future_cache_extract_futures(), and then dump that full page into the
+///   global cache with future_cache_insert_futures().
 /// - After you are done with the global cache, call
-///   future_cache_local_liberate() on the local cache again, and it will be
+///   future_cache_local_liberate() on the local cache again. It will then be
 ///   guaranteed to succeed.
+///
+/// This function must be called within the scope of with_logger().
 ///
 /// \param local_cache must point to a thread-local cache that was set up
 ///                    with future_cache_initialize(false) and wasn't destroyed
-///                    with future_cache_local_recycle() yet.
-/// \param future must point to a future that was previously allocated with
-///               future_cache_local_allocate() and wasn't liberate with
-///               future_cache_local_liberate() yet. Importantly, a future does
-///               NOT need to be liberated into the same local cache from which
-///               it was allocated.
+///                    by future_cache_local_recycle() or
+///                    future_cache_finalize() yet.
+/// \param future must point to a future that was previously allocated from one
+///               cache of the same \ref udipe_context_t with
+///               future_cache_local_allocate() and wasn't liberated with
+///               future_cache_local_liberate() yet.
 ///
 /// \returns true if the future was successfully liberated, false if it could
-///          not be liberated because the target local cache is full.
+///          not be liberated because the target local cache is full (what to do
+///          then is described above).
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 bool future_cache_local_liberate(future_cache_t* local_cache,
@@ -1787,21 +1849,23 @@ bool future_cache_local_liberate(future_cache_t* local_cache,
 ///   spilled futures to a local cache. As the initial state of the global cache
 ///   is unknown in this configuration, there are many more possible outcomes:
 ///     - The operation may fail because the global cache has no futures to hand
-///       over.
+///       over to the local cache.
 ///     - The operation may succeed and return a page full of future pointers as
 ///       in the thread-local case.
 ///     - The operation may succeed but return a page of future pointers that is
 ///       only partially filled. This outcome should be rare, but can happen
 ///       occasionally because thread-local caches spill into the global cache
-///       on thread exit and they may spill partially filled pages then.
+///       on thread exit and they may spill partially filled pointer pages then.
 ///
 /// In the latter case, the caller is responsible for determining if the page is
 /// full or partially full (which can be done by checking the last pointer of
 /// the page for null-ness) then taking appropriate action.
 ///
+/// This function must be called within the scope of with_logger().
+///
 /// \param cache must point to a that was set up with future_cache_initialize()
-///              and wasn't destroyed with future_cache_local_recycle() or
-///              future_cache_global_finalize() yet.
+///              and wasn't destroyed by future_cache_local_recycle() or
+///              future_cache_finalize() yet.
 ///
 /// \returns a page containing at least one future pointer on success or `NULL`
 ///          on failure.
@@ -1828,9 +1892,11 @@ future_pointer_page_t* future_cache_extract_futures(future_cache_t* cache);
 ///   a pointer page from the global cache instead of allocating a new one. But
 ///   if no such page is available, it's fine, we can just allocate a new one.
 ///
+/// This function must be called within the scope of with_logger().
+///
 /// \param cache must point to a that was set up with future_cache_initialize()
-///              and wasn't destroyed with future_cache_local_recycle() or
-///              future_cache_global_finalize() yet.
+///              and wasn't destroyed by future_cache_local_recycle() or
+///              future_cache_finalize() yet.
 ///
 /// \returns a page containing only `NULL` future pointers.
 UDIPE_NODISCARD
@@ -1849,9 +1915,11 @@ future_pointer_page_t* future_cache_obtain_empty(future_cache_t* cache);
 /// function should be mindful to keep the number of \ref future_pointer_page_t
 /// constant. When a page of futures comes in, a page of `NULL`s must go out.
 ///
+/// This function must be called within the scope of with_logger().
+///
 /// \param cache must point to a that was set up with future_cache_initialize()
-///              and wasn't destroyed with future_cache_local_recycle() or
-///              future_cache_global_finalize() yet.
+///              and wasn't destroyed by future_cache_local_recycle() or
+///              future_cache_finalize() yet.
 /// \param futures must point to a \ref future_pointer_page_t that contains at
 ///                least one valid pointer, and will usually (but not always) be
 ///                composed only of valid pointers. This page should have been
@@ -1872,9 +1940,11 @@ void future_cache_insert_futures(future_cache_t* cache,
 /// function should be mindful to keep the number of \ref future_pointer_page_t
 /// constant. When a page of `NULL`s comes in, a page of futures must go out.
 ///
+/// This function must be called within the scope of with_logger().
+///
 /// \param cache must point to a that was set up with future_cache_initialize()
-///              and wasn't destroyed with future_cache_local_recycle() or
-///              future_cache_global_finalize() yet.
+///              and wasn't destroyed by future_cache_local_recycle() or
+///              future_cache_finalize() yet.
 /// \param futures must point to a \ref future_pointer_page_t that contains only
 ///                `NULL` pointers. This page should have been obtained via
 ///                future_cache_obtain_empty() on a cache of the opposite type.
@@ -1882,18 +1952,25 @@ UDIPE_NON_NULL_ARGS
 void future_cache_insert_empty(future_cache_t* cache,
                                future_pointer_page_t* empty);
 
-/// Add a batch of new futures to an empty thread-local cache
+/// Add a freshly allocated batch of new futures to an empty thread-local cache
 ///
 /// This function is called on a thread-local cache after both this local cache
 /// and the global cache are found to be empty during the process of allocating
 /// a new future, in order to fill back the empty local cache with a new batch
 /// of freshly allocated futures.
 ///
+/// This function must be called within the scope of with_logger().
+///
 /// \param local_cache must point to a thread-local cache that was set up
-///                    with future_cache_initialize(false) and wasn't destroyed
-///                    with future_cache_local_recycle() yet.
+///                    with future_cache_initialize(false), wasn't destroyed by
+///                    future_cache_local_recycle() or future_cache_finalize()
+///                    yet, and is currently empty.
+/// \param new_futures must point to a new page of futures that was freshly
+///                    added to the global cache by future_storage_allocate(),
+///                    whose futures weren't added to any other local cache.
 UDIPE_NON_NULL_ARGS
-void future_cache_local_refill(future_cache_t* local_cache);
+void future_cache_local_refill(future_cache_t* local_cache,
+                               future_storage_page_t* new_futures);
 
 /// Recycle a thread-local future cache's contents into the global process cache
 ///
@@ -1905,31 +1982,33 @@ void future_cache_local_refill(future_cache_t* local_cache);
 /// C type system is unfortunately too bad at newtypes for a compile-time
 /// safeguard to feel worthwhile on this rarely-called function.
 ///
+/// This function must be called within the scope of with_logger().
+///
 /// \param local designates the thread-local cache whose contents will be
 ///              spilled into the global cache. It should have been set up with
-///              future_cache_initialize(false) and must not be used again after
+///              future_cache_initialize(false), and must not be used again after
 ///              this function has been called.
 /// \param global designates the global cache into which the thread-local cache
 ///               will be spilled. It should have been set up with
 ///               future_cache_initialize(true) and not have been destroyed with
-///               future_cache_global_finalize() yet.
+///               future_cache_finalize() yet.
 UDIPE_NON_NULL_ARGS
 void future_cache_local_recycle(future_cache_t* local, future_cache_t* global);
 
-/// Destroy the global (process-wide) future cache
+/// Destroy a future cache
 ///
-/// This function must not be used to destroy thread-local future caches,
-/// because those contain storage that other thread-local caches may still point
-/// to. Instead, the contents of these caches must be spilled to the global
-/// cache with future_cache_local_recycle() at thread exit time.
+/// This function can only be used when the \ref udipe_context_t that holds this
+/// cache is destroyed. If a thread exits before that and it has a thread-local
+/// cache, it should instead spill its local cache to the global cache with
+/// future_cache_local_recycle().
 ///
-/// At the time of writing, this function is only safe to call at process exit
-/// time. In normal usage, this will be handled by an atexit() hook.
+/// This function must be called within the scope of with_logger().
 ///
-/// \param global_cache must point to the global future cache, which must not be
-///                     used again after the call to this function.
+/// \param cache must point to a future cache which was previously set up with
+///              future_cache_initialize(). That cache must not be used again
+///              after calling this function.
 UDIPE_NON_NULL_ARGS
-void future_cache_global_finalize(future_cache_t* global_cache);
+void future_cache_finalize(future_cache_t* cache);
 
 /// Indices for ring buffer cache management
 ///
@@ -2062,6 +2141,11 @@ typedef struct event_cache_s {
         ring_indices_t indices;
     } epoll_event_cache_t;
 #endif
+
+// FIXME: Finish rewriting of the following according to the new future caching
+//        logic described above: caches now belong to a context, not to a thread
+//        or a process, and their liberation policy has been changed
+//        accordingly.
 
 /// Cache for unallocated futures and associated resources
 ///

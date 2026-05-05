@@ -271,11 +271,14 @@ void future_storage_liberate_all(future_storage_page_t** first) {
 UDIPE_NODISCARD
 UDIPE_NON_NULL_RESULT
 future_pointer_page_t* future_pointer_page_initialize() {
-    void* const page = realtime_allocate(get_page_size());
+    void* const page = malloc(get_page_size());
     assert(page);
     memset(page, 0, get_page_size());
     return (future_pointer_page_t*)page;
 }
+
+// FIXME: Adjust implementations of the following methods according to the new
+//        context-local design described in their documentation.
 
 UDIPE_NODISCARD
 future_cache_t future_cache_initialize(bool global) {
@@ -312,7 +315,11 @@ future_cache_t future_cache_initialize(bool global) {
 
 UDIPE_NON_NULL_ARGS
 void future_cache_local_recycle(future_cache_t* local, future_cache_t* global) {
-    // TODO: Add logging and extract some reusable operations out of this
+    // NOTE: This function is called at thread exit time and therefore cannot
+    //       use logging as no logger should be set up at this point.
+
+    // TODO: Consider extracting some reusable operations out of this, but make
+    //       sure these operations have no logging.
 
     // Migrate future pointers from the top page of the thread-local cache,
     // which is special because it will usually not be full of futures.
@@ -382,7 +389,10 @@ void future_cache_local_recycle(future_cache_t* local, future_cache_t* global) {
     }
 }
 
-// TODO: future_cache_global_finalize + use in global_cache_finalize()
+// TODO: future_cache_finalize + use in global_cache_finalize()
+
+// FIXME: Adjust implementations of the following once they have been redesigned
+//        according to the design of the new context-local future cache.
 
 /// Global future resource cache implementation
 ///
@@ -401,6 +411,9 @@ static future_global_cache_t global_cache_impl;
 /// analyzers like valgrind cannot tell the difference between a voluntary and
 /// involuntary resource leak, and we would rather not break those useful tools.
 static void global_cache_finalize(void) {
+    // NOTE: This function is called at process exit time and therefore cannot
+    //       use logging as no logger should be set up at this point.
+
     future_global_cache_t* global = &global_cache_impl;
 
     atomic_store_explicit(&global->event_cache_full, true, memory_order_relaxed);
@@ -414,6 +427,8 @@ static void global_cache_finalize(void) {
                               memory_order_relaxed);
     #endif
 
+    future_resource_cache_t* const cache = &global->cache;
+    // TODO: Destroy the events and epolls_with_event cache
     // TODO: Destroy everything in the inner cache. Must not use the logger
     //       here. Same goes for the thread exit hook of the local cache.
     // TODO: Leave the global cache in such a state that if something goes wrong
@@ -424,6 +439,7 @@ static void global_cache_finalize(void) {
     //       the global cache or discarded.
     fprintf(stderr, "Not implemented yet!\n");
     exit(EXIT_FAILURE);
+    future_cache_global_finalize(&cache->futures);
 
     mtx_destroy(&global->mutex);
 }
@@ -436,14 +452,17 @@ static void global_cache_finalize(void) {
 ///
 /// This function must be called within the scope of with_logger().
 static void global_cache_initialize(void) {
-    future_global_cache_t* global = &global_cache_impl;
+    future_global_cache_t* const global = &global_cache_impl;
 
     if (mtx_init(&global->mutex, mtx_plain) != thrd_success) {
         exit_after_c_error("Failed to initialize global future cache mutex");
     }
 
+    // TODO: Extract cache setup into a function that can also be called by the
+    //       thread local cache setup, only changing whether resources are
+    //       transferred to the global cache or discarded.
     global->cache = (future_resource_cache_t){ 0 };
-    future_resource_cache_t* cache = &global->cache;
+    future_resource_cache_t* const cache = &global->cache;
     cache->futures = future_cache_initialize(true);
     // TODO: Set up the events and epolls_with_event cache
     exit_with_error("Not implemented yet!");
