@@ -18,6 +18,7 @@
 #include "future/outcome.h"
 #include "future/state.h"
 #include "future/status.h"
+#include "future/status_sync.h"
 #include "future/type.h"
 
 #include "address_wait.h"
@@ -42,7 +43,8 @@
 //       allocator, one for the waiting functions...
 
 
-/// \name Future data structure \{
+/// \name Future data structure
+/// \{
 
 /// \copydoc udipe_future_t
 struct udipe_future_s {
@@ -101,7 +103,7 @@ struct udipe_future_s {
             collective_upstream_t upstream;
 
             #ifdef __linux__
-                /// Event object used to keep this future's output epollfd
+                /// Event object used to keep `status_sync.latched_epoll`
                 /// perma-ready after the future has reached its final state.
                 ///
                 /// See \ref epoll_latch_event_t for more information.
@@ -133,22 +135,22 @@ struct udipe_future_s {
             udipe_unordered_payload_t payload;
 
             #ifdef __linux__
-                /// Inner epollfd that monitors the upstream output fds
+                /// Inner epollfd that monitors the upstream `status_sync` fds
                 ///
-                /// This inner fd is in turn attached to the output
-                /// `latched_epollfd`. See \ref inner_fd_t for more information
-                /// about this curious cascading file descriptor pattern.
+                /// This inner fd is attached to `status_sync.latched_epollfd`.
+                /// See \ref inner_fd_t for more information about this
+                /// cascading file descriptor pattern.
                 ///
                 /// It must be awaited under `lazy_lock` protection, and
-                /// eventually detached from the output epollfd and attached to
-                /// the epollfd of the successor future (if any) once a result
-                /// is ready.
+                /// eventually detached from `status_sync.latched_epoll` and
+                /// attached to the `latched_epoll` of the successor future (if
+                /// any) once a result is ready.
                 ///
-                /// It must be destroyed when the latest future in the unordered
+                /// It must be destroyed when the last future in the unordered
                 /// chain is liberated. There seems to be little point in trying
-                /// to recycle the epollfds of join futures because setting up a
-                /// collective future requires an arbitrarily large amount of
-                /// epoll_ctl() syscalls, so it's not expected that epollfd
+                /// to recycle the epollfds of unordered futures because setting
+                /// up a collective future requires an arbitrarily large amount
+                /// of epoll_ctl() syscalls, so it's not expected that epollfd
                 /// allocation/liberation will often be the bottleneck.
                 //
                 // TODO: Prove the above assertion through benchmarking and
@@ -157,7 +159,7 @@ struct udipe_future_s {
                 //       based on the Win32 thread pool driving an eager future.
                 inner_fd_t upstream_epollfd;
 
-                /// Event object used to keep this future's output epollfd
+                /// Event object used to keep `status_sync.latched_epoll`
                 /// perma-ready after the future has reached its final state.
                 ///
                 /// See \ref epoll_latch_event_t for more information.
@@ -179,15 +181,16 @@ struct udipe_future_s {
             udipe_timer_repeat_payload_t payload;
 
             #ifdef __linux__
-                /// timerfd which the output epollfd is awaiting
+                /// timerfd that tracks recuring deadlines
                 ///
-                /// This inner fd is in turn attached to the output
-                /// `latched_epollfd`. See \ref inner_fd_t for more information
-                /// about this curious cascading file descriptor pattern.
+                /// This inner fd is attached to `status_sync.latched_epoll`.
+                /// See \ref inner_fd_t for more information about this
+                /// cascading file descriptor pattern.
                 ///
                 /// It must be read under `lazy_lock` protection, and eventually
-                /// detached from the output epollfd and attached to the epollfd
-                /// of the successor future (if any) once a result is ready.
+                /// detached from `status_sync.latched_epoll` and attached to
+                /// the `latched_epoll` of the successor future (if any) once a
+                /// result is ready.
                 ///
                 /// It must be destroyed when the future is liberated, for now.
                 /// We may switch to disarming and recycling if timerfd
@@ -204,7 +207,7 @@ struct udipe_future_s {
                 //       we'd rather keep even for those poor Windows souls.
                 inner_fd_t timerfd;
 
-                /// Event object used to keep this future's output epollfd
+                /// Event object used to keep `status_sync.latched_epoll`
                 /// perma-ready after the future has reached its final state.
                 ///
                 /// See \ref epoll_latch_event_t for more information.
@@ -236,174 +239,10 @@ struct udipe_future_s {
     /// out with `memory_order_acquire`.
     _Atomic uint32_t status_word;
 
-    /// Output readiness synchronization object
+    /// Synchronization object signaling future status changes
     ///
-    /// On Linux, this is a file descriptor, and it is possible to await future
-    /// status changes by adding this file descriptor to an epollfd's interest
-    /// list. Before you do so, however, future types which support more
-    /// efficient waiting methods will require you to first enable fd-based
-    /// status notifications via the `notify_event` status flag.
-    ///
-    /// To make the epollfd-based waiting described above possible and
-    /// straightforward, the output file descriptor number is guaranteed to
-    /// remain constant for the entire lifetime of the future.
-    //
-    // TODO: Windows version, based on thread poll waits for NT synchronization
-    //       objects that eventually signal the output event?
-    ///
-    /// Check the future's \ref future_type_t via \ref future_status_t::type to
-    /// know more about which variant of this union you are dealing with, then
-    /// read the associated description for more info.
-    union {
-        /// Event object, used for eager futures
-        ///
-        /// This output type is used for "eager" future types where the
-        /// asynchronous operation is processed by a dedicated thread, namely
-        /// network and custom operation futures.
-        ///
-        /// Because these futures can also signal completion via
-        /// wake_by_address_all() or even via a mere atomic RMW operation when
-        /// no one is waiting for completion yet, event signaling is optional
-        /// for these future types and must be explicitly requested by setting
-        /// the `notify_event` status flag before awaiting this event object
-        /// (and checking that the status word did not switch to a ready state
-        /// concurrently).
-        ///
-        /// When the task's outcome has been filed into the status word, if
-        /// `notify_event` is set, the event object will be signaled, which will
-        /// mark it as ready for all threads that are monitoring it. These
-        /// threads will then proceed to read the outcome in the status word,
-        /// completing the synchronization transaction.
-        ///
-        /// Must be reset and recycled when the future is liberated.
-        event_t event;
-
-        #ifdef __linux__
-            /// timerfd, used for \ref TYPE_TIMER_ONCE
-            ///
-            /// This output file descriptor type is used for single-shot "timer"
-            /// futures that become ready once the system clock reaches a
-            /// certain time point.
-            ///
-            /// When this file descriptor becomes ready, \ref OUTCOME_SUCCESS
-            /// must be signaled by one of the thread which observes this status
-            /// to be unset, without reading the timerfd. The timerfd will
-            /// therefore stay ready and thus remain effective as a downstream
-            /// readiness signal.
-            ///
-            /// Must be destroyed when the future is liberated, for now. May
-            /// switch to disarming and recycling if timerfd
-            /// creation/destruction ever becomes a bottleneck, but that seems
-            /// unlikely under correct udipe API usage given that recuring
-            /// timerfds seem to cover the main use case for which one might
-            /// want to create lots of single-shot timers.
-            //
-            // TODO: Prove the above assertion through benchmarking and
-            //       profiling of real-world workloads.
-            // TODO: Find a Windows equivalent, could likely be a Win32 waitable
-            //       timer object? If so, it might make sense to create a
-            //       portable single_shot_timer_t type that abstracts between
-            //       single-shot timerfd and single-shot NT timer, then make the
-            //       description of this field more generic and move it out of
-            //       the __linux__ section.
-            int timer;
-
-            /// epollfd with an attached \ref epoll_latch_event_t, used for most
-            /// lazy future types
-            ///
-            /// This output file descriptor type is mainly used for "collective"
-            /// future types that await several other futures. It is, as the
-            /// name implies, an epollfd that monitors the readiness of the
-            /// output file descriptors of all upstream futures, along with an
-            /// additional \ref epoll_latch_event_t eventfd which signals when
-            /// this future has reached its final state.
-            ///
-            /// How exactly dependencies are awaited depends on the kind of
-            /// future that you are dealing with:
-            ///
-            /// - Join futures use a single output epollfd that encompasses all
-            ///   fds of interest. Upstream fds use their index in the array of
-            ///   dependencies as an epoll identifier, while the \ref
-            ///   epoll_latch_event_t uses an identifier of `UINT64_MAX`.
-            /// - Unordered futures use a cascaded pair of epollfds. Upstream
-            ///   fds are attached to an "inner"
-            ///   `specific.unordered.upstream_epollfd` with index-based
-            ///   signaling as before, but no accompanying latch eventfd. This
-            ///   "inner" epollfd is in turn attached with identifier 0 to this
-            ///   "outer" epollfd, which is additionally attached to the \ref
-            ///   epoll_latch_event_t with identifier `UINT64_MAX`. This curious
-            ///   cascading epollfd structure makes it possible to later detach
-            ///   the inner epollfd and migrate it to the next future in the
-            ///   unordered chain, while leaving the original future's
-            ///   `output.latched_epoll` with the same fd number and in a
-            ///   perpetually signaled state.
-            /// - Repeating timers produce a chain output futures using the same
-            ///   trick, except instead of cascading epollfds they simply have
-            ///   one output epollfd which is connected to a timerfd (that
-            ///   performs time-based signaling and can be detached and migrated
-            ///   to the next future in the chain) and the usual \ref
-            ///   epoll_latch_event_t (that eventually remains attached to the
-            ///   epollfd in a perpetually signaled state to broadcast the
-            ///   information that the final outcome is available).
-            ///
-            /// Because epoll's API design is not very friendly to
-            /// multi-threaded use, `epoll_wait()` on the inner epollfds
-            /// requires `lazy_lock` protection, which acts as a mutex to
-            /// control access to the epollfd and associated future state.
-            ///
-            /// Whenever `epoll_wait()` output indicates that a particular
-            /// upstream future has underwent a status change or this future has
-            /// been canceled, the status word of the upstream future (if any)
-            /// must be checked, then the fields of this collective future must
-            /// be modified accordingly, and finally any other thread which
-            /// registered to be notified of state changes while we were probing
-            /// `epoll_wait()` must be notified via `wake_by_address_`. Once the
-            /// future outcome is known, whether successful or unsuccessful, its
-            /// availability must be signaled via the dedicated \ref
-            /// epoll_latch_event_t if at least one other future awaited this
-            /// future, as indicated by `downstream_count`.
-            ///
-            /// At least for joined futures, this epollfd must be destroyed
-            /// along with the host future. There seems to be little point in
-            /// trying to recycle epollfds for these futures, because resetting
-            /// their epollfd requires an arbitrary amount of epoll_ctl() calls
-            /// and setting up the next epollfd for another futures also
-            /// requires an arbitrary amount of epoll_ctl() calls. It is
-            /// therefore dubious that epollfd allocation/liberation will ever
-            /// be such a bottleneck that the extra overhead of recycling (which
-            /// is high in the case of epollfds) becomes worthwhile.
-            ///
-            /// For unordered and periodic timer futures, however, the epollfd
-            /// only has a small amount of futures attached to it (1 eventfd +
-            /// either one epollfd for unordered or one timerfd for periodic
-            /// timers), and many such epollfd+eventfd pairs may be needed by
-            /// the arbitrary many continuation futures that will follow in the
-            /// chain. In this case, it is expected that recycling the output
-            /// epollfd along with its (still-attached) associated \ref
-            /// epoll_latch_event_t could be worthwhile.
-            //
-            // TODO: Prove the above assertions through benchmarking and
-            //       profiling of real-world workloads.
-            // TODO: Find an epoll replacement for Windows. Will most likely be
-            //       based on the Win32 thread pool driving an event object
-            //       after they receive the right signals from thread pool
-            //       timers or NT synchronization objects.
-            int latched_epoll;
-
-            /// Catch-all file descriptor type
-            ///
-            /// Use this union variant in situations where the active file
-            /// descriptors doesn't matter, such as when managing attachment of
-            /// output fds to collective future epollfds.
-            //
-            // TODO: Figure out if Windows can have this convenience too, I
-            //       think that is the case if we use `HANDLE` as the catch-all
-            //       type for all Win32 synchronization objects. In that case,
-            //       we just need to make the wording less file
-            //       descriptor-specific.
-            int any;
-        #endif
-    } output_sync;
+    /// See \ref status_sync_t for more information.
+    status_sync_t status_sync;
 };
 static_assert(alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
               "Each future potentially synchronizes different workers and "
@@ -412,7 +251,7 @@ static_assert(alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
 static_assert(sizeof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
               "Should not need more than one false sharing granule per future");
 static_assert(
-    offsetof(udipe_future_t, output_sync) + sizeof(uint32_t) <= CACHE_LINE_SIZE,
+    offsetof(udipe_future_t, status_sync) + sizeof(uint32_t) <= CACHE_LINE_SIZE,
     "Should fit on a single cache line for optimal memory access performance "
     "on CPUs where the FALSE_SHARING_GRANULARITY upper bound is pessimistic"
 );
@@ -1602,9 +1441,9 @@ typedef struct event_cache_s {
     /// Cache for epollfds with pre-attached eventfds
     ///
     /// On Linux, many future types follow the pattern of exposing an epollfd as
-    /// their output file descriptor, which is attached to an eventfd which is
-    /// used to signal task completion, and also to some other file descriptors
-    /// of interest that signal progress towards task completion.
+    /// their `status_sync` file descriptor, which is attached to an eventfd
+    /// which is used to signal task completion, and also to some other file
+    /// descriptors of interest that signal progress towards task completion.
     ///
     /// For future types where only one more file descriptor is attached to the
     /// epollfd, the overhead of allocating the epollfd and attaching an eventfd
@@ -1833,26 +1672,27 @@ typedef struct future_global_cache_s {
 ///   * `type` set as appropriate to the specified future type.
 ///   * `notify_address` unset.
 ///   * `notify_event_or_lazy_lock` unset.
-/// - `output` and `specific` are partially configured according to the future
-///   type, in such a way that all required system resources are preallocated
-///   and relations between these are already set up, but other state which
-///   requires access to other future configuration parameters is not set up.
-///   * `output.event`, is is allocated and in an unsignaled state.
-///   * `output.timer` is allocated but in an unspecified state. It may be set
-///     to a particular deadline/period or be unset. You must set it to the
+/// - `status_sync` and `specific` are partially configured according to the
+///   future type, in such a way that all required system resources are
+///   preallocated and relations between these are already set up, but other
+///   state which requires access to other future configuration parameters is
+///   not set up.
+///   * `status_sync.event`, is is allocated and in an unsignaled state.
+///   * `status_sync.timer` is allocated but in an unspecified state. It may be
+///     set to a particular deadline/period or be unset. You must set it to the
 ///     desired deadline with no period before use.
-///   * `output.latched_epoll` (Linux-only) is already allocated and attached to
-///     the associated \ref epoll_latch_event_t with identifier `U64_MAX`,
-///     and...
+///   * `status_sync.latched_epoll` (Linux-only) is already allocated and
+///     attached to the associated \ref epoll_latch_event_t with identifier
+///     `U64_MAX`, and...
 ///     - ...nothing else yet for \ref TYPE_JOIN. You must attach to it the
-///       output fds of upstream futures, identified with their index in \ref
-///       collective_upstream_t before use.
+///       `status_sync` fds of upstream futures, identified with their index in
+///       \ref collective_upstream_t before use.
 ///     - ...the `upstream_epollfd` for \ref TYPE_UNORDERED, which is
 ///       preallocated but not yet attached to any file descriptor. See the \ref
 ///       TYPE_JOIN case described above, except upstream fds must be attached
-///       to `upstream_epollfd` not `output.epoll`.
+///       to `upstream_epollfd` not `status_sync.latched_epoll`.
 ///     - ...the `timerfd` for \ref TYPE_TIMER_REPEAT, which must be configured
-///       as in the case of `output.timer` above, but with a period.
+///       as in the case of `status_sync.timer` above, but with a period.
 ///
 /// No other type-specific state is initially configured. For example the \ref
 /// collective_upstream_t of collective futures is left uninitialized as

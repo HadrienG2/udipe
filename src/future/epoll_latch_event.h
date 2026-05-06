@@ -26,25 +26,26 @@
 ///   futures, use epoll as an indirection layer. epollfd indirection makes it
 ///   possible to forward readiness notifications from a hidden file descriptor
 ///   for a while, then eventually "transfer" a hidden file descriptor to the
-///   next future in the chain, without changing the output file descriptor
-///   number of the active future in the process.
+///   next future in the chain, without changing the `status_sync` file
+///   descriptor number of the active future in the process.
 ///
 /// The most straightforward and efficient way to use epoll like this while
 /// allowing futures to emit fd-based notifications, is to directly designate
-/// the resulting epollfd as the output fd of the host future. But this requires
-/// a way to set the output epollfd to a permanently ready state after the
-/// future has reached its final state, thus allowing all fd-based clients to
-/// reliably notice that this future has reached this stage.
+/// the resulting epollfd as the `status_sync` fd of the host future. But this
+/// requires a way to set said fd to a permanently ready state after the future
+/// has reached its final state, thus allowing all fd-based clients to reliably
+/// notice that this future has reached this stage.
 ///
-/// We do this by attaching an extra eventfd to the output epollfd in addition
-/// to all other file descriptors that are being monitored. This eventfd is
-/// signaled once the future reaches its final state and never reset until the
-/// future is liberated.
+/// We do this by attaching an extra eventfd to the `status_sync` epollfd in
+/// addition to all other file descriptors that are being monitored. This
+/// eventfd is signaled once the future reaches its final state and never reset
+/// until the future is liberated.
 ///
 /// Whenever this pattern is used, as hinted by usage of this \ref event_t
 /// typedef, the associated eventfds should be set to under `lazy_lock`
 /// protection, and they must be reset and recycled along with the associated
-/// `output.latched_epoll` at the time where the associated future is liberated.
+/// `status_sync.latched_epoll` epollfd at the time where the associated future
+/// is liberated.
 //
 // TODO: Find the Windows equivalent of this pattern. Since windows does not
 //       have epoll, the simplest option might be to make all futures eager and

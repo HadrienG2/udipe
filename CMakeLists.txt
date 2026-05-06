@@ -160,6 +160,7 @@ target_sources(udipe
                        src/future/outcome.h
                        src/future/state.h
                        src/future/status.h
+                       src/future/status_sync.h
                        src/future/type.h
                        src/log.c
                        src/log.h

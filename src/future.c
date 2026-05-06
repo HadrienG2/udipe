@@ -249,7 +249,7 @@ void future_storage_allocate(future_storage_page_t** next) {
                                  (future_status_t) { 0 });
         #ifdef __linux__
             // 0 is a valid fd number (stdin), so -1 is a better placeholder
-            new->futures[i].output_sync.any = -1;
+            new->futures[i].status_sync.any = -1;
         #endif
     }
 
@@ -938,7 +938,7 @@ future_status_t future_wait_join(udipe_future_t* future,
 
                     trace("Beginning wait for epoll events...");
                     struct epoll_event events[MAX_JOIN_EPOLL_EVENTS];
-                    int result = epoll_pwait2(future->output_sync.latched_epoll,
+                    int result = epoll_pwait2(future->status_sync.latched_epoll,
                                               events,
                                               MAX_JOIN_EPOLL_EVENTS,
                                               pdelay,
@@ -1015,12 +1015,12 @@ future_status_t future_wait_join(udipe_future_t* future,
                             // remove it from our epoll set...
                             ensure_ge(upstream_set->remaining, (uint32_t)1);
                             --(upstream_set->remaining);
-                            const int upstream_fd = upstream->output_sync.any;
+                            const int upstream_fd = upstream->status_sync.any;
                             // FIXME: Forgot to handle epoll_ctl errors here!
                             //        But this code is already way too nested,
                             //        should extract it into another function
                             //        before adding more nesting to it.
-                            epoll_ctl(future->output_sync.latched_epoll,
+                            epoll_ctl(future->status_sync.latched_epoll,
                                       EPOLL_CTL_DEL,
                                       upstream_fd,
                                       NULL);
@@ -1221,7 +1221,7 @@ future_status_t future_wait_timer_once(
 
         trace("Encoding timerfd into a pollfd...");
         struct pollfd timer = (struct pollfd){
-            .fd = future->output_sync.timer,
+            .fd = future->status_sync.timer,
             .events = POLLIN,
             .revents = 0
         };

@@ -18,20 +18,19 @@
 /// - A repeating timerfd for repeating timer futures.
 ///
 /// Unfortunately, said internal file descriptor cannot be directly exposed as
-/// the output fd of these futures. If we did that, we could not simultaneously
-/// enforce all of the following important properties:
+/// the `status_sync` fd of these futures. If we did that, we could not
+/// simultaneously enforce all of the following important properties:
 ///
-/// - Older futures in the chain must keep a signaled output fd until they are
+/// - Older futures in the chain must keep a signaled fd until they are
 ///   liberated, letting clients know that they have reached their final state.
-/// - The latest future in the chain must keep its output fd in an unsignaled
+/// - The latest future in the chain must keep its fd in an unsignaled
 ///   state until the next event of interest occurs.
-/// - The output fd number of a future can not be allowed to change from the
-///   moment a future is allocated to an operation to the moment where the
-///   future is destroyed, if we want to keep epoll-based waiting easy and
-///   effective.
+/// - The fd of a future can not be allowed to change from the moment a future
+///   is allocated to an operation to the moment where the future is destroyed,
+///   if we want to keep epoll-based waiting easy and effective.
 ///
-/// Instead, the output fd of these "chained" futures is actually an epollfd
-/// which is initially attached to two other file descriptors:
+/// Instead, the `status_sync` fd of these "chained" futures is actually an
+/// epollfd which is initially attached to two other file descriptors:
 ///
 /// - The "inner" file descriptor that signals the event of interest, tagged
 ///   with this typedef.
@@ -40,13 +39,14 @@
 /// Through this peculiar cascading file descriptor configuration, the event of
 /// interest can then be handled in the following manner:
 ///
-/// - Readiness from the inner fd is automatically signaled by the output
-///   epollfd, letting client knowns that this future is making progress.
+/// - Readiness from the inner fd is automatically signaled by
+///   `status_sync.latched_epoll`, letting client knowns that this future is
+///   ready to make progress (and possibly change status as a result).
 /// - Clients proceed to lazily update the future state as they wait for this
 ///   future to complete, following the usual logic of lazy udipe futures.
-/// - Once the future reaches its final state, the inner fd is detached from the
-///   output epollfd and reconfigured as appropriate for the successor future,
-///   to which it is subsequently attached.
+/// - Once the future reaches its final state, the inner fd is detached from
+///   `status_sync.latched_epoll` and reconfigured as appropriate for the
+///   successor future, to which it is subsequently attached.
 /// - After building the final result, the final \ref future_status_t is set and
 ///   the \ref epoll_latch_event_t is signaled to notify clients that this
 ///   future has reached its final state.

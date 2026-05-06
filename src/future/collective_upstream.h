@@ -20,9 +20,9 @@ typedef struct collective_upstream_s {
     /// allowed to liberate the associated futures after this point.
     ///
     /// Must have been checked to contain no duplicates and no `NULL`s at
-    /// collective future construction time. As long as we do not expose an
-    /// output fd accessor that lets users call `dup()`, `epoll_ctl()` should
-    /// take care of the former for us.
+    /// collective future construction time. As long as we do not expose a
+    /// `status_sync` accessor that lets users call `dup()`, `epoll_ctl()`
+    /// should take care of the former for us on Linux.
     udipe_future_t* const* array;
 
     /// Number of upstream futures in `array`
