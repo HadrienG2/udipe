@@ -59,12 +59,12 @@ struct udipe_future_s {
     union {
         /// Eager command result
         ///
-        /// Eager commands are, as the name suggests, eagerly processed by some
-        /// thread, which is an internal udipe thread for network commands and a
-        /// user thread for custom commands. Once the thread responsible for
-        /// processing a command is done, its result will be written down to
-        /// this field before signaling \ref OUTCOME_SUCCESS with
-        /// `memory_order_release`.
+        /// Eager commands are, as the name suggests, meant to be eagerly
+        /// processed by some thread, which is an internal udipe thread for
+        /// network commands and a user thread for custom commands. Once the
+        /// thread responsible for processing a command is done, its result will
+        /// be written down to this field before signaling \ref OUTCOME_SUCCESS
+        /// with `memory_order_release`.
         ///
         /// This union variant will be used if either the \ref future_type_t is
         /// in range from \ref TYPE_NETWORK_START inclusive to \ref

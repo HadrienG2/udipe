@@ -63,8 +63,8 @@ typedef struct future_status_s {
     ///   has begun.
     ///
     /// It also enables some optimizations where signaling of a future's status
-    /// word or output file descriptors can be elided because no one expects
-    /// such a signal.
+    /// word or output synchronization object can be elided because no one
+    /// expects such a signal.
     ///
     /// As this half-word is located in the leading bits of the bitfield, it
     /// can be incremented by incrementing the whole 32-bit word on little
@@ -148,15 +148,15 @@ typedef struct future_status_s {
     /// The meaning of this field depends on whether you are dealing with an
     /// "eager" future, whose status is automatically changed by a dedicated
     /// thread, or with a "lazy" future, whose status is changed as a result of
-    /// polling a file descriptor.
+    /// polling its output synchronization object.
     ///
     /// # Eager future: Request for `output_sync.event` signaling
     ///
     /// "Eager" futures support address-based signaling, in contrast to "lazy"
-    /// futures which only support file descriptor signaling. Therefore eager
-    /// futures do not always need to signal changes through their output event
-    /// object, and require a flag to be set before they start engaging in this
-    /// form of signaling.
+    /// futures which only support synchronization object signaling. Therefore
+    /// eager futures do not always need to signal changes through their output
+    /// event object, and require a flag to be set before they start engaging in
+    /// this form of signaling.
     ///
     /// For these futures, this flag works just like `notify_address`: initially
     /// unset, set the first time a thread expresses interest in receiving
@@ -168,22 +168,24 @@ typedef struct future_status_s {
     /// "Lazy" future types are not eagerly updated by a thread which is in
     /// charge of performing the asynchronous work. Instead they get lazily
     /// updated, usually at the point where a user thread starts directly or
-    /// indirectly waiting for their output epollfd to signal a status change.
+    /// indirectly waiting for their output synchronization object to signal a
+    /// status change.
     ///
     /// Because these future types may be concurrently awaited by multiple
     /// threads, access to their lazily updated internal state must be
     /// synchronized somehow. For collective and repeating timer futures, which
     /// have complex internal state that cannot be updated in a single atomic
     /// RMW operation, this is ensured by using this flag as a lock. When such a
-    /// future's output fd becomes ready, indicating a possible state change,
-    /// the thread that gets awakened as a result must...
+    /// future's output synchronization object becomes ready, indicating a
+    /// possible state change, the thread that gets awakened as a result must...
     ///
     /// - Check if this locking flag is already set.
-    ///   - If so, another thread is already in the process of querying the file
-    ///     descriptor, and this thread can do nothing but wait. To do this, set
-    ///     the `notify_address` flag if needed, then use a wait_on_address()
-    ///     loop to wait for the other thread that arrived first to report the
-    ///     final state of the future (or release the lock in some other way).
+    ///   - If so, another thread is already in the process of updating the
+    ///     future's status, and this thread can do nothing but wait. To do
+    ///     this, set the `notify_address` flag if needed, then use a
+    ///     wait_on_address() loop to wait for the other thread that arrived
+    ///     first to report the final state of the future (or release the lock
+    ///     in some other way).
     ///   - If not, attempt to set this flag, and if successful perform any
     ///     required state update operation finishing with the status word
     ///     (clearing this lock flag along the way), then signal the status word
