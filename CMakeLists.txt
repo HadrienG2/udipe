@@ -154,6 +154,11 @@ target_sources(udipe
                        src/format.h
                        src/future.c
                        src/future.h
+                       src/future/collective_upstream.h
+                       src/future/outcome.h
+                       src/future/state.h
+                       src/future/status.h
+                       src/future/type.h
                        src/log.c
                        src/log.h
                        src/memory.c
