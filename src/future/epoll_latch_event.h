@@ -5,7 +5,7 @@
 //!
 //! The contents of this module are only used on Linux, but they do not use any
 //! Linux-specific type definition and are therefore safe to build on Windows.
-//! Which is why this module doesn't need `#ifdef __linux__` directives.
+//! Which is why this module doesn't need clumsy `#ifdef __linux__` directives.
 
 #include "../event.h"
 
@@ -42,10 +42,9 @@
 /// future is liberated.
 ///
 /// Whenever this pattern is used, as hinted by usage of this \ref event_t
-/// typedef, the associated eventfds should be set to under \ref
-/// future_status_t::lazy_lock protection, and they must be reset and recycled
-/// along with the associated `output.epoll_with_event` at the time where the
-/// associated future is liberated.
+/// typedef, the associated eventfds should be set to under `lazy_lock`
+/// protection, and they must be reset and recycled along with the associated
+/// `output.latched_epoll` at the time where the associated future is liberated.
 //
 // TODO: Find the Windows equivalent of this pattern. Since windows does not
 //       have epoll, the simplest option might be to make all futures eager and

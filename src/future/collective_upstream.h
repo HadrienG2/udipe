@@ -51,7 +51,6 @@ typedef struct collective_upstream_s {
     /// When one of the upstream futures reaches a non-successful outcome, this
     /// counter becomes useless and is allowed to take any value.
     ///
-    /// This counter must be read and written under \ref
-    /// future_status_t::lazy_lock protection.
+    /// This counter must be read and written under `lazy_lock` protection.
     uint32_t remaining;
 } collective_upstream_t;

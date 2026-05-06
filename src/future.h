@@ -14,6 +14,7 @@
 
 #include "future/collective_upstream.h"
 #include "future/epoll_latch_event.h"
+#include "future/inner_fd.h"
 #include "future/outcome.h"
 #include "future/state.h"
 #include "future/status.h"
@@ -126,41 +127,35 @@ struct udipe_future_s {
             /// indicates which of the upstream futures became ready and how to
             /// await the rest of the upstream futures.
             ///
-            /// Must be written under \ref future_status_t::lazy_lock
-            /// protection. Inner future (if any) must not be recycled on
-            /// udipe_finish(), as it will be fed to the caller which is
-            /// responsible for liberating it.
+            /// Must be written under `lazy_lock` protection. Inner future (if
+            /// any) must not be recycled on udipe_finish(), as it will be fed
+            /// to the caller which is responsible for liberating it.
             udipe_unordered_payload_t payload;
 
             #ifdef __linux__
-                /// Inner epollfd that contains the set of upstream futures,
-                /// which is in turn awaited by the true output epollfd
+                /// Inner epollfd that monitors the upstream output fds
                 ///
-                /// This chain of epollfds lets us migrate the waiting set to
-                /// successor unordered futures, without breaking clients of
-                /// this future by modifying its output fd number.
+                /// This inner fd is in turn attached to the output
+                /// `latched_epollfd`. See \ref inner_fd_t for more information
+                /// about this curious cascading file descriptor pattern.
                 ///
-                /// Must be awaited under \ref future_status_t::lazy_lock
-                /// protection, and eventually detached from the output epollfd
-                /// and attached to the epollfd of the successor future (if any)
-                /// once a result is ready.
+                /// It must be awaited under `lazy_lock` protection, and
+                /// eventually detached from the output epollfd and attached to
+                /// the epollfd of the successor future (if any) once a result
+                /// is ready.
                 ///
-                /// Must be destroyed when the latest future in the unordered
+                /// It must be destroyed when the latest future in the unordered
                 /// chain is liberated. There seems to be little point in trying
                 /// to recycle the epollfds of join futures because setting up a
-                /// join future requires an arbitrary amount of epoll_ctl()
-                /// syscalls, so it's not expected that epollfd
-                /// allocation/liberation will ever be the bottleneck.
+                /// collective future requires an arbitrarily large amount of
+                /// epoll_ctl() syscalls, so it's not expected that epollfd
+                /// allocation/liberation will often be the bottleneck.
                 //
                 // TODO: Prove the above assertion through benchmarking and
                 //       profiling of real-world workloads.
-                ///
-                /// Unlike the output epollfd, this epoll set does not contain
-                /// an eventfd and will only yield valid upstream indices.
-                //
                 // TODO: Find an epoll replacement for Windows. Will likely be
                 //       based on the Win32 thread pool driving an eager future.
-                int upstream_epollfd;
+                inner_fd_t upstream_epollfd;
 
                 /// Event object used to keep this future's output epollfd
                 /// perma-ready after the future has reached its final state.
@@ -186,17 +181,16 @@ struct udipe_future_s {
             #ifdef __linux__
                 /// timerfd which the output epollfd is awaiting
                 ///
-                /// This timerfd-epollfd chain lets us migrate the timerfd to
-                /// successor timer futures, without breaking clients of this
-                /// future by modifying its output fd number.
+                /// This inner fd is in turn attached to the output
+                /// `latched_epollfd`. See \ref inner_fd_t for more information
+                /// about this curious cascading file descriptor pattern.
                 ///
-                /// Must be read under \ref future_status_t::lazy_lock
-                /// protection, and eventually detached from the output epollfd
-                /// and attached to the epollfd of the successor future (if any)
-                /// once a result is ready.
+                /// It must be read under `lazy_lock` protection, and eventually
+                /// detached from the output epollfd and attached to the epollfd
+                /// of the successor future (if any) once a result is ready.
                 ///
-                /// Must be destroyed when the future is liberated, for now. May
-                /// switch to disarming and recycling if timerfd
+                /// It must be destroyed when the future is liberated, for now.
+                /// We may switch to disarming and recycling if timerfd
                 /// creation/destruction ever becomes a bottleneck, but that
                 /// seems unlikely under correct usage since there is no
                 /// envisioned use case where one would need lots of periodic
@@ -206,8 +200,9 @@ struct udipe_future_s {
                 //       profiling of real-world workloads.
                 // TODO: Find a windows equivalent, based on Win32 thread pool
                 //       timers? That seems necessary to be able to count missed
-                //       deadlines, which is a very nice feature to have.
-                int timerfd;
+                //       deadlines, which is a very nice timerfd feature that
+                //       we'd rather keep even for those poor Windows souls.
+                inner_fd_t timerfd;
 
                 /// Event object used to keep this future's output epollfd
                 /// perma-ready after the future has reached its final state.
@@ -241,14 +236,17 @@ struct udipe_future_s {
     /// out with `memory_order_acquire`.
     _Atomic uint32_t status_word;
 
-    /// Readiness synchronization object
+    /// Output readiness synchronization object
     ///
     /// On Linux, this is a file descriptor, and it is possible to await future
     /// status changes by adding this file descriptor to an epollfd's interest
     /// list. Before you do so, however, future types which support more
     /// efficient waiting methods will require you to first enable fd-based
-    /// status notifications via the \ref
-    /// future_status_t::notify_event_or_lazy_lock flag.
+    /// status notifications via the `notify_event` status flag.
+    ///
+    /// To make the epollfd-based waiting described above possible and
+    /// straightforward, the output file descriptor number is guaranteed to
+    /// remain constant for the entire lifetime of the future.
     //
     // TODO: Windows version, based on thread poll waits for NT synchronization
     //       objects that eventually signal the output event?
@@ -267,15 +265,15 @@ struct udipe_future_s {
         /// wake_by_address_all() or even via a mere atomic RMW operation when
         /// no one is waiting for completion yet, event signaling is optional
         /// for these future types and must be explicitly requested by setting
-        /// the \ref future_status_t::notify_event_or_lazy_lock flag before
-        /// awaiting this event object (and checking that the status word did
-        /// not switch to a ready state concurrently).
+        /// the `notify_event` status flag before awaiting this event object
+        /// (and checking that the status word did not switch to a ready state
+        /// concurrently).
         ///
         /// When the task's outcome has been filed into the status word, if
-        /// `notify_event_event_or_lazy_lock` is set, the event object will be
-        /// signaled, which will mark it as ready for all threads that are
-        /// monitoring it. These threads will then proceed to read the outcome
-        /// in the status word, completing the synchronization transaction.
+        /// `notify_event` is set, the event object will be signaled, which will
+        /// mark it as ready for all threads that are monitoring it. These
+        /// threads will then proceed to read the outcome in the status word,
+        /// completing the synchronization transaction.
         ///
         /// Must be reset and recycled when the future is liberated.
         event_t event;
@@ -350,9 +348,8 @@ struct udipe_future_s {
             ///
             /// Because epoll's API design is not very friendly to
             /// multi-threaded use, `epoll_wait()` on the inner epollfds
-            /// requires \ref future_status_t::lazy_lock protection, which
-            /// effectively acts as a mutex to control access to the epollfd and
-            /// associated future state.
+            /// requires `lazy_lock` protection, which acts as a mutex to
+            /// control access to the epollfd and associated future state.
             ///
             /// Whenever `epoll_wait()` output indicates that a particular
             /// upstream future has underwent a status change or this future has
