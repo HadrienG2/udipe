@@ -143,14 +143,14 @@ typedef struct future_status_s {
     /// futures that only intermittently need such syscalls.
     bool notify_address : 1;
 
-    /// Request for `output_fd.event` signaling or lazy future state locking
+    /// Request for `output_sync.event` signaling or lazy future state locking
     ///
     /// The meaning of this field depends on whether you are dealing with an
     /// "eager" future, whose status is automatically changed by a dedicated
     /// thread, or with a "lazy" future, whose status is changed as a result of
     /// polling a file descriptor.
     ///
-    /// # Eager future: Request for `output_fd.event` signaling
+    /// # Eager future: Request for `output_sync.event` signaling
     ///
     /// "Eager" futures support address-based signaling, in contrast to "lazy"
     /// futures which only support file descriptor signaling. Therefore eager
@@ -160,7 +160,7 @@ typedef struct future_status_s {
     ///
     /// For these futures, this flag works just like `notify_address`: initially
     /// unset, set the first time a thread expresses interest in receiving
-    /// updates through the `output_fd.event` path, and cannot be unset
+    /// updates through the `output_sync.event` path, and cannot be unset
     /// afterwards until the future is destroyed.
     ///
     /// # Lazy future: Lock for lazily updating the future state

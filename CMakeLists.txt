@@ -155,6 +155,7 @@ target_sources(udipe
                        src/future.c
                        src/future.h
                        src/future/collective_upstream.h
+                       src/future/epoll_latch_event.h
                        src/future/outcome.h
                        src/future/state.h
                        src/future/status.h
