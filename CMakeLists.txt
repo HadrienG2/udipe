@@ -160,8 +160,12 @@ target_sources(udipe
                        src/future/outcome.h
                        src/future/state.h
                        src/future/status.h
+                       src/future/status_ops.c
+                       src/future/status_ops.h
                        src/future/status_sync.h
                        src/future/type.h
+                       src/future/wait.c
+                       src/future/wait.h
                        src/log.c
                        src/log.h
                        src/memory.c

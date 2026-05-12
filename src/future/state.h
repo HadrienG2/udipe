@@ -3,9 +3,9 @@
 //! \file
 //! \brief Core state machine of \ref udipe_future_t
 //!
-//! This header is not to be confused with its neighbor status.h, which contains
-//! the full future status word that features this state machine along with
-//! several other fields.
+//! This header is not to be confused with its neighbor \ref status.h, which
+//! contains the full future status word that features this state machine along
+//! with several other fields.
 
 
 /// Future state machine

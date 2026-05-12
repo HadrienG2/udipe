@@ -3,9 +3,10 @@
 //! \file
 //! \brief Status word of \ref udipe_future_t
 //!
-//! This header is not to be confused with state.h, which contains possible
-//! values for the state machine field of this status word. The status word is a
-//! big bag of information, the state machine is just
+//! This header is not to be confused with its neighbour \ref state.h, which
+//! contains possible values for the state machine field of this status word.
+//! The status word is a big bag of information, the state machine is just one
+//! piece of information within this bag.
 
 #include <stdbool.h>
 #include <stdint.h>
