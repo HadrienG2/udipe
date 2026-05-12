@@ -60,35 +60,28 @@ struct udipe_future_s {
     /// depends on the \ref future_type_t that is configured inside of this
     /// future's \ref future_status_t::type.
     union {
-        /// Eager command result
+        /// Network command result payload
         ///
-        /// Eager commands are, as the name suggests, meant to be eagerly
-        /// processed by some thread, which is an internal udipe thread for
-        /// network commands and a user thread for custom commands. Once the
-        /// thread responsible for processing a command is done, its result will
-        /// be written down to this field before signaling \ref OUTCOME_SUCCESS
-        /// with `memory_order_release`.
+        /// This union variant is used for network operations, corresponding to
+        /// a \ref future_type_t is in range from \ref TYPE_NETWORK_START
+        /// inclusive to \ref TYPE_NETWORK_END exclusive.
         ///
-        /// This union variant will be used if either the \ref future_type_t is
-        /// in range from \ref TYPE_NETWORK_START inclusive to \ref
-        /// TYPE_NETWORK_END exclusive, or it is \ref TYPE_CUSTOM.
-        union {
-            /// Network command result payload
-            ///
-            /// This union variant will be set before signaling the outcome if
-            /// the \ref future_type_t is in range from \ref TYPE_NETWORK_START
-            /// inclusive to \ref TYPE_NETWORK_END exclusive.
-            ///
-            /// The precise \ref future_type_t you are dealing with will tell
-            /// you which variant of this payload union has been set.
-            udipe_network_payload_t network;
+        /// Upon completion or internal failure of the network operation, the
+        /// udipe implementation will set this to the associated result before
+        /// signaling the outcome with `memory_order_release`.
+        ///
+        /// The precise \ref future_type_t that you are dealing with will tell
+        /// you which variant of this payload union has been set.
+        udipe_network_payload_t network;
 
-            /// Custom user command result payload
-            ///
-            /// This union variant will be set before signaling \ref
-            /// OUTCOME_SUCCESS if the \ref future_type_t is \ref TYPE_CUSTOM.
-            udipe_custom_payload_t custom;
-        } eager;
+        /// Custom command result payload
+        ///
+        /// This union variant is used for custom operations, corresponding to
+        /// \ref TYPE_CUSTOM.
+        ///
+        /// Aside from the fact that it is set by a user thread, rather than by
+        /// the udipe implementation, it works just like the `network` variant.
+        udipe_custom_payload_t custom;
 
         /// Joined future state
         ///

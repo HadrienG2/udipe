@@ -622,7 +622,7 @@ udipe_result_t udipe_finish(udipe_future_t* future) {
                 break;
             case TYPE_CUSTOM:
                 result.type = UDIPE_CUSTOM;
-                result.payload.custom = future->specific.eager.custom;
+                result.payload.custom = future->specific.custom;
                 break;
             case TYPE_JOIN:
                 result.type = UDIPE_JOIN;
@@ -647,7 +647,7 @@ udipe_result_t udipe_finish(udipe_future_t* future) {
                 exit_with_error("Should never happen.");
             }
             if (is_network) {
-                result.payload.network = future->specific.eager.network;
+                result.payload.network = future->specific.network;
             }
             break;
         case OUTCOME_FAILURE_DEPENDENCY:
