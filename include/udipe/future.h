@@ -232,9 +232,11 @@
 /// and perform more fine-grained tasks per second:
 ///
 /// - Whenever possible, prefer awaiting asynchronous operations on the thread
-///   that started them. Due to a mixture of hardware constraints and
+///   that started them. Due to a mixture of hardware constraints and udipe
 ///   implementation choices, the convenience of sharing futures across threads
-///   may come at a performance cost.
+///   may come at a performance and scalability cost, especially on larger
+///   systems with non-uniform memory access (NUMA) and/or sharded last-level
+///   CPU caches.
 /// - If futures do need to be transferred between threads, try to at least
 ///   ensure that each application thread starts and finishes a comparable
 ///   amount of asynchronous operations. Avoid having threads that mainly start
