@@ -10,17 +10,17 @@
 
 #include <udipe/context.h>
 
+#include "future/allocator/context_cache.h"
+
 #include "connect.h"
 #include "log.h"
 
 #include <hwloc.h>
 #include <stdatomic.h>
+#include <threads.h>
 
 
 /// \copydoc udipe_context_t
-//
-// TODO: Optimize layout for cache locality of typical requests once the main
-//       functionality has been implemented.
 struct udipe_context_s {
     /// Message logger
     ///
@@ -31,14 +31,33 @@ struct udipe_context_s {
     /// the sake of easier application and `libudipe` debugging.
     logger_t logger;
 
+    /// Handle to the thread-local future resource cache
+    ///
+    /// This key refers to a \ref future_local_cache_t, which the future
+    /// allocator will start by querying. If some resources are missing there,
+    /// `global_future_cache` will be looked up.
+    //
+    // TODO: Set this up in context constructor
+    tss_t local_future_cache;
+
     /// hwloc topology
     ///
     /// Used to query the CPU topology (cache sizes, NUMA etc) and pin threads
     /// to CPU cores.
     hwloc_topology_t topology;
 
+    /// Global (context-wide) future resource cache
+    ///
+    /// The future allocator will query this cache if `local_future_cache` does
+    /// not have some resources that it needs.
+    //
+    // TODO: Set this up in context constructor
+    future_context_cache_t global_future_cache;
+
     /// Allocator of \ref shared_connect_options_t
     ///
     /// See \ref connect.h for more info on how this works and how to use it.
     connect_options_allocator_t connect_options;
 };
+
+// TODO: Add constructor for context setup

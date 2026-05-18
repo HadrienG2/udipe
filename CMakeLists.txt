@@ -154,6 +154,14 @@ target_sources(udipe
                        src/format.h
                        src/future.c
                        src/future.h
+                       src/future/allocator.c
+                       src/future/allocator.h
+                       src/future/allocator/pointer_cache.c
+                       src/future/allocator/pointer_cache.h
+                       src/future/allocator/storage_page.c
+                       src/future/allocator/storage_page.h
+                       src/future/allocator/sync_caches.h
+                       src/future/allocator/thread_cache.h
                        src/future/collective_upstream.h
                        src/future/epoll_latch_event.h
                        src/future/inner_fd.h
