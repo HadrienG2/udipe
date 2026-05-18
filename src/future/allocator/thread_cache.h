@@ -19,7 +19,7 @@
 
 /// Thread-local future resource cache
 //
-// TODO docs
+// TODO docs, consider stealing some from the module docs
 typedef struct future_thread_cache_s {
     /// Unallocated `udipe_future_t*` pointers
     ///
@@ -118,4 +118,4 @@ typedef struct future_thread_cache_s {
 /// See \ref future_thread_cache_t::reference_flags.
 #define THREAD_EXITED_FLAG ((size_t)2)
 
-// TODO: Add constructor for TSS setup
+// TODO: Add TSS destructor, point to global cache for constructor

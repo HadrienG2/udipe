@@ -62,3 +62,6 @@ typedef struct future_context_cache_s {
     /// be enlarged using realloc().
     size_t thread_caches_capacity;
 } future_context_cache_t;
+
+// TODO: Add constructors for both the global context and thread-local contexts
+//       bound to this global context + destructor for the global context.

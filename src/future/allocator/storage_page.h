@@ -3,10 +3,7 @@
 //! \file
 //! \brief Future storage page
 //!
-//! Futures must be safe to use from realtime network thread and perform well in
-//! a NUMA setting when the user follows the optimal thread-local future access
-//! pattern. To achieve this, the future struct is allocated from page-locked
-//! memory using the facilities implemented by this module.
+//! TODO: Module-level docs
 
 #include <udipe/pointer.h>
 

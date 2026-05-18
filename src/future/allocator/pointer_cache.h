@@ -6,11 +6,6 @@
 //! This code module implements the \ref future_pointer_cache_t, which tracks
 //! futures that are not currently in use and can be allocated to network
 //! operations.
-//!
-//! There is one such cache per thread, which is normally used for optimal
-//! multi-threaded scalability, and one global cache shared across threads,
-//! which is used to avoid resource leaks under some pathological usage
-//! patterns.
 
 #include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
