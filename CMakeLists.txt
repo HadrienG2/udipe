@@ -157,13 +157,16 @@ target_sources(udipe
                        src/future/collective_upstream.h
                        src/future/epoll_latch_event.h
                        src/future/inner_fd.h
+                       src/future/join_state.h
                        src/future/outcome.h
                        src/future/state.h
                        src/future/status.h
                        src/future/status_ops.c
                        src/future/status_ops.h
                        src/future/status_sync.h
+                       src/future/timer_repeat_state.h
                        src/future/type.h
+                       src/future/unordered_state.h
                        src/future/wait.c
                        src/future/wait.h
                        src/log.c

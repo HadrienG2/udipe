@@ -3,7 +3,13 @@
 //! \file
 //! \brief Implementation of \ref udipe_future_t
 //!
-//! TODO: Outline new implementation.
+//! This header contains the definition of the \ref udipe_future_t type declared
+//! in the public `future.h` header, and the associated source file contains the
+//! definition of some methods declared there.
+//!
+//! However, as the future implementation has grown quite large, most of it has
+//! been extracted into smaller code modules in the `future/` sub-directory of
+//! this source tree.
 
 #include <udipe/future.h>
 
@@ -12,11 +18,11 @@
 #include <udipe/pointer.h>
 #include <udipe/result.h>
 
-#include "future/collective_upstream.h"
-#include "future/epoll_latch_event.h"
-#include "future/inner_fd.h"
+#include "future/join_state.h"
 #include "future/status_sync.h"
+#include "future/timer_repeat_state.h"
 #include "future/type.h"
+#include "future/unordered_state.h"
 
 #include "arch.h"
 #include "event.h"
@@ -29,30 +35,18 @@
 #include <stdint.h>
 
 
-// TODO: This code module is becoming way too big and should be split into a
-//       directory of smaller code modules. Could be one module for the struct
-//       definitions, one for the status word manipulations, one for the
-//       allocator, one for the waiting functions...
-
-
 /// \name Future data structure
 /// \{
 
 /// \copydoc udipe_future_t
 struct udipe_future_s {
-    /// udipe context which this future belongs to
-    ///
-    /// Used to ensure that future methods do not need an additional context
-    /// parameter after future allocation.
-    alignas(FALSE_SHARING_GRANULARITY) udipe_context_t* context;
-
     /// State that is specific to a particular future type
     ///
     /// At most one of these fields will be set. Which will be set (if any)
     /// depends on the \ref future_type_t that is configured inside of this
     /// future's \ref future_status_t::type.
-    union {
-        /// Network command result payload
+    alignas(FALSE_SHARING_GRANULARITY) union {
+        /// Network command result
         ///
         /// This union variant is used for network operations, corresponding to
         /// a \ref future_type_t is in range from \ref TYPE_NETWORK_START
@@ -66,7 +60,7 @@ struct udipe_future_s {
         /// you which variant of this payload union has been set.
         udipe_network_payload_t network;
 
-        /// Custom command result payload
+        /// Custom command result
         ///
         /// This union variant is used for custom operations, corresponding to
         /// \ref TYPE_CUSTOM.
@@ -77,129 +71,28 @@ struct udipe_future_s {
 
         /// Joined future state
         ///
-        /// This union variant corresponds to \ref TYPE_JOIN. It tracks the
-        /// state needed to wait for all specified upstream futures to reach
-        /// \ref OUTCOME_SUCCESS or at least one of them to reach a failing
-        /// outcome. And when this happens, it makes it possible to signal
-        /// availability of the final status after it has been set.
-        struct {
-            /// Set of upstream futures awaited by this collective future
-            ///
-            collective_upstream_t upstream;
-
-            #ifdef __linux__
-                /// Event object used to keep `status_sync.latched_epoll`
-                /// perma-ready after the future has reached its final state.
-                ///
-                /// See \ref epoll_latch_event_t for more information.
-                epoll_latch_event_t epoll_latch;
-            #endif
-        } join;
+        /// This union variant corresponds to \ref TYPE_JOIN. See \ref
+        /// future_join_state_t for more information.
+        future_join_state_t join;
 
         /// Unordered future state and result
         ///
-        /// This union variant corresponds to \ref TYPE_UNORDERED. It tracks the
-        /// state needed to wait for at least one of the specified upstream
-        /// futures to reach its final outcome. And when this happens, it makes
-        /// it possible to report which future got ready and how to await
-        /// subsequent futures (if any).
-        struct {
-            /// Set of upstream futures awaited by this collective future
-            ///
-            collective_upstream_t upstream;
+        /// This union variant corresponds to \ref TYPE_UNORDERED. See \ref
+        /// future_unordered_state_t for more information.
+        future_unordered_state_t unordered;
 
-            /// Result of the asynchronous operation
-            ///
-            /// This result is set before signaling \ref OUTCOME_SUCCESS. It
-            /// indicates which of the upstream futures became ready and how to
-            /// await the rest of the upstream futures.
-            ///
-            /// Must be written under `lazy_lock` protection. Inner future (if
-            /// any) must not be recycled on udipe_finish(), as it will be fed
-            /// to the caller which is responsible for liberating it.
-            udipe_unordered_payload_t payload;
-
-            #ifdef __linux__
-                /// Inner epollfd that monitors the upstream `status_sync` fds
-                ///
-                /// This inner fd is attached to `status_sync.latched_epollfd`.
-                /// See \ref inner_fd_t for more information about this
-                /// cascading file descriptor pattern.
-                ///
-                /// It must be awaited under `lazy_lock` protection, and
-                /// eventually detached from `status_sync.latched_epoll` and
-                /// attached to the `latched_epoll` of the successor future (if
-                /// any) once a result is ready.
-                ///
-                /// It must be destroyed when the last future in the unordered
-                /// chain is liberated. There seems to be little point in trying
-                /// to recycle the epollfds of unordered futures because setting
-                /// up a collective future requires an arbitrarily large amount
-                /// of epoll_ctl() syscalls, so it's not expected that epollfd
-                /// allocation/liberation will often be the bottleneck.
-                //
-                // TODO: Prove the above assertion through benchmarking and
-                //       profiling of real-world workloads.
-                // TODO: Find an epoll replacement for Windows. Will likely be
-                //       based on the Win32 thread pool driving an eager future.
-                inner_fd_t upstream_epollfd;
-
-                /// Event object used to keep `status_sync.latched_epoll`
-                /// perma-ready after the future has reached its final state.
-                ///
-                /// See \ref epoll_latch_event_t for more information.
-                epoll_latch_event_t epoll_latch;
-            #endif
-        } unordered;
-
-        /// Repeating timer state
+        /// Repeating timer state and result
         ///
-        /// This union variant corresponds to \ref TYPE_TIMER_REPEAT. It tracks
-        /// the state needed to report how many timer ticks elapsed and how to
-        /// await subsequent timer ticks.
-        struct {
-            /// Result of the asynchronous operation
-            ///
-            /// This field is set before signaling \ref OUTCOME_SUCCESS. It
-            /// indicates how many clock ticks were missed and how to await
-            /// further clock ticks if desired.
-            udipe_timer_repeat_payload_t payload;
-
-            #ifdef __linux__
-                /// timerfd that tracks recuring deadlines
-                ///
-                /// This inner fd is attached to `status_sync.latched_epoll`.
-                /// See \ref inner_fd_t for more information about this
-                /// cascading file descriptor pattern.
-                ///
-                /// It must be read under `lazy_lock` protection, and eventually
-                /// detached from `status_sync.latched_epoll` and attached to
-                /// the `latched_epoll` of the successor future (if any) once a
-                /// result is ready.
-                ///
-                /// It must be destroyed when the future is liberated, for now.
-                /// We may switch to disarming and recycling if timerfd
-                /// creation/destruction ever becomes a bottleneck, but that
-                /// seems unlikely under correct usage since there is no
-                /// envisioned use case where one would need lots of periodic
-                /// futures with different periodicities.
-                //
-                // TODO: Prove the above assertion through benchmarking and
-                //       profiling of real-world workloads.
-                // TODO: Find a windows equivalent, based on Win32 thread pool
-                //       timers? That seems necessary to be able to count missed
-                //       deadlines, which is a very nice timerfd feature that
-                //       we'd rather keep even for those poor Windows souls.
-                inner_fd_t timerfd;
-
-                /// Event object used to keep `status_sync.latched_epoll`
-                /// perma-ready after the future has reached its final state.
-                ///
-                /// See \ref epoll_latch_event_t for more information.
-                epoll_latch_event_t epoll_latch;
-            #endif
-        } timer_repeat;
+        /// This union variant corresponds to \ref TYPE_TIMER_REPEAT. See \ref
+        /// future_timer_repeat_state_t for more information.
+        future_timer_repeat_state_t timer_repeat;
     } specific;
+
+    /// udipe context which this future belongs to
+    ///
+    /// Used to ensure that future methods do not need an additional context
+    /// parameter after future allocation.
+    udipe_context_t* context;
 
     /// Status word
     ///
@@ -229,22 +122,30 @@ struct udipe_future_s {
     /// See \ref status_sync_t for more information.
     status_sync_t status_sync;
 };
-static_assert(alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
-              "Each future potentially synchronizes different workers and "
-              "client threads, and should therefore reside on its own "
-              "false sharing granule");
-static_assert(sizeof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
-              "Should not need more than one false sharing granule per future");
+static_assert(
+    alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
+     "Each future potentially synchronizes different workers and client "
+     "threads, and should therefore reside on its own false sharing granule"
+);
+static_assert(
+    sizeof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
+    "Should not need more than one false sharing granule per future"
+);
 static_assert(
     offsetof(udipe_future_t, status_sync) + sizeof(uint32_t) <= CACHE_LINE_SIZE,
     "Should fit on a single cache line for optimal memory access performance "
     "on CPUs where the FALSE_SHARING_GRANULARITY upper bound is pessimistic"
 );
-static_assert(sizeof(udipe_result_t) <= CACHE_LINE_SIZE,
-              "Should always be true because future is a superset of result");
+static_assert(
+    sizeof(udipe_result_t) <= CACHE_LINE_SIZE,
+    "Should be true if above is because future is largely a superset of result"
+);
 
 /// \}
 
+
+// TODO: Extract this into a future/allocator/ directory, then shrink include
+//       list of this header and remove Doxygen groups which become unnecessary.
 
 /// \name Basic future lifecycle
 /// \{
