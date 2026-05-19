@@ -473,10 +473,10 @@ void future_pointer_cache_insert_futures(future_pointer_cache_t* cache,
 ///              future_pointer_cache_initialize() and wasn't destroyed by
 ///              future_pointer_cache_recycle_local() or
 ///              future_pointer_cache_finalize() yet.
-/// \param futures must point to a \ref future_pointer_page_t that contains only
-///                `NULL` pointers. This page should have been obtained via
-///                future_pointer_cache_obtain_empty() on a cache of the
-///                opposite type.
+/// \param empty must point to a \ref future_pointer_page_t that contains only
+///              `NULL` pointers. This page should have been obtained via
+///              future_pointer_cache_obtain_empty() on a cache of the opposite
+///              type.
 UDIPE_NON_NULL_ARGS
 void future_pointer_cache_insert_empty(future_pointer_cache_t* cache,
                                        future_pointer_page_t* empty);

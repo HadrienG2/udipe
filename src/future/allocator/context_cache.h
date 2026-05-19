@@ -1,7 +1,7 @@
 #pragma once
 
 //! \file
-//! \brief Global future resource cache from a \ref udipe_context_t
+//! \brief Context-global future resource cache
 //!
 //! This code module implements the global resource cache of the future
 //! allocator, shared by all threads that use a given \ref udipe_context_t.
@@ -20,7 +20,7 @@
 #include <threads.h>
 
 
-/// Global future resource cache from a \ref udipe_context_t
+/// Context-global future resource cache
 //
 // TODO docs, consider stealing some from the code module docs
 typedef struct future_context_cache_s {

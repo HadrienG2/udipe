@@ -33,12 +33,12 @@ struct udipe_context_s {
 
     /// Handle to the thread-local future resource cache
     ///
-    /// This key refers to a \ref future_local_cache_t, which the future
+    /// This key refers to a \ref future_thread_cache_t, which the future
     /// allocator will start by querying. If some resources are missing there,
     /// `global_future_cache` will be looked up.
     //
     // TODO: Set this up in context constructor
-    tss_t local_future_cache;
+    tss_t thread_future_cache;
 
     /// hwloc topology
     ///
@@ -46,7 +46,7 @@ struct udipe_context_s {
     /// to CPU cores.
     hwloc_topology_t topology;
 
-    /// Global (context-wide) future resource cache
+    /// Context-global future resource cache
     ///
     /// The future allocator will query this cache if `local_future_cache` does
     /// not have some resources that it needs.
