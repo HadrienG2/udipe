@@ -513,9 +513,6 @@ void future_pointer_cache_refill_local(future_pointer_cache_t* local_cache,
 /// can result in disastrous outcome but unfortunately C sucks too much at
 /// newtypes for extra type safety against this error to be worthwhile.
 ///
-/// TODO: Do not use the logger or call any function that uses it in this
-///       function, it may not be available at thread exit time.
-///
 /// \param local must point to a thread-local cache that was set up with
 ///              future_pointer_cache_initialize(false), wasn't destroyed by
 ///              future_pointer_cache_recycle_local() or
@@ -540,10 +537,10 @@ void future_pointer_cache_recycle_local(future_pointer_cache_t* local,
 ///
 /// This function must be called within the scope of with_logger().
 ///
-/// \param local_cache must point to a pointer cache that was set up with
-///                    future_pointer_cache_initialize() and wasn't destroyed by
-///                    future_pointer_cache_recycle_local() or
-///                    future_pointer_cache_finalize() yet. It cannot be used
-///                    again after calling this function.
+/// \param cache must point to a pointer cache that was set up with
+///              future_pointer_cache_initialize() and wasn't destroyed by
+///              future_pointer_cache_recycle_local() or
+///              future_pointer_cache_finalize() yet. It cannot be used again
+///              after calling this function.
 UDIPE_NON_NULL_ARGS
 void future_pointer_cache_finalize(future_pointer_cache_t* cache);

@@ -3,6 +3,8 @@
 #include <udipe/pointer.h>
 #include <udipe/nodiscard.h>
 
+#include "../../error.h"
+#include "../../log.h"
 #include "../../memory.h"
 
 #include <assert.h>
@@ -33,21 +35,24 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_RESULT
 future_pointer_page_t* future_pointer_page_initialize() {
     void* const page = malloc(get_page_size());
-    assert(page);
+    exit_on_null(page, "Failed to allocate future pointer page");
+    debugf("Allocated new pointer page at %p.", page);
     memset(page, 0, get_page_size());
     return (future_pointer_page_t*)page;
 }
 
-// FIXME: Adjust implementations of the following methods according to the new
-//        context-local design described in their documentation.
-
 UDIPE_NODISCARD
-future_cache_t future_cache_initialize(bool global) {
-    future_cache_t result = { 0 };
+future_pointer_cache_t future_pointer_cache_initialize(bool global) {
+    future_pointer_cache_t result = { 0 };
 
     // The global cache starts empty, in contrast with thread-local caches which
     // have a fixed set of pointer pages + some preallocated futures inside
-    if (global) return result;
+    if (global) {
+        debug("Set up a context's global pointer cache.");
+        return result;
+    } else {
+        debug("Setting up a thread-local pointer cache...");
+    }
 
     // Allocate future pointer pages in reverse order, this way the "current"
     // pointer will point to the first page of the list at the end.
@@ -56,6 +61,7 @@ future_cache_t future_cache_initialize(bool global) {
     static_assert(LOCAL_FUTURE_POINTER_PAGES >= (size_t)1,
                   "Thread-local future cache should have some capacity");
     for (size_t i = 0; i < LOCAL_FUTURE_POINTER_PAGES; ++i) {
+        debugf("Setting up pointer page #%zu from back...", i);
         next = current;
         current = future_pointer_page_initialize();
         current->next = next;
@@ -66,21 +72,89 @@ future_cache_t future_cache_initialize(bool global) {
     return result;
 }
 
-// TODO: future_cache_local_allocate
-// TODO: future_cache_local_liberate
-// TODO: future_cache_extract_futures
-// TODO: future_cache_obtain_empty
-// TODO: future_cache_insert_futures
-// TODO: future_cache_insert_empty
-// TODO: future_cache_local_refill
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+udipe_future_t*
+future_pointer_cache_allocate_local(future_pointer_cache_t* local_cache) {
+    debug("Trying to allocate a future from the thread-local cache...");
+    if (local_cache->num_top_futures == 0) {
+        debug("No future available. Must fall back to the global cache!");
+        return NULL;
+    }
+    assert(local_cache->num_top_futures <= future_pointer_page_len());
+    const size_t last_idx = local_cache->num_top_futures - 1;
+    debugf("Can allocate future from slot #%zu of the current top page.",
+           last_idx);
+
+    assert(local_cache->top);
+    udipe_future_t* const result = local_cache->top->futures[last_idx];
+    assert(result);
+    local_cache->top->futures[last_idx] = NULL;
+    debugf("Allocated future %p, decrement num_top_futures accordingly...",
+           result);
+
+    if (--(local_cache->num_top_futures) == 0) {
+        debugf("This operation emptied the current top page %p...",
+               local_cache->top);
+        if (local_cache->top->previous) {
+            local_cache->top = local_cache->top->previous;
+            local_cache->num_top_futures = future_pointer_page_len();
+            debugf("...so we switched to its predecessor %p.", local_cache->top);
+        } else {
+            debug("...but all pages are now empty, so that's fine.");
+        }
+    }
+
+    return result;
+}
+
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+bool future_pointer_cache_liberate_local(future_pointer_cache_t* local_cache,
+                                         udipe_future_t* future) {
+    debugf("Trying to liberate future %p into the thread-local cache...",
+           future);
+    assert(local_cache->top);
+    if (local_cache->num_top_futures == future_pointer_page_len()) {
+        debugf("The current top page %p is full...", local_cache->top);
+        if(local_cache->top->next) {
+            local_cache->top = local_cache->top->next;
+            local_cache->num_top_futures = 0;
+            debugf("...so we switched to its successor %p.", local_cache->top);
+        } else {
+            debug("...and all other pages are full too. "
+                  "Must spill into the global cache!");
+            return false;
+        }
+    }
+    assert(local_cache->num_top_futures < future_pointer_page_len());
+    const size_t next_idx = local_cache->num_top_futures;
+    debugf("Found room in slot #%zu of the top page. Liberating future...",
+           next_idx);
+
+    *future = (udipe_future_t){ 0 };
+    #ifdef __linux__
+        future->status_sync.any = -1;
+    #endif
+    assert(local_cache->top->futures[next_idx] == NULL);
+    local_cache->top->futures[next_idx] = future;
+    ++(local_cache->num_top_futures);
+    return true;
+}
+
+// TODO: future_pointer_cache_extract_futures
+// TODO: future_pointer_cache_obtain_empty
+// TODO: future_pointer_cache_insert_futures
+// TODO: future_pointer_cache_insert_empty
+// TODO: future_pointer_cache_refill_local
 
 UDIPE_NON_NULL_ARGS
-void future_cache_local_recycle(future_cache_t* local, future_cache_t* global) {
-    // NOTE: This function is called at thread exit time and therefore cannot
-    //       use logging as no logger should be set up at this point.
-
-    // TODO: Consider extracting some reusable operations out of this, but make
-    //       sure these operations have no logging.
+void future_pointer_cache_recycle_local(future_pointer_cache_t* local,
+                                        future_pointer_cache_t* global) {
+    // TODO: Add some logging.
+    // TODO: Reimplement based on other operations. It will be less efficient,
+    //       but we don't care because this operation only happens when a thread
+    //       stops, which is a rare event.
 
     // Migrate future pointers from the top page of the thread-local cache,
     // which is special because it will usually not be full of futures.
@@ -91,7 +165,7 @@ void future_cache_local_recycle(future_cache_t* local, future_cache_t* global) {
         local->top->futures[src] = NULL;
         assert(future);
         if (global->top == NULL) {
-            // Allocate the first pointer storage of the global cache if
+            // Allocate the first pointer storage of the global cache if it
             // currently holds no pointer storage page.
             assert(global->bottom == NULL);
             global->bottom = future_pointer_page_initialize();
@@ -139,15 +213,6 @@ void future_cache_local_recycle(future_cache_t* local, future_cache_t* global) {
         global->top->next = first_empty_page;
     }
     local->top = NULL;
-
-    // Migrate future storage pages from the local cache to the global cache
-    if (local->storage) {
-        future_storage_page_t* last_storage_page = local->storage;
-        while (last_storage_page->next) last_storage_page = last_storage_page->next;
-        last_storage_page->next = global->storage;
-        global->storage = local->storage;
-        local->storage = NULL;
-    }
 }
 
-// TODO: future_cache_finalize + use in global_cache_finalize()
+// TODO: future_pointer_cache_finalize + use in global_cache_finalize()
