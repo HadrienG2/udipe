@@ -22,7 +22,7 @@ void future_storage_allocate(future_storage_page_t** next) {
         // atomic_initialize() is the only valid way to initialize an atomic
         // variable. With a bit of luck, it should be optimized out.
         future_status_initialize(&(new->futures[i]),
-                                 (future_status_t) { 0 });
+                                 (future_status_t){ 0 });
         #ifdef __linux__
             // 0 is a valid fd number (stdin), so -1 is a better placeholder
             new->futures[i].status_sync.any = -1;

@@ -131,7 +131,7 @@ bool future_pointer_cache_liberate(bool global,
         } else if(global) {
             debug("...but this is a global cache, so we can just add one.");
             cache->top->next = future_pointer_page_initialize();
-            cache->top->next->previous = cache->top->next;
+            cache->top->next->previous = cache->top;
             cache->top = cache->top->next;
         } else {
             debug("...and it was the last page from a bounded local cache. "
