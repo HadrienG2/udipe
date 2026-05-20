@@ -155,7 +155,31 @@ bool future_pointer_cache_liberate(bool global,
     return true;
 }
 
-// TODO: future_pointer_cache_extract_futures
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+future_pointer_page_t*
+future_pointer_cache_extract_futures(future_pointer_cache_t* cache) {
+    if (cache->top == NULL || cache->num_top_futures == 0) {
+        debugf("No futures available in cache %p.", cache);
+        return NULL;
+    }
+
+    future_pointer_page_t* const extracted = cache->bottom;
+    extracted->next = NULL;
+    debugf("Extracted bottom future page %p.", extracted);
+
+    cache->bottom = cache->bottom->next;
+    cache->bottom->previous = NULL;
+    debugf("The new bottom page is %p.", cache->bottom);
+
+    if (cache->top == extracted) {
+        debug("That was also the top page, so this cache is now empty.");
+        cache->top = cache->bottom;
+        cache->num_top_futures = 0;
+    }
+    return extracted;
+}
+
 // TODO: future_pointer_cache_obtain_empty
 // TODO: future_pointer_cache_insert_futures
 // TODO: future_pointer_cache_insert_empty
