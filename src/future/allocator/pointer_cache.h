@@ -312,14 +312,14 @@ UDIPE_NON_NULL_ARGS
 udipe_future_t*
 future_pointer_cache_allocate_local(future_pointer_cache_t* local_cache);
 
-/// Attempt to liberate a future object from a thread-local cache
+/// Attempt to liberate a future object into a cache
 ///
 /// A future does not need to be liberated into the exact cache from which it
 /// was previously allocated, but it does need to have been allocated from a
 /// cache that belongs to the same \ref udipe_context_t as the target cache.
 ///
-/// Liberation can fail if the thread-local cache is full of future objects.
-/// When this happens, you need to...
+/// In the case of thread-local caches, which have finite capacity, liberation
+/// can fail if the cache is full. When this happens, you need to...
 ///
 /// - Add future objects to your "garbage list" for future global cache spills
 ///   and proceed to figure out which other future components you can recycle
@@ -335,24 +335,32 @@ future_pointer_cache_allocate_local(future_pointer_cache_t* local_cache);
 ///   future_pointer_cache_liberate_local() on the local cache again. It will
 ///   then be guaranteed to succeed.
 ///
+/// Context-global caches have infinite capacity but are very expensive to
+/// access in such a fine-grained manner, so this method is only used within the
+/// implementation of future_pointer_cache_recycle_local() as thread exit is
+/// rare and a bit of overhead is acceptable then.
+///
 /// This function must be called within the scope of with_logger().
 ///
-/// \param local_cache must point to a thread-local cache that was set up with
-///                    future_pointer_cache_initialize(false) and wasn't
-///                    destroyed by future_pointer_cache_recycle_local() or
-///                    future_pointer_cache_finalize() yet.
+/// \param global must indicate whether `cache` is a context-global cache or
+///               a thread-local cache.
+/// \param cache must point to a cache that was set up with
+///              future_pointer_cache_initialize() and wasn't destroyed by
+///              future_pointer_cache_recycle_local() or
+///              future_pointer_cache_finalize() yet.
 /// \param future must point to a future that was previously allocated from one
 ///               cache of the same \ref udipe_context_t with
 ///               future_pointer_cache_allocate_local() and wasn't liberated
 ///               with future_pointer_cache_liberate_local() yet.
 ///
 /// \returns true if the future was successfully liberated, false if it could
-///          not be liberated because the target local cache is full (what to do
-///          then is described above).
+///          not be liberated because the target is a local cache and it is full
+///          (what to do then is described above).
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
-bool future_pointer_cache_liberate_local(future_pointer_cache_t* local_cache,
-                                         udipe_future_t* future);
+bool future_pointer_cache_liberate(bool global,
+                                   future_pointer_cache_t* cache,
+                                   udipe_future_t* future);
 
 /// Attempt to extract a page of future pointers from a cache
 ///
