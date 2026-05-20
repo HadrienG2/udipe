@@ -268,4 +268,5 @@ address_wait_outcome_t future_wait_by_adress(udipe_future_t* future,
                                              udipe_duration_ns_t* timeout,
                                              stopwatch_t* stopwatch);
 
+
 // TODO: Add tests once future allocation is ready

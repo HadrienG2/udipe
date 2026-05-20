@@ -118,3 +118,6 @@ void future_storage_allocate(future_storage_page_t** next);
 ///              `NULL`.
 UDIPE_NON_NULL_ARGS
 void future_storage_liberate_all(future_storage_page_t** first);
+
+
+// TODO: Unit tests
