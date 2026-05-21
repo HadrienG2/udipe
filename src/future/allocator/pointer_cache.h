@@ -50,11 +50,11 @@ struct future_pointer_page_s {
     /// - A page is only allowed to contain `NULL` pointers if it is the last
     ///   page of the list or all pages after it are full of `NULL` pointers.
     ///
-    /// The length of this array is given by future_pointer_page_len().
+    /// The length of this array is given by future_pointer_page_capacity().
     udipe_future_t* futures[];
 };
 
-/// Length of \ref future_pointer_page_t::futures
+/// Length of the \ref future_pointer_page_t::futures array
 ///
 /// This is the length of the `futures` flexible array member of \ref
 /// future_pointer_page_t. Its size is not known until runtime because it
@@ -63,7 +63,7 @@ struct future_pointer_page_s {
 /// This function must be called within the scope of with_logger().
 UDIPE_NODISCARD
 static inline
-size_t future_pointer_page_len() {
+size_t future_pointer_page_capacity() {
     const size_t available_bytes =
         get_page_size() - offsetof(future_pointer_page_t, futures);
     assert(available_bytes >= sizeof(udipe_future_t*));
@@ -93,6 +93,31 @@ size_t future_pointer_page_len() {
 UDIPE_NODISCARD
 UDIPE_NON_NULL_RESULT
 future_pointer_page_t* future_pointer_page_initialize();
+
+/// Number of futures currently stored inside of a \ref future_pointer_page_t
+///
+/// Not to be confused with future_pointer_page_capacity() which tracks the
+/// number of future pointers that _can_ be stored inside of a page.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+static inline
+size_t future_pointer_page_occupancy(future_pointer_page_t* page) {
+    if (page->futures[0] == NULL) return 0;
+    const size_t capacity = future_pointer_page_capacity();
+    if (page->futures[capacity - 1]) return capacity;
+
+    size_t last_present = 0;
+    size_t first_absent = capacity - 1;
+    while (first_absent != last_present + 1) {
+        const size_t midpoint = last_present + (first_absent - last_present) / 2;
+        if (page->futures[midpoint]) {
+            last_present = midpoint;
+        } else {
+            first_absent = midpoint;
+        }
+    }
+    return first_absent;
+}
 
 /// Unlink a future pointer page from its predecessors and successors
 ///
@@ -125,12 +150,13 @@ void future_pointer_page_unlink(future_pointer_page_t* extracted) {
 ///   future pointers go at the beginning and all `NULL` pointers go at the end.
 /// - The doubly linked list of pages is logically treated as a single long
 ///   array of future pointers, similar to common implementations of C++'s
-///   `std::deque`. The list of pages is fixed-size for thread-local caches and
-///   variable-sized for the global \ref udipe_context_t cache shared by all
-///   threads. Extending the above intra-page logic, the page list can in full
-///   generality start with some pages full of futures, possibly followed by one
-///   page that starts with some futures and ends with some `NULL`s, and after
-///   that there can only be pages full of `NULL`.
+///   `std::deque`. The list of pages is fixed-size for a thread-local \ref
+///   future_thread_cache_t and variable-sized for the global \ref
+///   future_context_cache_t shared by all threads. Extending the above
+///   intra-page logic, the page list can in full generality start with some
+///   pages full of futures, possibly followed by one page that starts with some
+///   futures and ends with some `NULL`s, and after that there can only be pages
+///   full of `NULL`.
 /// - Struct-wide metadata speeds up lookup in this segmented stack by tracking
 ///   the first page of the list (`bottom`), the last page that may have futures
 ///   in it (`top`), and the number of futures stored in the top page
@@ -224,9 +250,10 @@ typedef struct future_pointer_cache_s {
     /// Bottom of the stack of unallocated future pointers pages
     ///
     /// If any page has futures in it, this will point to the first page that
-    /// has futures in it. That page contains the futures that were inserted
-    /// into this cache the longest time ago, and are thus least expensive to
-    /// spill into the global cache from a cache locality perspective.
+    /// has futures in it. In a thread-local cache, that page contains the
+    /// futures that were inserted into this cache the longest time ago, and are
+    /// thus least expensive to spill into the global cache from a cache
+    /// locality perspective.
     ///
     /// If multiple pages have futures in it (as indicated by `bottom != top`),
     /// this is additionally guaranteed to point to a page full of
@@ -236,9 +263,9 @@ typedef struct future_pointer_cache_s {
     /// Top of the stack of unallocated future pointers pages
     ///
     /// If any page has futures in it, this will point to the last page that has
-    /// futures in it. That page contains the futures that were most recently
-    /// inserted into this cache, and should thus be reused first for optimal
-    /// cache locality.
+    /// futures in it. In a thread-local cache, that page contains the futures
+    /// that were most recently liberated into this cache, and should thus be
+    /// reused first for optimal cache locality.
     ///
     /// This may not be the last page of the list, as there may be more empty
     /// pages full of `NULL` after it.
@@ -297,22 +324,18 @@ future_pointer_cache_t future_pointer_cache_initialize(bool global);
 /// will result in this function returning a `NULL` pointer. When this happens,
 /// you need to...
 ///
-/// - Add future objects to your "shopping list" for future global cache lookup,
-///   and proceed to figure out which other future components you can get from
-///   the local cache and which ones must be looked up in the global cache too.
-/// - Once you are done enumerating everything you need from the global cache,
-///   lock it and (among other things) attempt to steal a page of futures with
-///   future_pointer_cache_extract_futures().
-///     - If you succeed, swap that page with a local empty page by combining
+/// - Lock the global context cache and attempt to stead a page of futures from
+///   it with future_pointer_cache_extract_futures().
+///     - If you succeed, swap that page with a local empty page from the
+///       thread-local cache using a combination of
 ///       future_pointer_cache_insert_futures() and
 ///       future_pointer_cache_obtain_empty(), then dump the extracted empty
 ///       page into the global cache with future_pointer_cache_insert_empty().
-///     - If you fail, add a new future storage page to the global cache with
+///     - If you fail, add a new storage page to the global cache with
 ///       future_storage_allocate() then add the associated futures to this
 ///       empty local cache with future_pointer_cache_refill_local().
-/// - After you are done with these cache operations, call
-///   future_pointer_cache_allocate_local() on the local cache again. It will
-///   then be guaranteed to succeed.
+/// - After refilling the thread-local cache this way, you can call
+///   future_pointer_cache_allocate_local() again, and this call will succeed.
 ///
 /// This function must be called within the scope of with_logger().
 ///
@@ -322,89 +345,75 @@ future_pointer_cache_t future_pointer_cache_initialize(bool global);
 ///                    future_pointer_cache_finalize() yet.
 ///
 /// \returns an uninitialized future object if available, or `NULL` if no future
-///          object is available in this thread-local cache (what to do
-///          then is described above).
+///          object is available in the target cache (what to do then is
+///          described above).
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 udipe_future_t*
 future_pointer_cache_allocate_local(future_pointer_cache_t* local_cache);
 
-/// Attempt to liberate a future object into a cache
+/// Attempt to liberate a future object into a thread-local cache
 ///
 /// A future does not need to be liberated into the exact cache from which it
 /// was previously allocated, but it does need to have been allocated from a
 /// cache that belongs to the same \ref udipe_context_t as the target cache.
 ///
-/// In the case of thread-local caches, which have finite capacity, liberation
-/// can fail if the cache is full. When this happens, you need to...
+/// Liberation may fail if the cache is full. When this happens, you need to...
 ///
-/// - Add future objects to your "garbage list" for future global cache spills
-///   and proceed to figure out which other future components you can recycle
-///   into the local cache and which ones must spill into the global cache.
-/// - Once you are done enumerating what must spill into the global cache, lock
-///   it and (among other things) obtain a page of empty futures from it with
-///   future_pointer_cache_obtain_empty(). Then swap this empty page with a full
-///   page from the local cache with a combination of
-///   future_pointer_cache_insert_empty() and
-///   future_pointer_cache_extract_futures(), and then dump that full page into
-///   the global cache with future_pointer_cache_insert_futures().
-/// - After you are done with the global cache, call
-///   future_pointer_cache_liberate_local() on the local cache again. It will
-///   then be guaranteed to succeed.
-///
-/// Context-global caches have infinite capacity but are very expensive to
-/// access in such a fine-grained manner, so this method is only used within the
-/// implementation of future_pointer_cache_recycle_local() as thread exit is
-/// rare and a bit of overhead is acceptable then.
+/// - Lock the global context cache and obtain an empty page of pointers from
+///   it with future_pointer_cache_obtain_empty().
+/// - Swap this empty page with a full page from the thread-local cache using a
+///   combination of future_pointer_cache_insert_empty() and
+///   future_pointer_cache_extract_futures(), then dump the full page into the
+///   global cache using future_pointer_cache_insert_futures().
+/// - After making room in the thread-local cache this way, you can call
+///   future_pointer_cache_liberate() again, and this call will succeed.
 ///
 /// This function must be called within the scope of with_logger().
 ///
-/// \param global must indicate whether `cache` is a context-global cache or
-///               a thread-local cache.
-/// \param cache must point to a cache that was set up with
-///              future_pointer_cache_initialize() and wasn't destroyed by
-///              future_pointer_cache_recycle_local() or
-///              future_pointer_cache_finalize() yet.
+/// \param local_cache must point to a thread-local cache that was set up with
+///                    future_pointer_cache_initialize(false) and wasn't
+///                    destroyed by future_pointer_cache_recycle_local() or
+///                    future_pointer_cache_finalize() yet.
 /// \param future must point to a future that was previously allocated from one
 ///               cache of the same \ref udipe_context_t with
 ///               future_pointer_cache_allocate_local() and wasn't liberated
 ///               with future_pointer_cache_liberate_local() yet.
 ///
 /// \returns true if the future was successfully liberated, false if it could
-///          not be liberated because the target is a local cache and it is full
-///          (what to do then is described above).
+///          not be liberated because the target cache is full (what to do then
+///          is described above).
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
-bool future_pointer_cache_liberate(bool global,
-                                   future_pointer_cache_t* cache,
-                                   udipe_future_t* future);
+bool future_pointer_cache_liberate_local(future_pointer_cache_t* local_cache,
+                                         udipe_future_t* future);
 
-/// Attempt to extract a page of future pointers from a cache
+/// Attempt to extract a non-empty page of future pointers from a cache
 ///
-/// This function can be called on both thread-local caches and the global
-/// cache, but for different reasons and with different outcomes:
+/// The page will be taken from the bottom of the cache because...
 ///
-/// - When called on thread-local caches, its purpose is spilling futures to the
-///   global cache after failed liberation, so it should always be called on a
-///   full cache and therefore should always succeed and return a a full page of
-///   future pointers. Because thread-local caches operate at constant pointer
-///   storage capacity, the extracted page must later be replaced with a page of
-///   `NULL` pointers with future_pointer_cache_insert_empty().
-/// - When called on the global cache, its purpose is transfering any previously
-///   spilled futures to a local cache. As the initial state of the global cache
-///   is unknown in this configuration, there are many more possible outcomes:
-///     - The operation may fail because the global cache has no futures to hand
-///       over to the local cache.
-///     - The operation may succeed and return a page full of future pointers as
-///       in the thread-local case.
-///     - The operation may succeed but return a page of future pointers that is
-///       only partially filled. This outcome should be rare, but can happen
-///       occasionally because thread-local caches spill into the global cache
-///       on thread exit and they may spill partially filled pointer pages then.
+/// - If there is any page full of futures, this will be one of them. That makes
+///   inter-cache transfers as coarse-grained as possible and thus maximizes the
+///   efficiency of associated synchronization transactions.
+/// - In thread-local caches, this page contains the future pointers that have
+///   been liberated the longest time ago, and are thus coldest in terms of
+///   cache locality.
+/// - In the global cache, the above may not hold, but it doesn't matter because
+///   cache locality is not a goal for inter-thread future transfers.
 ///
-/// In the latter case, the caller is responsible for determining if the page is
-/// full or partially full (which can be done by checking the last pointer of
-/// the page for null-ness) then taking appropriate action.
+/// This operation will fail by returning `NULL` if the target cache is fully
+/// empty. It will return a page full of futures whenever possible but may
+/// return a page that is not full of futures when extracting the last non-empty
+/// page from a cache. Clients can tell how many futures they actually extracted
+/// using future_pointer_page_count().
+///
+/// When calling this on a thread-local cache for the purpose of transfering
+/// futures into the global cache, remember that you must keep the capacity of
+/// thread-local caches constant until liberation time. This means that except
+/// in future_pointer_cache_recycle_local(), every page you extract must be
+/// replaced with an empty page through a combination of
+/// future_pointer_cache_obtain_empty() on the global cache and
+/// future_pointer_cache_insert_empty() on the thread-local cache.
 ///
 /// This function must be called within the scope of with_logger().
 ///
@@ -423,22 +432,6 @@ future_pointer_cache_extract_futures(future_pointer_cache_t* cache);
 /// Get a page of `NULL` future pointers, taking it from a cache if possible and
 /// allocating a new one otherwise
 ///
-/// Like future_pointer_cache_extract_futures(), this function can be called on
-/// both thread-local caches and the global cache, but for different reasons:
-///
-/// - When called on thread-local caches, its purpose is to "make room" for a
-///   page of futures that was extracted from the global cache because this
-///   local cache was empty. Therefore the local cache must be empty and because
-///   these caches operate at constant >1 page storage capacity, it means this
-///   function it is guaranteed to successfully extract a page from said cache.
-/// - When called on the global cache, it is part of the process of swapping out
-///   a page of futures from a thread-local cache into the global cache for the
-///   purpose of making room for liberating more futures. Because thread-local
-///   caches operate at constant pointer storage capacity, pages of pointers
-///   that get spilled this way must be replaced, and we would rather do so with
-///   a pointer page from the global cache instead of allocating a new one. But
-///   if no such page is available, it's fine, we can just allocate a new one.
-///
 /// This function must be called within the scope of with_logger().
 ///
 /// \param cache must point to a cache that was set up with
@@ -456,15 +449,6 @@ future_pointer_cache_obtain_empty(future_pointer_cache_t* cache);
 /// Insert a page of futures that was previously extracted via
 /// future_pointer_cache_extract_futures() into its destination cache
 ///
-/// This function is part of the process of transfering pages of futures between
-/// a thread-local cache and a global cache. See
-/// future_pointer_cache_extract_futures() for more info about the intended
-/// usage patterns.
-///
-/// In particular, when operating on a thread-local cache, users of this
-/// function should be mindful to keep the number of \ref future_pointer_page_t
-/// constant. When a page of futures comes in, a page of `NULL`s must go out.
-///
 /// This function must be called within the scope of with_logger().
 ///
 /// \param cache must point to a cache that was set up with
@@ -478,19 +462,10 @@ future_pointer_cache_obtain_empty(future_pointer_cache_t* cache);
 ///                cache of the opposite type.
 UDIPE_NON_NULL_ARGS
 void future_pointer_cache_insert_futures(future_pointer_cache_t* cache,
-                                         future_pointer_page_t* futures);
+                                         future_pointer_page_t* non_empty);
 
 /// Insert a page of `NULL` future pointers that was previously extracted via
 /// future_pointer_cache_obtain_empty() into its destination cache
-///
-/// This function is part of the process of transfering pages of `NULL` future
-/// pointers between a thread-local cache and a global cache. See
-/// future_pointer_cache_obtain_empty() for more info about the intended usage
-/// patterns.
-///
-/// In particular, when operating on a thread-local cache, users of this
-/// function should be mindful to keep the number of \ref future_pointer_page_t
-/// constant. When a page of `NULL`s comes in, a page of futures must go out.
 ///
 /// This function must be called within the scope of with_logger().
 ///
@@ -511,7 +486,7 @@ void future_pointer_cache_insert_empty(future_pointer_cache_t* cache,
 /// This function is called on a thread-local cache after both this local cache
 /// and the global cache are found to be empty during the process of allocating
 /// a new future. It fills back the empty local cache with a new batch of
-/// freshly allocated futures from the associated global cache.
+/// freshly allocated futures from the global cache.
 ///
 /// This function must be called within the scope of with_logger().
 ///
@@ -536,7 +511,7 @@ void future_pointer_cache_refill_local(future_pointer_cache_t* local_cache,
 ///
 /// Mind the parameter order, local cache before global cache. Getting it wrong
 /// can result in disastrous outcome but unfortunately C sucks too much at
-/// newtypes for extra type safety against this error to be worthwhile.
+/// newtypes for extra type safety against this usage error to be worthwhile.
 ///
 /// \param local must point to a thread-local cache that was set up with
 ///              future_pointer_cache_initialize(false), wasn't destroyed by

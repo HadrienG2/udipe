@@ -78,81 +78,66 @@ udipe_future_t*
 future_pointer_cache_allocate_local(future_pointer_cache_t* local_cache) {
     debug("Trying to allocate a future from the thread-local cache...");
     if (local_cache->num_top_futures == 0) {
-        debug("No future available. Must fall back to the global cache!");
+        debug("No future available. Time to steal from to the global cache!");
         return NULL;
     }
-    assert(local_cache->num_top_futures <= future_pointer_page_len());
+    assert(local_cache->num_top_futures <= future_pointer_page_capacity());
     const size_t last_idx = local_cache->num_top_futures - 1;
     debugf("Can allocate future from slot #%zu of the current top page.",
            last_idx);
 
     assert(local_cache->top);
-    udipe_future_t* const result = local_cache->top->futures[last_idx];
-    assert(result);
+    udipe_future_t* const future = local_cache->top->futures[last_idx];
+    assert(future);
     local_cache->top->futures[last_idx] = NULL;
     debugf("Allocated future %p, decrement num_top_futures accordingly...",
-           result);
+           future);
 
     if (--(local_cache->num_top_futures) == 0) {
         debugf("This operation emptied the current top page %p...",
                local_cache->top);
         if (local_cache->top->previous) {
             local_cache->top = local_cache->top->previous;
-            local_cache->num_top_futures = future_pointer_page_len();
+            local_cache->num_top_futures = future_pointer_page_capacity();
             debugf("...so we switched to its predecessor %p.", local_cache->top);
         } else {
-            debug("...but all pages are now empty, so that's fine.");
+            debug("...which has no predecessor, so this cache is now empty.");
         }
     }
-
-    return result;
+    return future;
 }
 
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
-bool future_pointer_cache_liberate(bool global,
-                                   future_pointer_cache_t* cache,
-                                   udipe_future_t* future) {
-    debugf("Trying to liberate future %p into cache %p...",
-           future, cache);
+bool future_pointer_cache_liberate_local(future_pointer_cache_t* local_cache,
+                                         udipe_future_t* future) {
+    debugf("Trying to liberate future %p into thread-local cache %p...",
+           future, local_cache);
+    assert(local_cache->top);
 
-    if (global && cache->top == NULL) {
-        debug("Global cache currently has no pointer pages, give it one...");
-        cache->top = future_pointer_page_initialize();
-        cache->bottom = cache->bottom;
-        assert(cache->num_top_futures == 0);
-    }
-    assert(cache->top);
-
-    if (cache->num_top_futures == future_pointer_page_len()) {
-        debugf("The current top page %p is full...", cache->top);
-        if(cache->top->next) {
-            cache->top = cache->top->next;
-            debug("...but it has a successor that we can switch to.");
-        } else if(global) {
-            debug("...but this is a global cache, so we can just add one.");
-            cache->top->next = future_pointer_page_initialize();
-            cache->top->next->previous = cache->top;
-            cache->top = cache->top->next;
-        } else {
-            debug("...and it was the last page from a bounded local cache. "
-                  "Must spill into the global cache!");
+    if (local_cache->num_top_futures == future_pointer_page_capacity()) {
+        debugf("The current top page %p is full...", local_cache->top);
+        if (local_cache->top->next == NULL) {
+            debug("...and it was the last page from this cache. "
+                  "Time to spill into the global cache!");
             return false;
         }
-        cache->num_top_futures = 0;
+        local_cache->top = local_cache->top->next;
+        local_cache->num_top_futures = 0;
+        debug("...but it has a successor page that we could switch to.");
     }
-    assert(cache->num_top_futures < future_pointer_page_len());
-    const size_t next_idx = cache->num_top_futures;
-    debugf("Found room in slot #%zu of top page %p. Liberating future...",
-           next_idx, cache->top);
+    assert(local_cache->num_top_futures < future_pointer_page_capacity());
+    const size_t next_idx = local_cache->num_top_futures;
 
+    debugf("Found room in slot #%zu of top page %p. Liberating future...",
+           next_idx, local_cache->top);
     *future = (udipe_future_t){ 0 };
     #ifdef __linux__
         future->status_sync.any = -1;
     #endif
-    assert(cache->top->futures[next_idx] == NULL);
-    cache->top->futures[next_idx] = future;
-    ++(cache->num_top_futures);
+    assert(local_cache->top->futures[next_idx] == NULL);
+    local_cache->top->futures[next_idx] = future;
+    ++(local_cache->num_top_futures);
     return true;
 }
 
@@ -160,24 +145,25 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 future_pointer_page_t*
 future_pointer_cache_extract_futures(future_pointer_cache_t* cache) {
-    if (cache->top == NULL || cache->num_top_futures == 0) {
-        debugf("No futures available in cache %p.", cache);
+    debugf("Looking for an non-empty pointer page in cache %p...", cache);
+
+    if (cache->num_top_futures == 0 || cache->bottom == NULL) {
+        debug("No luck, there are no futures in this cache.");
         return NULL;
     }
-    assert(cache->bottom);
 
     future_pointer_page_t* const extracted = cache->bottom;
     cache->bottom = extracted->next;
     debugf("Extracting bottom future page %p, new bottom page is %p.",
            extracted, cache->bottom);
     if (cache->top == extracted) {
-        debug("That was also the top page, so this cache is now empty.");
+        debug("That was also the top page, so we emptied this cache.");
         cache->top = cache->bottom;
         cache->num_top_futures = 0;
     }
 
     debug("Unlinking the extracted page from its successors...");
-    assert(extracted->previous == NULL);
+    assert(extracted->previous == NULL);  // Because it was the bottom page
     future_pointer_page_unlink(extracted);
     return extracted;
 }
@@ -187,93 +173,186 @@ UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 future_pointer_page_t*
 future_pointer_cache_obtain_empty(future_pointer_cache_t* cache) {
-    debugf("Looking for an empty pointer page in cache %p", cache);
+    debugf("Looking for an empty pointer page in cache %p...", cache);
 
     if (cache->top == NULL) {
-        debug("No pointer page available, must allocate one.");
+        debug("There is no page in this cache, must allocate.");
         return future_pointer_page_initialize();
     }
-    assert(cache->top);
 
-    if (cache->num_top_futures == 0) {
-        future_pointer_page_t* const extracted = cache->top;
-        cache->top = extracted->next;
-        debugf("Extracting empty top page %p, new top page is %p.",
-               extracted, cache->top);
-        if (cache->bottom == extracted) {
-            cache->bottom = extracted->next;
-            debug("That was also the bottom page, which shifted accordingly.");
-        }
-        debug("Unlinking the extracted page from its neighbors...");
+    if (cache->top->next) {
+        future_pointer_page_t* const extracted = cache->top->next;
+        debugf("Extracting after-top page %p as it is easiest...",
+               extracted);
         future_pointer_page_unlink(extracted);
         return extracted;
     }
-    assert(cache->num_top_futures >= 1);
 
-    if (cache->top->next == NULL) {
-        debug("No empty page available, must allocate one.");
+    if (cache->num_top_futures >= 1) {
+        debug("All pages have futures in them, must allocate.");
         return future_pointer_page_initialize();
     }
-    future_pointer_page_t* const extracted = cache->top->next;
 
-    debugf("Extracting empty after-top page %p...", extracted);
-    future_pointer_page_unlink(extracted);
+    future_pointer_page_t* const extracted = cache->top;
+    assert(extracted->next == NULL);
+    assert(extracted->previous == NULL);
+    debugf("Extracted last page from cache %p.", extracted);
+    cache->top = NULL;
+    cache->bottom = NULL;
     return extracted;
 }
 
-// TODO: future_pointer_cache_insert_futures
-// TODO: future_pointer_cache_insert_empty
-// TODO: future_pointer_cache_refill_local
+UDIPE_NON_NULL_ARGS
+void future_pointer_cache_insert_futures(future_pointer_cache_t* cache,
+                                         future_pointer_page_t* non_empty) {
+    assert(non_empty->next == NULL);
+    assert(non_empty->previous == NULL);
+    const size_t num_futures = future_pointer_page_occupancy(non_empty);
+    assert(num_futures >= 1);
+    debugf("Transferring page %p with %zu future pointers into cache %p...",
+           non_empty, num_futures, cache);
+
+    if (cache->num_top_futures == 0  // If the target cache is empty...
+        || num_futures == future_pointer_page_capacity()  // ...or the source page is full.
+    ) {
+        debug("This page is safe to insert at the bottom of the cache...");
+        non_empty->next = cache->bottom;
+        if (cache->bottom) {
+            debugf("...replacing the former bottom page %p...", cache->bottom);
+            assert(cache->bottom->previous == NULL);
+            cache->bottom->previous = non_empty;
+        }
+        if (cache->num_top_futures == 0) {
+            assert(cache->top == cache->bottom);
+            debug("...and becoming the top page in the process.");
+            cache->top = non_empty;
+            cache->num_top_futures = num_futures;
+        }
+        cache->bottom = non_empty;
+        return;
+    }
+    assert(cache->top
+           && cache->num_top_futures != 0
+           && num_futures != future_pointer_page_capacity());
+
+    const size_t top_capacity =
+        future_pointer_page_capacity() - cache->num_top_futures;
+    debugf(
+        "Must merge partial input into non-empty top page %p, "
+        "which has room for %zu futures.",
+        cache->top, top_capacity
+    );
+
+    const size_t moved_futures = (num_futures <= top_capacity) ? num_futures
+                                                               : top_capacity;
+    debugf("Moving the top %zu futures into the top page...",
+           moved_futures);
+    future_pointer_page_t* const input = non_empty;
+    udipe_future_t** const move_source =
+        input->futures + (num_futures - moved_futures);
+    udipe_future_t** const move_destination =
+        cache->top->futures + cache->num_top_futures;
+    const size_t move_size = moved_futures * sizeof(udipe_future_t*);
+    memcpy(move_destination, move_source, move_size);
+    memset(move_source, 0, move_size);
+    cache->num_top_futures += moved_futures;
+    const size_t remaining_futures = num_futures - moved_futures;
+
+    if (remaining_futures == 0) {
+        debug("This emptied the input page, so we insert it as an empty page.");
+        future_pointer_cache_insert_empty(cache, input);
+        return;
+    }
+    assert(remaining_futures >= 1 && cache->num_top_futures == top_capacity);
+
+    debug("Now the top page is full but the input page still has futures. "
+          "This remainder will become the new top page.");
+    input->next = cache->top->next;
+    input->previous = cache->top;
+    cache->top->next = input;
+    if (input->next) input->next->previous = input;
+    cache->top = input;
+    cache->num_top_futures = remaining_futures;
+}
+
+UDIPE_NON_NULL_ARGS
+void future_pointer_cache_insert_empty(future_pointer_cache_t* cache,
+                                       future_pointer_page_t* empty) {
+    assert(empty->next == NULL);
+    assert(empty->previous == NULL);
+    assert(empty->futures[0] == NULL);
+    debugf("Transferring empty pointer page %p into cache %p...",
+           empty, cache);
+
+    if (cache->top == NULL) {
+        assert(cache->bottom == NULL);
+        assert(cache->num_top_futures == 0);
+        debug("There was no page before, so this becomes the top/bottom page.");
+        cache->top = empty;
+        cache->bottom = empty;
+        return;
+    }
+    assert(cache->top);
+
+    debugf("It will be inserted after the top page %p.", cache->top);
+    empty->previous = cache->top;
+    empty->next = cache->top->next;
+    cache->top->next = empty;
+    if (empty->next) empty->next->previous = empty;
+}
+
+UDIPE_NON_NULL_ARGS
+void future_pointer_cache_refill_local(future_pointer_cache_t* local_cache,
+                                       future_storage_page_t* new_futures) {
+    debugf("Filling thread-local cache %p with new futures from storage @ %p...",
+           local_cache, new_futures);
+    assert(local_cache->num_top_futures == 0);
+    assert(local_cache->top);
+    assert(future_storage_page_length() <= future_pointer_page_capacity());
+    for (size_t i = 0; i < future_storage_page_length(); ++i) {
+        local_cache->top->futures[i] = &(new_futures->futures[i]);
+    }
+    local_cache->num_top_futures = future_storage_page_length();
+}
 
 UDIPE_NON_NULL_ARGS
 void future_pointer_cache_recycle_local(future_pointer_cache_t* local,
                                         future_pointer_cache_t* global) {
-    // TODO: Add some logging.
+    debugf("Spilling contents of thread-local cache %p into global cache %p...",
+           local, global);
 
-    // Migrate future pointers from the top page of the thread-local cache,
-    // which is special because it will usually not be full of futures.
-    const size_t initial_top_futures = local->num_top_futures;
-    for (size_t src = 0; src < initial_top_futures; ++src) {
-        udipe_future_t* const future = future_pointer_cache_allocate_local(local);
-        assert(future);
-        const bool success = future_pointer_cache_liberate(true, global, future);
-        assert(success);
-    }
-    assert((local->num_top_futures == 0 && local->top->previous == NULL)
-           || (local->num_top_futures == future_pointer_page_len()));
-
-    // TODO: Reimplement rest based on other operations. It will be less
-    //       efficient, but we don't care because this operation only happens
-    //       when a thread stops, which is a rare event.
-
-    // Migrate future pointers from the previous pages of the thread-local
-    // cache, if any. These should be full of futures and can thus be migrated
-    // to the beginning of the global cache's pointer page list via simpler
-    // doubly linked list operations.
-    if (local->num_top_futures) {
-        future_pointer_page_t* last_full_page = local->top;
-        if (last_full_page) {
-            assert(last_full_page->futures[future_pointer_page_len() - 1]);
-            last_full_page->next = global->bottom;
-            if (global->bottom) global->bottom->previous = last_full_page;
-            global->bottom = local->bottom;
-        }
-        local->bottom = NULL;
+    debug("Transferring non-empty pages...");
+    while (local->num_top_futures != 0) {
+        future_pointer_page_t* const futures =
+            future_pointer_cache_extract_futures(local);
+        future_pointer_cache_insert_futures(global, futures);
     }
 
-    // Migrate future pointer pages after the top one, which should be empty, to
-    // the end of the global cache's pointer page list.
-    // FIXME: Must liberate the top page too if it's empty
-    future_pointer_page_t* const first_empty_page = local->top->next;
-    if (first_empty_page) {
-        assert(first_empty_page->futures[0] == NULL);
-        future_pointer_page_t* last_empty_page = first_empty_page;
-        while (last_empty_page->next) last_empty_page = last_empty_page->next;
-        last_empty_page->next = global->top->next;
-        if (global->top->next) global->top->next->previous = last_empty_page;
-        global->top->next = first_empty_page;
+    debug("Transferring empty pages...");
+    while (local->top) {
+        future_pointer_page_t* const empty =
+            future_pointer_cache_obtain_empty(local);
+        future_pointer_cache_insert_empty(global, empty);
     }
-    local->top = NULL;
+
+    assert(local->bottom == NULL);
+    assert(local->top == NULL);
+    assert(local->num_top_futures == 0);
 }
 
-// TODO: future_pointer_cache_finalize + use in global_cache_finalize()
+UDIPE_NON_NULL_ARGS
+void future_pointer_cache_finalize(future_pointer_cache_t* cache) {
+    debugf("Liberating all pages from pointer cache %p...", cache);
+
+    future_pointer_page_t* page = cache->bottom;
+    assert(cache->bottom->previous == NULL);
+    while (page) {
+        future_pointer_page_t* const next_page = page->next;
+        free((void*)page);
+        page = next_page;
+    }
+
+    cache->bottom = NULL;
+    cache->top = NULL;
+    cache->num_top_futures = 0;
+}

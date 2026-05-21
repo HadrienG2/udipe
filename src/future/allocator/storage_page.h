@@ -62,7 +62,7 @@ struct future_storage_page_s {
 
     /// Futures allocated as part of this memory page
     ///
-    /// The length of this array is given by future_storage_page_len().
+    /// The length of this array is given by future_storage_page_length().
     udipe_future_t futures[];
 };
 static_assert(offsetof(future_storage_page_t, futures) <= sizeof(udipe_future_t),
@@ -77,7 +77,7 @@ static_assert(offsetof(future_storage_page_t, futures) <= sizeof(udipe_future_t)
 /// This function must be called within the scope of with_logger().
 UDIPE_NODISCARD
 static inline
-size_t future_storage_page_len() {
+size_t future_storage_page_length() {
     const size_t available_bytes =
         get_page_size() - offsetof(future_storage_page_t, futures);
     assert(available_bytes >= sizeof(udipe_future_t));

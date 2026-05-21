@@ -17,7 +17,7 @@ void future_storage_allocate(future_storage_page_t** next) {
 
     memset(page, 0, get_page_size());
     future_storage_page_t* const new = (future_storage_page_t*)page;
-    for (size_t i = 0; i < future_storage_page_len(); ++i) {
+    for (size_t i = 0; i < future_storage_page_length(); ++i) {
         // Must do this in addition to the memset because C11 specifies that
         // atomic_initialize() is the only valid way to initialize an atomic
         // variable. With a bit of luck, it should be optimized out.
