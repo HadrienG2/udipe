@@ -94,6 +94,23 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_RESULT
 future_pointer_page_t* future_pointer_page_initialize();
 
+/// Unlink a future pointer page from its predecessors and successors
+///
+/// This is done as part of the process of removing a pointer page from a \ref
+/// future_pointer_cache_t.
+///
+/// Note that if the page is targeted by \ref future_pointer_cache_t::top or
+/// \ref future_pointer_cache_t::bottom, these pointers must be shifted forward
+/// before calling this function.
+UDIPE_NON_NULL_ARGS
+static inline
+void future_pointer_page_unlink(future_pointer_page_t* extracted) {
+    if (extracted->next) extracted->next->previous = extracted->previous;
+    if (extracted->previous) extracted->previous->next = extracted->next;
+    extracted->next = NULL;
+    extracted->previous = NULL;
+}
+
 /// Future pointer cache
 ///
 /// This struct tracks `udipe_future_t*` pointers that are not currently in use

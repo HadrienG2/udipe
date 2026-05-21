@@ -117,9 +117,10 @@ bool future_pointer_cache_liberate(bool global,
            future, cache);
 
     if (global && cache->top == NULL) {
-        debug("Global cache has no pointer pages left, add one...");
+        debug("Global cache currently has no pointer pages, give it one...");
         cache->top = future_pointer_page_initialize();
         cache->bottom = cache->bottom;
+        assert(cache->num_top_futures == 0);
     }
     assert(cache->top);
 
@@ -163,24 +164,63 @@ future_pointer_cache_extract_futures(future_pointer_cache_t* cache) {
         debugf("No futures available in cache %p.", cache);
         return NULL;
     }
+    assert(cache->bottom);
 
     future_pointer_page_t* const extracted = cache->bottom;
-    extracted->next = NULL;
-    debugf("Extracted bottom future page %p.", extracted);
-
-    cache->bottom = cache->bottom->next;
-    cache->bottom->previous = NULL;
-    debugf("The new bottom page is %p.", cache->bottom);
-
+    cache->bottom = extracted->next;
+    debugf("Extracting bottom future page %p, new bottom page is %p.",
+           extracted, cache->bottom);
     if (cache->top == extracted) {
         debug("That was also the top page, so this cache is now empty.");
         cache->top = cache->bottom;
         cache->num_top_futures = 0;
     }
+
+    debug("Unlinking the extracted page from its successors...");
+    assert(extracted->previous == NULL);
+    future_pointer_page_unlink(extracted);
     return extracted;
 }
 
-// TODO: future_pointer_cache_obtain_empty
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+UDIPE_NON_NULL_RESULT
+future_pointer_page_t*
+future_pointer_cache_obtain_empty(future_pointer_cache_t* cache) {
+    debugf("Looking for an empty pointer page in cache %p", cache);
+
+    if (cache->top == NULL) {
+        debug("No pointer page available, must allocate one.");
+        return future_pointer_page_initialize();
+    }
+    assert(cache->top);
+
+    if (cache->num_top_futures == 0) {
+        future_pointer_page_t* const extracted = cache->top;
+        cache->top = extracted->next;
+        debugf("Extracting empty top page %p, new top page is %p.",
+               extracted, cache->top);
+        if (cache->bottom == extracted) {
+            cache->bottom = extracted->next;
+            debug("That was also the bottom page, which shifted accordingly.");
+        }
+        debug("Unlinking the extracted page from its neighbors...");
+        future_pointer_page_unlink(extracted);
+        return extracted;
+    }
+    assert(cache->num_top_futures >= 1);
+
+    if (cache->top->next == NULL) {
+        debug("No empty page available, must allocate one.");
+        return future_pointer_page_initialize();
+    }
+    future_pointer_page_t* const extracted = cache->top->next;
+
+    debugf("Extracting empty after-top page %p...", extracted);
+    future_pointer_page_unlink(extracted);
+    return extracted;
+}
+
 // TODO: future_pointer_cache_insert_futures
 // TODO: future_pointer_cache_insert_empty
 // TODO: future_pointer_cache_refill_local
