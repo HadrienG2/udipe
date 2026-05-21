@@ -118,7 +118,9 @@ typedef struct future_thread_cache_s {
 /// See \ref future_thread_cache_t::reference_flags.
 #define THREAD_EXITED_FLAG ((size_t)2)
 
-// TODO: Add TSS destructor, point to global cache for constructor
+// TODO: Add constructor that binds to a pre-existing global context +
+//       explicit destructor called by destructor of global context + TSS
+//       destructor that spills into the global context.
 
 
 // TODO: Unit tests
