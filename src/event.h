@@ -8,11 +8,13 @@
 
 #include <udipe/nodiscard.h>
 
-#include "errno.h"
 #include "error.h"
 #include "log.h"
 
 #ifdef __linux__
+    #include "fd.h"
+
+    #include <errno.h>
     #include <sys/eventfd.h>
     #include <unistd.h>
 #endif
@@ -35,7 +37,7 @@
 /// The reason why the waiting method is not abstracted away is that it lets the
 /// client use collective waiting methods for increased efficiency.
 #ifdef __linux__
-    typedef int event_t;
+    typedef fd_t event_t;
 #else
     // TODO add windows version based on event objects
     #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
@@ -47,7 +49,7 @@
 /// used as a safe placeholder value when you have storage for an event object
 /// that does not currently hold an actual event object.
 #ifdef __linux__
-    #define EVENT_INVALID  ((event_t)-1)
+    #define EVENT_INVALID  FD_INVALID
 #else
     // TODO add windows version, most likely a null handle
     #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
@@ -70,8 +72,8 @@ UDIPE_NODISCARD
 static inline
 event_t event_initialize(bool signaled) {
     #ifdef __linux__
-        int result = eventfd((unsigned)signaled, EFD_NONBLOCK);
-        if (result == -1) switch(errno) {
+        int maybe_eventfd = eventfd((unsigned)signaled, EFD_NONBLOCK);
+        if (maybe_eventfd == -1) switch(errno) {
         case EMFILE:  // Reached process fd limit
             exit_after_c_error(
                 "The number of fds in current process reached the limit. "
@@ -87,8 +89,9 @@ event_t event_initialize(bool signaled) {
         case ENOMEM:  // Not enough memory to create a new eventfd.
             exit_after_c_error("This error is not expected to happen");
         }
-        ensure_ge(result, 0);
-        return result;
+        ensure_ge(maybe_eventfd, 0);
+        debugf("Set up an event object with fd %d.", maybe_eventfd);
+        return maybe_eventfd;
     #else
         // TODO add windows version based on CreateEvent
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
@@ -117,6 +120,7 @@ event_t event_initialize(bool signaled) {
 static inline
 void event_signal(event_t event) {
     #ifdef __linux__
+        debugf("Signaling the event object with fd %d...", event);
         event_payload_t addend = (event_payload_t){ .payload = 1 };
         exit_on_negative(write(event, addend.chars, sizeof(addend.chars)),
                          "Failed to signal eventfd");
@@ -138,6 +142,7 @@ void event_signal(event_t event) {
 static inline
 void event_reset(event_t event) {
     #ifdef __linux__
+        debugf("Resetting the event object with fd %d...", event);
         event_payload_t total;
         const int result = read(event, total.chars, sizeof(total.chars));
         if (result == -1) switch(errno) {
@@ -175,8 +180,7 @@ UDIPE_NON_NULL_ARGS
 static inline
 void event_finalize(event_t* event) {
     #ifdef __linux__
-        ensure_ge(*event, 0);
-        exit_on_negative(close(*event), "Failed to close eventfd");
+        close_virtual_fd(event);
     #else
         // TODO add windows version based on CloseEvent() + set to NULL
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
