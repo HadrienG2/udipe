@@ -19,6 +19,18 @@
 #endif
 
 
+#if defined(__x86_64__) || defined(_M_X64)
+    /// Macro-compatible truth that the host CPU arch is x86_64
+    ///
+    /// This is needed because GCC, clang and MSVC don't agree on how x86_64
+    /// should be detected at compile time.
+    #define X86_64 1
+#endif
+
+
+/// \name Cache layout
+/// \{
+
 /// Upper bound on the CPU's memory access granularity in bytes
 ///
 /// This is the alignment that is set on struct members that are shared between
@@ -55,6 +67,12 @@
 static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
               "The CPU should access data at the granularity of cache lines");
 
+/// \}
+
+
+/// \name Page layout
+/// \{
+
 /// Expected size of the smallest memory page available, in bytes
 ///
 /// This is used to set the size of the flexible array inside of
@@ -68,14 +86,6 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
 /// work for several other popular CPU architectures. Extend if with ifdefs as
 /// required once more CPU architectures with other page sizes become supported.
 #define EXPECTED_MIN_PAGE_SIZE ((size_t)4096)
-
-#if defined(__x86_64__) || defined(_M_X64)
-    /// Macro-compatible truth that the host CPU arch is x86_64
-    ///
-    /// This is needed because GCC, clang and MSVC don't agree on how x86_64
-    /// should be detected at compile time.
-    #define X86_64 1
-#endif
 
 /// Lower bound on the memory page alignment, in bytes
 ///
@@ -94,8 +104,14 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
     #define MIN_PAGE_ALIGNMENT alignof(max_align_t)
 #endif
 
+/// \}
+
+
 // x86-specific functionality
 #ifdef X86_64
+    /// \name High-resolution timing
+    /// \{
+
     /// TSC timestamp in clock ticks
     ///
     /// This is the timing unit of the RDTSC and RDTSCP x86 instructions.
@@ -379,4 +395,6 @@ static_assert(FALSE_SHARING_GRANULARITY % CACHE_LINE_SIZE == 0,
             .cpu_id = ecx_out,
         };
     }
+
+    /// \}
 #endif  // x86-specific functionality
