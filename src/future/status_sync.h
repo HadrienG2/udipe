@@ -5,6 +5,10 @@
 
 #include "../event.h"
 
+#ifdef __linux__
+    #include "../fd.h"
+#endif
+
 
 /// Synchronization object signaling future status changes
 ///
@@ -75,7 +79,7 @@ typedef union status_sync_u {
         //       single-shot timerfd and single-shot NT timer, then make the
         //       description of this field more generic and move it out of
         //       the __linux__ section.
-        int timer;
+        fd_t timer;
 
         /// epollfd with an attached \ref epoll_latch_event_t, used for most
         /// lazy future types
@@ -156,7 +160,7 @@ typedef union status_sync_u {
         //       based on the Win32 thread pool driving an event object
         //       after they receive the right signals from thread pool
         //       timers or NT synchronization objects.
-        int latched_epoll;
+        fd_t latched_epoll;
 
         /// Catch-all file descriptor type
         ///
@@ -169,6 +173,6 @@ typedef union status_sync_u {
         //       type for all Win32 synchronization objects. In that case,
         //       we just need to make the wording less file
         //       descriptor-specific.
-        int any;
+        fd_t any;
     #endif
 } status_sync_t;
