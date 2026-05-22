@@ -10,7 +10,6 @@
 #include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
-#include "../../arch.h"
 #include "../../event.h"
 #include "../../log.h"
 

@@ -4,7 +4,10 @@
 //! \brief Future state that is specific to \ref TYPE_JOIN
 
 #include "collective_upstream.h"
-#include "epoll_latch_event.h"
+
+#ifdef __linux__
+    #include "epoll_latch_event.h"
+#endif
 
 
 /// Joined future state

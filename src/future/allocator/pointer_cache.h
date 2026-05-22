@@ -20,6 +20,9 @@
 #include <stddef.h>
 
 
+/// \name Inner page linked list of the pointer cache
+/// \{
+
 /// \copydoc future_pointer_page_s
 typedef struct future_pointer_page_s future_pointer_page_t;
 
@@ -135,6 +138,12 @@ void future_pointer_page_unlink(future_pointer_page_t* extracted) {
     extracted->next = NULL;
     extracted->previous = NULL;
 }
+
+/// \}
+
+
+/// \name Future pointer cache
+/// \{
 
 /// Future pointer cache
 ///
