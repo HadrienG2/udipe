@@ -5,8 +5,10 @@
 
 #include <udipe/result.h>
 
-#include "epoll_latch_event.h"
-#include "inner_fd.h"
+#ifdef __linux__
+    #include "epoll_latch_event.h"
+    #include "inner_fd.h"
+#endif
 
 
 /// Repeating timer state and result

@@ -6,8 +6,11 @@
 #include <udipe/result.h>
 
 #include "collective_upstream.h"
-#include "epoll_latch_event.h"
-#include "inner_fd.h"
+
+#ifdef __linux__
+    #include "epoll_latch_event.h"
+    #include "inner_fd.h"
+#endif
 
 
 /// Unordered future state and result
