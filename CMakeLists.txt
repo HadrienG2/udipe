@@ -151,6 +151,7 @@ target_sources(udipe
                        src/error.c
                        src/error.h
                        src/event.h
+                       src/fd.h
                        src/format.h
                        src/future.c
                        src/future.h
@@ -163,6 +164,8 @@ target_sources(udipe
                        src/future/allocator/sync_caches.h
                        src/future/allocator/thread_cache.h
                        src/future/collective_upstream.h
+                       src/future/epoll_event_pair.c
+                       src/future/epoll_event_pair.h
                        src/future/epoll_latch_event.h
                        src/future/inner_fd.h
                        src/future/join_state.h
@@ -221,6 +224,7 @@ if (UDIPE_BUILD_DOXYGEN)
     set(DOXYGEN_EXTRACT_STATIC YES)
     set(DOXYGEN_OPTIMIZE_OUTPUT_FOR_C YES)
     set(DOXYGEN_PREDEFINED __linux__
+                           __unix__
                            __x86_64__)
     set(DOXYGEN_REPEAT_BRIEF NO)
     set(DOXYGEN_WARN_IF_UNDOC_ENUM_VAL YES)

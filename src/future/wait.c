@@ -214,6 +214,7 @@ future_status_t future_wait_join(udipe_future_t* future,
     //       so a generic function with a callback should be eventually devised.
     // TODO: This function is also too complex and should be broken up. Perhaps
     //       the aforementioned refactor could be a first step in this direction.
+    // TODO: Consider moving some of this to epoll_event_pair.[ch]
 
     future_status_debug_check(latest_status, true);
     assert(latest_status.type == TYPE_JOIN);
@@ -394,7 +395,8 @@ future_status_t future_wait_join(udipe_future_t* future,
                             // FIXME: Forgot to handle epoll_ctl errors here!
                             //        But this code is already way too nested,
                             //        should extract it into another function
-                            //        before adding more nesting to it.
+                            //        before adding more nesting to it. Then use
+                            //        epoll_event_pair.c for inspiration.
                             epoll_ctl(future->status_sync.latched_epoll,
                                       EPOLL_CTL_DEL,
                                       upstream_fd,
