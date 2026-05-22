@@ -161,6 +161,7 @@ target_sources(udipe
                        src/future/allocator/pointer_cache.h
                        src/future/allocator/storage_page.c
                        src/future/allocator/storage_page.h
+                       src/future/allocator/sync_caches.c
                        src/future/allocator/sync_caches.h
                        src/future/allocator/thread_cache.h
                        src/future/collective_upstream.h

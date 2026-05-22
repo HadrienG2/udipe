@@ -7,10 +7,26 @@
 //! special file descriptors on Linux (epollfd, eventfd) and NT synchronization
 //! object handles on Windows (`HANDLE`s to Event etc).
 
+#include <udipe/nodiscard.h>
+#include <udipe/pointer.h>
+
 #include "../../arch.h"
+#include "../../event.h"
+#include "../../log.h"
 
 #include <stdint.h>
 
+#ifdef __linux__
+
+    #include "../epoll_event_pair.h"
+
+    #include "../../fd.h"
+
+#endif
+
+
+/// \name Common ring buffer logic
+/// \{
 
 /// Index or length from a synchronization object cache
 ///
@@ -18,36 +34,38 @@
 /// we may as well try to improve CPU cache locality with a small index type.
 typedef uint8_t sync_cache_index_t;
 
-/// Indices delineating a synchronization object ring
+/// Move \ref sync_cache_index_t forward across a ring buffer
 ///
-/// Synchronization object caches currently use a ring buffer layout, where this
-/// pair of indices is used to implement the ring buffer logic.
-typedef struct sync_ring_indices_s {
-    /// Index of the newest entry, if any
-    ///
-    /// Moves forward (increments modulo ring size) when an object is inserted
-    /// into the ring, moves backward when an object is taken from the ring.
-    ///
-    /// When `newest` is equal to `oldest`, the cache is empty and
-    /// synchronization objects cannot be taken from it.
-    ///
-    /// When moving this index forward makes it reach `oldest`, the cache is
-    /// beyond full and the oldest entry must be liberated. See `oldest`
-    /// documentation for more about this.
-    sync_cache_index_t newest;
+/// \param index is the index to be moved forward
+/// \param capacity is the capacity of the underlying ring buffer
+UDIPE_NON_NULL_ARGS
+static inline
+void sync_cache_increment_index(sync_cache_index_t* index,
+                                sync_cache_index_t capacity) {
+    *index = (*index + 1) % capacity;
+}
 
-    /// Index of the oldest event object, if any
-    ///
-    /// As we handle circular ambiguity by taking `oldest == newest` to mean
-    /// that the ring is empty, we must do something when `newest` reaches
-    /// `oldest` through entry insertion.
-    ///
-    /// In this case, we liberate the oldest cache entry then move `oldest`
-    /// forward, thus going back to a valid `oldest != newest` non-empty state.
-    sync_cache_index_t oldest;
-} sync_ring_indices_t;
+/// Move \ref sync_cache_index_t backward across a ring buffer
+///
+/// \param index is the index to be moved backward
+/// \param capacity is the capacity of the underlying ring buffer
+UDIPE_NON_NULL_ARGS
+static inline
+void sync_cache_decrement_index(sync_cache_index_t* index,
+                                sync_cache_index_t capacity) {
+    // Will be optimized to fast dec-modulo if capacity is a power of two
+    if (*index >= 1) {
+        *index -= 1;
+    } else {
+        *index = capacity - 1;
+    }
+}
 
-// TODO: Add a couple of methods implementing the above logic
+/// \}
+
+
+/// \name Event cache
+/// \{
 
 /// Event cache capacity
 ///
@@ -63,36 +81,112 @@ typedef struct sync_ring_indices_s {
 
 /// Cache for unallocated and unsignaled event objects
 ///
-/// This cache follows the ring buffer logic described in the documentation of
-/// \ref sync_ring_indices_t. It is used to keep around event objects that are
-/// used in isolation, as in the implementation of network and custom futures.
+/// This cache is used to keep around event objects that are used in isolation,
+/// as in the implementation of network and custom futures.
+///
+/// It follows a ring buffer logic to ensure that the most recently discarded
+/// event is reused first in order to optimize cache locality.
 typedef struct event_cache_s {
     /// Storage for unused unsignaled event objects
     ///
-    /// To make resource management bugs easier to detect, invalid entries
-    /// should be set to \ref EVENT_INVALID, at least in debug builds.
+    /// Invalid entries are set to \ref EVENT_INVALID.
     event_t events[EVENT_CACHE_CAPACITY];
 
-    /// Indices of the newest and oldest event objects, if any
+    /// Index of the latest entry, if any
     ///
-    /// See \ref sync_ring_indices_t for more information.
-    sync_ring_indices_t indices;
+    /// If the associated entry of `events` is \ref EVENT_INVALID, then there is
+    /// no event object available for reuse in this cache.
+    sync_cache_index_t latest;
 } event_cache_t;
 
+/// Set up an event object cache
+///
+/// This function must be called in the scope of with_logger().
+///
+/// \returns an event cache that must be later liberated with
+///          event_cache_finalize().
+UDIPE_NODISCARD
+event_cache_t event_cache_initialize();
+
+/// Try to reuse an event object from the specified cache, allocating a fresh
+/// one on failure.
+///
+/// This function must be called in the scope of with_logger().
+///
+/// \param cache must be an event cache that was initialized with
+///              event_cache_initialize() and wasn't finalized with
+///              event_cache_finalize() yet.
+///
+/// \returns an event object in the unsignaled state.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+static inline
+event_t event_cache_allocate(event_cache_t* cache) {
+    debugf("Event object requested from cache %p.", cache);
+    const event_t candidate = cache->events[cache->latest];
+    if (candidate == EVENT_INVALID) {
+        debug("Must allocate a new event object as the cache is empty.");
+        return event_initialize(false);
+    } else {
+        debugf("Picked an event object from the latest entry (#%zu).",
+               (size_t)(cache->latest));
+        cache->events[cache->latest] = EVENT_INVALID;
+        sync_cache_decrement_index(&cache->latest, EVENT_CACHE_CAPACITY);
+        return candidate;
+    }
+}
+
+/// Liberate an event object into the specified cache
+///
+/// Unlike event_finalize(), this creates opportunities for event object reuse.
+///
+/// This function must be called in the scope of with_logger().
+///
+/// The liberated event object must be in the unsignaled state.
+///
+/// \param cache must be an event cache that was initialized with
+///              event_cache_initialize() and wasn't finalized with
+///              event_cache_finalize() yet.
+/// \param event must be an event object in the unsignaled state.
+UDIPE_NON_NULL_ARGS
+static inline
+void event_cache_liberate(event_cache_t* cache, event_t event) {
+    debugf("Discarding event object into cache %p.", cache);
+    sync_cache_increment_index(&cache->latest, EVENT_CACHE_CAPACITY);
+    debugf("Will put it into the next entry (#%zu).",
+           (size_t)(cache->latest));
+    if (cache->events[cache->latest] != EVENT_INVALID) {
+        debug("Cache is full, must liberate oldest entry first.");
+        event_finalize(&cache->events[cache->latest]);
+    }
+    cache->events[cache->latest] = event;
+}
+
+/// Destroy event object cache
+///
+/// This function must be called in the scope of with_logger().
+///
+/// \param cache must be an event cache that was initialized with
+///              event_cache_initialize() and wasn't finalized with
+///              event_cache_finalize() yet. It cannot be used again after
+///              calling this function.
+UDIPE_NON_NULL_ARGS
+void event_cache_finalize(event_cache_t* cache);
+
+/// \}
+
+
 #ifdef __linux__
-    /// epollfd+eventfd cache capacity
-    ///
-    /// Tune this capacity up if allocating epollfds and binding eventfds to
-    /// them becomes a bottleneck, following the same advice as for \ref
-    /// EVENT_CACHE_CAPACITY.
-    #define EPOLL_EVENT_CACHE_CAPACITY  ((sync_cache_index_t)4)
+
+    /// \name epollfd+eventfd cache (Linux-only)
+    /// \{
 
     /// Cache for epollfds with pre-attached eventfds
     ///
-    /// Works just like \ref event_cache_t except instead of managing eventfds
-    /// it manages (eventfd, epollfd) pairs where the epollfd is pre-attached to
-    /// the eventfd with an `epoll_data` of `UINT64_MAX` at the exclusion of any
-    /// other file descriptor.
+    /// This is an extension of \ref event_cache_t that manages (eventfd,
+    /// epollfd) pairs where the epollfd is pre-attached to the eventfd with an
+    /// `epoll_data` of `UINT64_MAX`, at the exclusion of any other file
+    /// descriptor.
     ///
     /// Resetting an epollfd involves detaching it from every other fd which
     /// it's currently bound to, and that can be a lot more work than liberating
@@ -103,28 +197,72 @@ typedef struct event_cache_s {
     typedef struct epoll_event_cache_s {
         /// Storage for epollfds
         ///
-        /// For each valid index `i`, `epolls[i]` should be an epollfd that is
-        /// attached to `events[i]` and no other file descriptor.
+        /// For each valid index `i` from `event_cache`, the associated
+        /// `epolls[i]` is an epollfd that is attached to
+        /// `event_cache.events[i]` as described in the struct documentation.
         ///
-        /// To make resource management bugs easier to detect, invalid entries
-        /// should be set to -1, at least in debug builds.
-        int epolls[EPOLL_EVENT_CACHE_CAPACITY];
+        /// For each invalid index `i` of `event_cache` that is set to \ref
+        /// EVENT_INVALID, the associated `epolls[i]` is set to \ref FD_INVALID.
+        fd_t epolls[EVENT_CACHE_CAPACITY];
 
-        /// Storage for event objects, which are eventfds on Linux
+        /// Event cache which this builds upon
         ///
-        /// For each valid index `i`, `events[i]` should be an eventfd in an
-        /// unsignaled state.
-        ///
-        /// To make resource management bugs easier to detect, invalid entries
-        /// should be set to \ref EVENT_INVALID, at least in debug builds.
-        event_t events[EPOLL_EVENT_CACHE_CAPACITY];
-
-        /// Indices of the newest and oldest epollfd+eventfd pairs, if any
-        ///
-        /// See \ref sync_ring_indices_t for more information.
-        sync_ring_indices_t indices;
+        /// Must not be manipulated directly, or `epolls` will go out of sync.
+        /// Use the dedicated `epoll_event_cache_` functions instead.
+        event_cache_t event_cache;
     } epoll_event_cache_t;
-#endif
+
+    /// Set up an epollfd+eventfd cache
+    ///
+    /// This function must be called in the scope of with_logger().
+    ///
+    /// \returns an epollfd+eventfd cache that must be later liberated with
+    ///          epoll_event_cache_finalize().
+    UDIPE_NODISCARD
+    epoll_event_cache_t epoll_event_cache_initialize();
+
+    /// Try to reuse an epollfd+eventfd pair from the specified cache,
+    /// allocating a fresh pair on failure.
+    ///
+    /// This function must be called in the scope of with_logger().
+    ///
+    /// \param cache must be an event cache that was initialized with
+    ///              event_cache_initialize() and wasn't finalized with
+    ///              event_cache_finalize() yet.
+    ///
+    /// \returns an epollfd+eventfd pair in the state described by the
+    ///          documentation of \ref epoll_event_pair_t.
+    UDIPE_NODISCARD
+    UDIPE_NON_NULL_ARGS
+    epoll_event_pair_t epoll_event_cache_allocate(epoll_event_cache_t* cache);
+
+    /// Liberate an epollfd+eventfd pair into the specified cache
+    ///
+    /// This function must be called in the scope of with_logger().
+    ///
+    /// \param cache must be an event cache that was initialized with
+    ///              event_cache_initialize() and wasn't finalized with
+    ///              event_cache_finalize() yet.
+    /// \param pair must be an epollfd+eventfd pair in the state described by
+    ///             the documentation of \ref epoll_event_pair_t.
+    UDIPE_NON_NULL_ARGS
+    void epoll_event_cache_liberate(epoll_event_cache_t* cache,
+                                    epoll_event_pair_t pair);
+
+    /// Destroy an epollfd+eventfd cache
+    ///
+    /// This function must be called in the scope of with_logger().
+    ///
+    /// \param cache must be an event cache that was initialized with
+    ///              event_cache_initialize() and wasn't finalized with
+    ///              event_cache_finalize() yet. It cannot be used again after
+    ///              calling this function.
+    UDIPE_NON_NULL_ARGS
+    void epoll_event_cache_finalize(epoll_event_cache_t* cache);
+
+    /// \}
+
+#endif  // __linux__
 
 
 // TODO: Unit tests
