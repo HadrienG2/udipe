@@ -390,7 +390,7 @@ future_status_t future_wait_join(udipe_future_t* future,
                             // remove it from our epoll set...
                             ensure_ge(upstream_set->remaining, (uint32_t)1);
                             --(upstream_set->remaining);
-                            const int upstream_fd = upstream->status_sync.any;
+                            const fd_t upstream_fd = upstream->status_sync.any;
                             // FIXME: Forgot to handle epoll_ctl errors here!
                             //        But this code is already way too nested,
                             //        should extract it into another function
