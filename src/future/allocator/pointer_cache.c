@@ -310,7 +310,7 @@ void future_pointer_cache_refill_local(future_pointer_cache_t* local_cache,
     assert(local_cache->top);
     assert(future_storage_page_length() <= future_pointer_page_capacity());
     for (size_t i = 0; i < future_storage_page_length(); ++i) {
-        local_cache->top->futures[i] = &(new_futures->futures[i]);
+        local_cache->top->futures[i] = &new_futures->futures[i];
     }
     local_cache->num_top_futures = future_storage_page_length();
 }
