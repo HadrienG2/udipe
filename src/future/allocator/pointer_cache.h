@@ -553,3 +553,8 @@ void future_pointer_cache_recycle_local(future_pointer_cache_t* local,
 ///              after calling this function.
 UDIPE_NON_NULL_ARGS
 void future_pointer_cache_finalize(future_pointer_cache_t* cache);
+
+/// \}
+
+
+// TODO: Unit tests, benchmarks

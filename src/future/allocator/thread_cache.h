@@ -4,22 +4,36 @@
 //! \brief Thread-local resource cache
 //!
 //! This code module implements the thread-local resource cache of the future
-//! allocator. Operations targeting this cache are maximally unsynchronized and
-//! NUMA-local, which should result in optimal performance and scalability,
-//! therefore the allocator tries to only hit this cache during normal
-//! operation.
+//! allocator. It is the main cache used for frequent future allocation and
+//! liberation operations, only falling back to the global \ref
+//! future_context_cache_t in specific circumstances (see its documentation).
 
 #include <udipe/context.h>
 
 #include "pointer_cache.h"
 #include "sync_caches.h"
 
+#include <stdatomic.h>
 #include <threads.h>
 
 
 /// Thread-local future resource cache
-//
-// TODO docs, consider stealing some from the module docs
+///
+/// This is the cache which a thread mainly interacts with during the future
+/// allocation and liberation process. Its main functions are to...
+///
+/// - Resolve the API impedance mismatch between the allocation of future
+///   storage pages on one side, which contain multiple futures (31 futures per
+///   storage page on x86_64 at the time of writing), and the user-requested
+///   allocation of individual futures on the other side.
+/// - Reduce the number of system calls needed to handle everyday future
+///   operations like a sane number of concurrent network operations.
+///
+/// As these goals are achieved by retaining some resources, which become out of
+/// reach from other threads, a secondary function of this cache is to permit
+/// the spilling of non-liberable resources like futures to the global \ref
+/// future_context_cache_t when e.g. the current thread exits. Otherwise, these
+/// resources would be lost, resulting in a resource leak.
 typedef struct future_thread_cache_s {
     /// Unallocated `udipe_future_t*` pointers
     ///
@@ -103,7 +117,7 @@ typedef struct future_thread_cache_s {
     /// Flags must be set with `atomic_fetch_or_explicit()` in
     /// `memory_order_release` mode. Once the last flag is set, the cache can be
     /// liberated after an `atomic_thread_fence()` with `memory_order_acquire`.
-    _Atomic size_t reference_flags;
+    atomic_size_t reference_flags;
 } future_thread_cache_t;
 
 /// Truth that the \ref udipe_context_t from which a \ref future_thread_cache_t
