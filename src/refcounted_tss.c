@@ -78,6 +78,7 @@ bool refcounted_tss_release(refcounted_tss_t* tss) {
     size_t old = atomic_fetch_sub_explicit(&tss->refcount_and_reachability,
                                            1,
                                            memory_order_release);
+    assert(old);
     if (old > 1) return false;  // There are more thread-local slots remaining
 
     // This was the last thread-local slot and no other slot can be created.

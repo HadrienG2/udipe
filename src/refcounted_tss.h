@@ -240,7 +240,7 @@ void refcounted_tss_write(refcounted_tss_t* tss, void* new) {
 
 /// Release a thread-local storage slot
 ///
-/// This function **must** be called by at the end of the `destructor` that was
+/// This function **must** be called at the end of the `destructor` that was
 /// specified at recounted_tss_initialize() time. It will take care of ensuring
 /// that the associated `tss_t` will be destroyed once it has been made
 /// unreachable and all threads that have previously acquired a thread-local
