@@ -3,8 +3,6 @@
 #include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
-#include "error.h"
-
 #include <assert.h>
 #include <stdatomic.h>
 #include <stdio.h>
