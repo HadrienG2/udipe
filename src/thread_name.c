@@ -5,6 +5,7 @@
 
 #include "error.h"
 #include "log.h"
+#include "refcounted_tss.h"
 #include "unit_tests.h"
 
 #include <assert.h>
@@ -59,11 +60,19 @@ typedef struct thread_name_s {
     alignas(/* max_align_t */ size_t) char bytes[];
 } thread_name_t;
 
-/// Thread-local storage key used to retrieve this thread's \ref thread_name_t
+/// Thread-local storage key used to retrieve a thread's \ref thread_name_t
 ///
-/// The low-level `tss_t` API must be used here because the underlying storage
-/// buffer must be freed when this thread stops executing.
-static tss_t thread_name_key;
+/// The \ref refcounted_tss_t API must be used here because the underlying
+/// storage buffer must be freed when each thread stops executing.
+///
+/// Cannot be used until thread_name_initialize() has been called, use the
+/// thread_name_key() accessor to ensure that this has been done.
+static refcounted_tss_t thread_name_key_impl;
+
+/// \ref thread_name_key_impl accessor that enforces proper initialization
+UDIPE_NODISCARD
+UDIPE_NON_NULL_RESULT
+static refcounted_tss_t* thread_name_key();
 
 /// Destroy a thread's name storage buffer (\ref thread_name_t)
 static void thread_name_finalize(void* thread_name) {
@@ -81,31 +90,102 @@ static void thread_name_finalize(void* thread_name) {
         exit(EXIT_FAILURE);
     }
     name->capacity = 0;
-
     free(name);
+
+    // As refcounted_tss_t is not heap-allocated, no need for free() here.
+    refcounted_tss_release(thread_name_key());
+}
+
+/// Mark the thread name TLS key as unreachable so it can be destroyed, once the
+/// process reaches a point where no new threads should spawn.
+///
+/// This will be called at process exit time, as scheduled by
+/// thread_name_key_initialize().
+static void thread_name_key_discard(void) {
+    // WARNING: This function is called at process exit time and must therefore
+    //          not perform any logging. Normal events and non-fatal errors
+    //          should not be signaled at all, fatal errors should be signalled
+    //          on stderr before exiting.
+
+    // As refcounted_tss_t is not heap-allocated, no need for free() here.
+    refcounted_tss_discard(thread_name_key());
 }
 
 /// Set up thread-local storage for thread names
 ///
-/// Note that this only sets up a TLS pointer, and actual storage allocatin will
-/// happen during set_thread_name() and/or get_thread_name().
-static void thread_name_initialize(void) {
+/// Note that this only sets up a TLS pointer, and actual storage allocation
+/// will happen during set_thread_name() and/or get_thread_name().
+static void thread_name_key_initialize(void) {
     // WARNING: This function is called by the logger implementation and must
     //          therefore not perform any logging. Normal events and non-fatal
     //          errors should not be signaled at all, fatal errors should be
     //          signalled on stderr before exiting.
 
-    if (tss_create(&thread_name_key, thread_name_finalize) != thrd_success) {
-        fprintf(stderr, "libudipe: Failed to set up thread name storage!\n");
-        exit(EXIT_FAILURE);
-    }
+    thread_name_key_impl = refcounted_tss_initialize(thread_name_finalize);
+    atexit(thread_name_key_discard);
 }
 
-/// `once_flag` ensuring that thread_name_initialize() is only called once
-static once_flag thread_name_init = ONCE_FLAG_INIT;
+/// `once_flag` ensuring that thread_name_key_initialize() is only called once
+static once_flag thread_name_key_ready = ONCE_FLAG_INIT;
+
+UDIPE_NODISCARD
+UDIPE_NON_NULL_RESULT
+refcounted_tss_t* thread_name_key() {
+    call_once(&thread_name_key_ready, &thread_name_key_initialize);
+    return &thread_name_key_impl;
+}
 
 /// Maximum number of bytes within a thread name, including trailing NUL
 #define MAX_THREAD_NAME_SIZE (MAX_THREAD_NAME_LEN+1)
+
+/// Convert a thread name capacity (in bytes) into a \ref thread_name_t size
+///
+UDIPE_NODISCARD
+static size_t thread_name_size(size_t capacity) {
+    // WARNING: This function is called by the logger implementation and must
+    //          therefore not perform any logging. Normal events and non-fatal
+    //          errors should not be signaled at all, fatal errors should be
+    //          signalled on stderr before exiting.
+
+    return offsetof(thread_name_t, bytes) + capacity;
+}
+
+/// Allocate a thread name of the specified capacity
+///
+UDIPE_NODISCARD
+UDIPE_NON_NULL_RESULT
+static thread_name_t* allocate_thread_name(size_t capacity) {
+    // WARNING: This function is called by the logger implementation and must
+    //          therefore not perform any logging. Normal events and non-fatal
+    //          errors should not be signaled at all, fatal errors should be
+    //          signalled on stderr before exiting.
+
+    thread_name_t* thread_name =
+        (thread_name_t*)malloc(thread_name_size(capacity));
+    if (!thread_name) {
+        // Can't log, this is used in the logger implementation.
+        fprintf(stderr,
+                "libudipe: Failed to allocate thread name buffer!\n");
+        exit(EXIT_FAILURE);
+    }
+    thread_name->capacity = capacity;
+    return thread_name;
+}
+
+/// allocate_thread_name() adapted into a refcounted_tss_acquire() constructor
+///
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+UDIPE_NON_NULL_RESULT
+static void* thread_name_constructor(void* capacity_ptr) {
+    // WARNING: This function is called by the logger implementation and must
+    //          therefore not perform any logging. Normal events and non-fatal
+    //          errors should not be signaled at all, fatal errors should be
+    //          signalled on stderr before exiting.
+
+    const size_t capacity = *((size_t*)capacity_ptr);
+    return (void*)allocate_thread_name(capacity);
+}
 
 /// Ensure that the thread name buffer is allocated with a certain capacity
 UDIPE_NODISCARD
@@ -122,12 +202,18 @@ static thread_name_t* ensure_thread_name_capacity(size_t capacity) {
     if (capacity < MAX_THREAD_NAME_SIZE) capacity = MAX_THREAD_NAME_SIZE;
 
     // Grab the current buffer, if any
-    thread_name_t* thread_name = (thread_name_t*)tss_get(thread_name_key);
+    refcounted_tss_t* key = thread_name_key();
+    assert(key);
+    thread_name_t* thread_name = (thread_name_t*)refcounted_tss_acquire(
+        key,
+        thread_name_constructor,
+        (void*)&capacity
+    );
+    assert(thread_name);
 
     // Check if a buffer needs to be allocated or reallocated
     bool needs_realloc = false;
-    if (!thread_name) needs_realloc = true;
-    if (thread_name && thread_name->capacity < capacity) needs_realloc = true;
+    if (thread_name->capacity < capacity) needs_realloc = true;
 
     // If so, reallocate the buffer...
     if (needs_realloc) {
@@ -143,12 +229,7 @@ static thread_name_t* ensure_thread_name_capacity(size_t capacity) {
 
         // ...and update its address in TLS if it changed
         if (new_thread_name != thread_name) {
-            if (tss_set(thread_name_key, new_thread_name) != thrd_success) {
-                // Can't log, this is used in the logger implementation.
-                fprintf(stderr,
-                        "libudipe: Failed to save thread name buffer to TLS!\n");
-                exit(EXIT_FAILURE);
-            }
+            refcounted_tss_write(key, new_thread_name);
             thread_name = (thread_name_t*)new_thread_name;
         }
 
@@ -204,9 +285,6 @@ void set_thread_name(const char* name) {
     #else
         #warning "Sorry, we don't fully support your operating system yet. Please file a bug report about it!"
 
-        trace("- Setting up thread name storage...");
-        call_once(&thread_name_init, &thread_name_initialize);
-
         trace("- Allocating or reusing thread name buffer...");
         thread_name_t* thread_name =
             ensure_thread_name_capacity(MAX_THREAD_NAME_SIZE);
@@ -221,6 +299,33 @@ void set_thread_name(const char* name) {
     #endif
 }
 
+#if !defined(__linux__) && !defined(_WIN32)
+    /// Generate a default thread name on platforms that don't have a known
+    /// mechanism for naming threads.
+    static void* generate_default_thread_name(void* /* context */) {
+        // Allocate storage
+        const char* const name_header = "pthread_";
+        const size_t header_len = strlen(name_header);
+        const size_t pthread_hex_size = sizeof(pthread_t) * 2;
+        const size_t name_size = header_len + pthread_hex_size + 1;
+        thread_name_t* thread_name = allocate_thread_name(name_size);
+        assert(thread_name);
+
+        // Set the thread name based on a stringified pthread_self()
+        char* name = &thread_name->bytes;
+        strncpy(name, name_header, header_len);
+        name += header_len;
+        pthread_t thread = pthread_self();
+        const unsigned char* thread_bytes = &thread;
+        for (size_t b = 0; b < sizeof(pthread_t); b += 1) {
+            sprintf(name, "%.2hhX", thread_bytes[b]);
+            name += 2;
+        }
+        // sprintf adds a trailing NUL so we don't need to add one
+        return (void*)thread_name;
+    }
+#endif  // Neither Linux nor Windows
+
 UDIPE_NODISCARD
 UDIPE_NON_NULL_RESULT
 const char* get_thread_name() {
@@ -228,11 +333,6 @@ const char* get_thread_name() {
     //          therefore not perform any logging. Normal events and non-fatal
     //          errors should not be signaled at all, fatal errors should be
     //          signalled on stderr before exiting.
-
-    // Set up thread-local name buffering. Even on platforms where thread name
-    // lengths are bounded, we cannot use a stack-allocated fixed-size buffer
-    // because we must return a pointer to the buffer from this function.
-    call_once(&thread_name_init, &thread_name_initialize);
 
     // Query the current thread name
     thread_name_t* thread_name = NULL;
@@ -315,33 +415,14 @@ const char* get_thread_name() {
     #else
         #warning "Sorry, we don't fully support your operating system yet. Please file a bug report about it!"
 
-        // Grab the current thread name buffer, if any
-        thread_name = (thread_name_t*)tss_get(thread_name_key);
-
-        // Otherwise, we generate a thread name from the bytes of pthread_self()
-        // so that each thread at least gets a unique identifier.
-        if (!thread_name) {
-            // Allocate storage
-            const char* const name_header = "pthread_";
-            const size_t header_len = strlen(name_header);
-            const size_t pthread_hex_size = sizeof(pthread_t) * 2;
-            const size_t name_size = header_len + pthread_hex_size + 1;
-            thread_name = ensure_thread_name_capacity(name_size);
-            assert(thread_name);
-            assert(thread_name->capacity >= name_size);
-
-            // Set the thread name based on a stringified pthread_self()
-            char* name = &thread_name->bytes;
-            strncpy(name, name_header, header_len);
-            name += header_len;
-            pthread_t thread = pthread_self();
-            const unsigned char* thread_bytes = &thread;
-            for (size_t b = 0; b < sizeof(pthread_t); b += 1) {
-                sprintf(name, "%.2hhX", thread_bytes[b]);
-                name += 2;
-            }
-            // sprintf adds a trailing NUL so we don't need to add one
-        }
+        // Grab the current thread name, if any, or else generate athread name
+        // based on the hex value of pthread_self().
+        thread_name = (thread_name_t*)refcounted_tss_acquire(
+            thread_name_key(),
+            generate_default_thread_name,
+            NULL
+        );
+        assert(thread_name);
     #endif
     return thread_name->bytes;
 }

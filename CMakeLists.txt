@@ -187,6 +187,8 @@ target_sources(udipe
                        src/memory.h
                        src/name_filter.c
                        src/name_filter.h
+                       src/refcounted_tss.c
+                       src/refcounted_tss.h
                        src/stopwatch.h
                        src/thread_name.c
                        src/thread_name.h
