@@ -54,6 +54,54 @@ typedef struct future_thread_cache_s {
         epoll_event_cache_t epolls_with_events;
     #endif
 
+    /// State machine + flag used to coordinate future spilling and liberation
+    ///
+    /// A thread's cache stops being useful and its contents must be discarded
+    /// when either of the following two events happens:
+    ///
+    /// - The thread exits, which means it won't need its contents anymore. When
+    ///   this happens, resources from this cache should be spilled into the
+    ///   host context, making them available for reuse by other threads.
+    /// - The host context is finalized, which means its contents are not safe
+    ///   to use anymore. When this happens, inner resources should be liberated
+    ///   directly without going through the global cache.
+    ///
+    /// Unfortunately, there is no guarantee that these two events won't happen
+    /// concurrently (a thread exits as another begins destroying the \ref
+    /// udipe_context_t), which means that some synchronization is needed for
+    /// thread-safety.
+    ///
+    /// This atomic word provides the required synchronization here, by
+    /// combining two pieces of informations:
+    ///
+    /// 1. A state machine with four distinct states:
+    ///     - \ref THREAD_CACHE_READY is the "normal" initialized state where
+    ///       the thread-local cache is ready to process allocation requests.
+    ///     - \ref THREAD_CACHE_SPILLING is entered upon thread exit if the
+    ///       thread cache is `READY` at that time. It indicates that the TSS
+    ///       destructor is in the process of spilling the thread cache's
+    ///       contents into the context-global cache. The context destruction
+    ///       process must wait for the end of this spilling process by using a
+    ///       wait_by_address() loop to wait for a transition to the `DESTROYED`
+    ///       state, before it can proceed to destroy the context-global cache.
+    ///     - \ref THREAD_CACHE_LIBERATING is entered upon context destruction
+    ///       if the thread cache is `READY` at that time. It indicates that the
+    ///       context destructor is in the process of liberating the thread
+    ///       cache's contents, before it proceeds with destruction of the rest
+    ///       of the context. The TSS destructor does not need to wait for the
+    ///       end of this process, but it must acknowledge what's happening by
+    ///       refraining from using the `context` pointer.
+    ///     - \ref THREAD_CACHE_DESTROYED is entered when the contents of the
+    ///       thread-local cache have been either spilled or liberated, and the
+    ///       thread that performed this operation is done and will not access
+    ///       this cache again. This state transition must be signaled via
+    ///       wake_by_address_all().
+    /// 2. A \ref THREAD_CACHE_OTHER_DONE flag which indicates whether the
+    ///    process that did not win the state machine race is done using this
+    ///    thread-local cache as well TODO finish explaining liberation
+    //
+    // TODO: Finish rewrite, erase old docs below, define all the new constants.
+    //
     /// Once flag used to coordinate spilling and liberation
     ///
     /// A thread's cache stops being useful and its contents must be discarded
