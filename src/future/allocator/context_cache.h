@@ -85,15 +85,15 @@ typedef struct future_context_cache_s {
     ///   results in `mutex` being locked and thread cache liberation starting.
     /// - Another user thread starts exiting, resulting in a call to the
     ///   future_thread_cache_finalize_from_thread() TSS destructor.
-    /// - Under call_once() protection, said TSS destructor starts spilling the
-    ///   thread-local cache's contents to the global context cache. To this
-    ///   end, it must acquire `mutex`, which is currently locked, so it blocks
-    ///   waiting for `mutex` to free up
+    /// - Under \ref future_thread_cache_t::futex protection, said TSS
+    ///   destructor starts spilling the thread-local cache's contents to the
+    ///   global context cache. To this end, it must acquire `mutex`, which is
+    ///   currently locked, so it blocks waiting for `mutex` to free up
     /// - Meanwhile, context cache liberation reaches the point where it tries
-    ///   to finalize this thread-local cache. So it tries to use call_once()
-    ///   too, with the same `once_flag` that is currently used by the TSS
-    ///   destructor by design. This results in blocking waiting for the TSS
-    ///   destructor to finish.
+    ///   to finalize this thread-local cache. So it tries to wih the \ref
+    ///   future_thread_cache_t::futex state machine race too, but fails as it
+    ///   got there last. As a result, it must wait for the thread to finish
+    ///   spilling the contents of the thread-local cache to this global cache.
     /// - At this point, udipe_finalize() is blocked waiting for the TSS
     ///   destructor to finish spilling its contents to the global context cache
     ///   and the TSS destructor is blocked waiting for udipe_finalize() to
@@ -108,7 +108,7 @@ typedef struct future_context_cache_s {
     ///   concurrently with any other `udipe_` function.
     /// - The synchronization contract of this field prevents it from being
     ///   accessed outside of a user-facing `udipe_` function call.
-    /// - The `once_flag` of each thread-local cache ensures that either
+    /// - The `futex` of each thread-local cache ensures that either
     ///   udipe_finalize() comes first and prevents the associated TSS
     ///   destructor from spilling to the global cache, or the TSS destructor
     ///   comes first and is properly awaited by udipe_finalize() before the
