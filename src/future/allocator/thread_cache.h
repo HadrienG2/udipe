@@ -107,7 +107,7 @@ typedef struct future_thread_cache_s {
     ///       destructor is in the process of spilling the thread cache's
     ///       contents into the context-global cache. The context destruction
     ///       process must wait for the end of this spilling process by using a
-    ///       wait_by_address() loop to wait for a transition to the `DESTROYED`
+    ///       wait_on_address() loop to wait for a transition to the `DESTROYED`
     ///       state, before it can proceed to destroy the context-global cache.
     ///     - \ref THREAD_CACHE_LIBERATING is entered upon context destruction
     ///       if the thread cache is `READY` at that time. It indicates that the
@@ -120,7 +120,8 @@ typedef struct future_thread_cache_s {
     ///       thread-local cache have been either spilled or liberated, and the
     ///       thread that performed this operation is done and will not access
     ///       this cache again. This state transition must be signaled via
-    ///       wake_by_address_all().
+    ///       wake_by_address_all() and can therefore be awaited via
+    ///       wait_on_address().
     /// 2. The aforementioned state machine features a race to exit the `READY`
     ///    state which one thread will win and the other thread will lose. But
     ///    the host `future_thread_cache_t` struct can only be fully liberated
@@ -145,13 +146,46 @@ typedef struct future_thread_cache_s {
 /// See \ref future_thread_cache_t::futex for more information.
 #define THREAD_CACHE_READY ((uint32_t)0)
 
-/// State of a \ref future_thread_cache_t that is being spilled to the parent
-/// \ref future_context_cache_t
+/// State of a \ref future_thread_cache_t whose contents are in the process of
+/// being spilled to the parent \ref future_context_cache_t
 ///
 /// See \ref future_thread_cache_t::futex for more information.
 #define THREAD_CACHE_SPILLING ((uint32_t)1)
 
-// TODO: Finish defining all the constants
+/// State of a \ref future_thread_cache_t whose contents are in the process of
+/// being liberated
+///
+/// See \ref future_thread_cache_t::futex for more information.
+#define THREAD_CACHE_LIBERATING ((uint32_t)2)
+
+/// State of a \ref future_thread_cache_t whose contents have been removed,
+/// either by spilling them or liberating them
+///
+/// The transition to this state is signaled via wake_by_address_all() and can
+/// therefore be awaited via wait_on_address().
+///
+/// Once the state machine has reached this state and the `OTHER_DONE` flag is
+/// set, the \ref future_thread_cache_t has become unreachable and can be
+/// liberated.
+///
+/// See \ref future_thread_cache_t::futex for more information.
+#define THREAD_CACHE_DESTROYED ((uint32_t)3)
+
+/// \ref future_thread_cache_t::futex flag indicating that the process which did
+/// not win the state machine race is now done.
+///
+/// Once this flag is set and the state machine has reached the `DESTROYED`
+/// state, the \ref future_thread_cache_t has become unreachable and can be
+/// liberated.
+///
+/// See \ref future_thread_cache_t::futex for more information.
+#define THREAD_CACHE_OTHER_DONE ((uint32_t)4)
+
+/// Final \ref future_thread_cache::futex state
+///
+/// Once a \ref future_thread_cache_t::futex reaches this value, the \ref
+/// future_thread_cache_t has become unreachable and can be liberated.
+#define THREAD_CACHE_ALL_DONE (THREAD_CACHE_DESTROYED | THREAD_CACHE_OTHER_DONE)
 
 /// Set up a thread-local futures cache
 // TODO docs, implement
