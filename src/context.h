@@ -49,6 +49,18 @@ struct udipe_context_s {
     /// reducing it by keeping the `udipe_context_t` in a partially finalized
     /// state where only this field is still initialized until all threads have
     /// exited and we can finally liberate the underlying allocation.
+    ///
+    /// Overall, the presence of this annoying field affects the \ref
+    /// udipe_context_t destruction process in the following manner:
+    ///
+    /// - Thread-local caches must be destroyed first by iterating through the
+    ///   relevant array of the `global_future_cache` without locking the
+    ///   associated mutex first.
+    /// - udipe_finalize() must finish with a call to refcounted_tss_discard()
+    ///   on this member, and is only allowed to liberate the heap allocation
+    ///   holding the `udipe_context_t` if this call returns `true`. Otherwise
+    ///   it must leave liberation up to the TSS destructors of other threads as
+    ///   they call refcounted_tss_release() on their side.
     //
     // TODO: Set this up in context constructor/destructor
     refcounted_tss_t thread_future_cache;

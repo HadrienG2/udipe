@@ -90,10 +90,11 @@ typedef struct future_context_cache_s {
     ///   global context cache. To this end, it must acquire `mutex`, which is
     ///   currently locked, so it blocks waiting for `mutex` to free up
     /// - Meanwhile, context cache liberation reaches the point where it tries
-    ///   to finalize this thread-local cache. So it tries to wih the \ref
-    ///   future_thread_cache_t::futex state machine race too, but fails as it
-    ///   got there last. As a result, it must wait for the thread to finish
-    ///   spilling the contents of the thread-local cache to this global cache.
+    ///   to liberate the contents of this thread-local cache. So it tries to do
+    ///   so by winning the \ref future_thread_cache_t::futex state machine
+    ///   race, but fails to do so as it got there last. As a result, it must
+    ///   wait for the thread to finish spilling the contents of the
+    ///   thread-local cache to this global cache.
     /// - At this point, udipe_finalize() is blocked waiting for the TSS
     ///   destructor to finish spilling its contents to the global context cache
     ///   and the TSS destructor is blocked waiting for udipe_finalize() to
@@ -138,20 +139,87 @@ typedef struct future_context_cache_s {
     size_t thread_caches_capacity;
 } future_context_cache_t;
 
-// TODO docs, implement
+/// Set up a context-global future cache
+///
+/// This is done as part of udipe_initialize(), initializing the bottom caching
+/// layer of the newly created context's future allocator.
+///
+/// The resulting \ref future_context_cache_t object must eventually be
+/// finalized by future_context_cache_finalize() as part of the context
+/// finalization process.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \returns a context-global future cache that must eventually be destroyed
+///          using future_context_cache_finalize().
+// TODO implement
 UDIPE_NODISCARD
 future_context_cache_t future_context_cache_initialize();
 
-// TODO docs, implement, document preconditions
+/// Register a thread-local future cache into a context-global future cache
+///
+/// This function is part of the implementation of
+/// future_thread_cache_initialize() and should never be called directly.
+///
+/// \internal
+///
+/// This function is called when a new thread-local future cache is created, in
+/// order to ensure that when the context-global future cache is eventually
+/// liberated, it will take care to empty and invalidate all associated
+/// thread-local caches.
+///
+/// This function must be called within the scope of with_logger(), and it must
+/// have a public `udipe_` function in its call stack (i.e. it must not be
+/// called asynchronously by a background thread).
+///
+/// \param context_cache must be a context cache that was set up with
+///                      future_context_cache_initialize() and wasn't destroyed
+///                      with future_context_cache_finalize() yet.
+/// \param thread_cache must be a thread cache that was mostly set up by
+///                     future_thread_cache_initialize() and wasn't destroyed
+///                     with future_thread_cache_finalize_from_context() or
+///                     passed to this function yet.
+// TODO docs
+UDIPE_NON_NULL_ARGS
 void future_context_cache_register_thread(future_context_cache_t* context_cache,
                                           future_thread_cache_t* thread_cache);
 
-// TODO: docs, implement
+/// Finalize all thread-local future caches before destroying the context cache
+///
+/// This function is part of the implementation of
+/// future_context_cache_finalize() and should never be called directly.
+///
+/// \internal
+///
+/// This function is called when a context cache is destroyed. It ensures that
+/// all thread-local caches get emptied and invalidated before the global cache
+/// that they spill into is destroyed, and also schedules them for eventual
+/// liberation if/when the associated thread has exited.
+///
+/// Importantly, this function must be called at a time where the context
+/// cache's mutex is **not** being locked, otherwise deadlock may ensue.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param cache must be a context cache that was set up with
+///              future_context_cache_initialize() and wasn't destroyed with
+///              future_context_cache_finalize() yet.
+// TODO: implement
+UDIPE_NON_NULL_ARGS
 void future_context_cache_finalize_threads(future_context_cache_t* cache);
 
-// TODO docs, implement
-// TODO: Should probably use a utility function that unregisters all threads,
-//       which must be called at a point where the mutex is unlocked.
+/// Destroy a context-global future cache
+///
+/// This is done as part of udipe_finalize(), finalizing the bottom caching
+/// layer of the future allocator along with all attached thread-local caches.
+/// Futures cannot be allocated again after calling this function.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param cache must be a context cache that was set up with
+///              future_context_cache_initialize() and wasn't destroyed with
+///              future_context_cache_finalize() yet.
+// TODO implement based on above function.
 UDIPE_NON_NULL_ARGS
 void future_context_cache_finalize(future_context_cache_t* cache);
 
