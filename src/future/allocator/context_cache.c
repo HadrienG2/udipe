@@ -45,5 +45,40 @@ future_context_cache_t future_context_cache_initialize() {
     return cache;
 }
 
+UDIPE_NON_NULL_ARGS
+void future_context_cache_register_thread(future_context_cache_t* context_cache,
+                                          future_thread_cache_t* thread_cache) {
+    debugf("Registering thread cache %p into context cache %p...",
+           thread_cache, context_cache);
+
+    assert(context_cache->thread_caches_length
+           <= context_cache->thread_caches_capacity);
+    if (
+        context_cache->thread_caches_length
+        == context_cache->thread_caches_capacity
+    ) {
+        debugf("- Growing thread cache list %p which has outgrown its current "
+               "capacity %zu...",
+               (void*)context_cache->thread_caches,
+               context_cache->thread_caches_capacity);
+        context_cache->thread_caches_capacity *= 2;
+        context_cache->thread_caches = (future_thread_cache_t**)realloc(
+            (void*)context_cache->thread_caches,
+            context_cache->thread_caches_capacity * sizeof(future_thread_cache_t*)
+        );
+        exit_on_null(context_cache->thread_caches,
+                     "Failed to grow thread caches array");
+        debugf("- Thread cache list is now at address %p with capacity %zu.",
+               (void*)context_cache->thread_caches,
+               context_cache->thread_caches_capacity);
+
+    }
+
+    const size_t index = (context_cache->thread_caches_length)++;
+    debugf("- Will insert thread cache at index %zu of the context cache's list.",
+           index);
+    context_cache->thread_caches[index] = thread_cache;
+}
+
 
 // TODO code

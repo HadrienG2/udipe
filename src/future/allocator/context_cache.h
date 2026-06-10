@@ -178,7 +178,6 @@ future_context_cache_t future_context_cache_initialize();
 ///                     future_thread_cache_initialize() and wasn't destroyed
 ///                     with future_thread_cache_finalize_from_context() or
 ///                     passed to this function yet.
-// TODO docs
 UDIPE_NON_NULL_ARGS
 void future_context_cache_register_thread(future_context_cache_t* context_cache,
                                           future_thread_cache_t* thread_cache);
