@@ -178,7 +178,7 @@ typedef struct future_thread_cache_s {
 /// See \ref future_thread_cache_t::futex for more information.
 #define THREAD_CACHE_OTHER_DONE ((uint32_t)4)
 
-/// Final \ref future_thread_cache::futex value
+/// Final \ref future_thread_cache_t::futex value
 ///
 /// Once a \ref future_thread_cache_t::futex reaches this value, the \ref
 /// future_thread_cache_t has become unreachable and can be liberated.
