@@ -76,9 +76,9 @@ typedef struct future_thread_cache_s {
     /// the context, and therefore do not need this pointer.
     udipe_context_t* context;
 
-    /// State machine + flag used to coordinate future spilling and liberation
+    /// Status flags used to coordinate future spilling and liberation
     ///
-    /// A thread's cache stops being useful and its contents must be diposed of
+    /// A thread cache stops being useful and its contents must be diposed of
     /// when either of the following events happens:
     ///
     /// - The host thread exits, which means it won't need its contents anymore.
@@ -94,50 +94,47 @@ typedef struct future_thread_cache_s {
     /// synchronization is needed for thread-safety.
     ///
     /// This atomic word provides the required synchronization as it tracks the
-    /// logical OR of two relevant pieces of informations:
+    /// logical OR of all required boolean truths:
     ///
-    /// 1. A four-states machine where two states are mutually exclusive:
-    ///     - \ref THREAD_CACHE_READY is the "normal" state which the
-    ///       thread-local cache enters upon initialization. The thread cache
-    ///       will stay in this state for most of its lifetime, but eventually
-    ///       leave it when one of the aforementioned events will happen.
-    ///     - \ref THREAD_CACHE_SPILLING is entered upon thread exit if the
-    ///       thread cache is still `READY` at that time. It indicates that the
-    ///       TSS destructor is in the process of spilling the thread cache's
-    ///       contents into the context-global cache. If the context destruction
-    ///       process starts concurrently, it must wait for the end of this
-    ///       spilling process via a wait_on_address() loop that waits for the
-    ///       state machine to switch to the `EMPTIED` state.
-    ///     - \ref THREAD_CACHE_LIBERATING is entered as a context is being
-    ///       destroyed by udipe_finalize(), if the thread cache is still
-    ///       `READY` at that time. It indicates that the context destructor is
-    ///       in the process of liberating the thread cache's contents, before
-    ///       it proceeds with destruction of the rest of the context. If the
-    ///       thread exits concurrently, the TSS destructor does not need to
-    ///       wait for the end of this liberation process, but it must
-    ///       acknowledge that it is happening by refraining from spilling the
-    ///       contents of the thread cache or otherwise using the `context`
-    ///       pointer for any other purpose than calling
-    ///       refcounted_tss_release() on the \ref
-    ///       udipe_context_t::thread_future_cache.
-    ///     - \ref THREAD_CACHE_EMPTIED is entered when the contents of the
-    ///       thread-local cache have been either spilled or liberated, and the
-    ///       thread that performed this operation is done and will not access
-    ///       this cache again. This state transition must be signaled via
-    ///       wake_by_address_all() and can therefore be awaited via
-    ///       wait_on_address() in the implementation of udipe_finalize().
-    /// 2. The aforementioned state machine features a race to exit the `READY`
-    ///    state, which one thread will win and the other thread will lose. But
-    ///    the host `future_thread_cache_t` struct can only be fully liberated
-    ///    once the thread that lost the race is done with it as well. This is
-    ///    tracked by setting a separated flag called \ref
-    ///    THREAD_CACHE_OTHER_DONE, once this other thread is done with the
-    ///    thread cache and will not access it again.
-    ///
-    /// The `future_thread_cache_t` struct is allocated with malloc() and can be
-    /// deallocated with free() once the state machine has reached the `EMPTIED`
-    /// state and the other thread is also done with it, which results in the
-    /// futex assuming the \ref THREAD_CACHE_ALL_DONE value.
+    /// - \ref THREAD_CACHE_THREAD_DYING is set at the beginning of the TSS
+    ///   destructor. If it is set before `CONTEXT_DYING`, the cache's contents
+    ///   will be spilled to the context-global cache by the TSS destructor. If
+    ///   udipe_finalize() starts concurrently as this is happening, it must
+    ///   wait for this process to complete by waiting for the `EMPTIED` flag to
+    ///   be set then busy-waiting for the `THREAD_DONE` flag to be set too (see
+    ///   below). Once all of this is done, udipe_finalize() can proceed with
+    ///   liberating this thread-local cache and the context-global cache.
+    /// - \ref THREAD_CACHE_CONTEXT_DYING is set at the beginning of
+    ///   udipe_finalize(). If it is set before `THREAD_DYING`, the cache's
+    ///   contents will be destroyed directly. The TSS destructor does not need
+    ///   to wait for that to happen, but it must acknowledge that the context
+    ///   is being destroyed by refraining from accessing the `context` pointer
+    ///   in any other way than calling refcounted_tss_release() on the \ref
+    ///   udipe_context_t::thread_future_cache + liberating the context struct
+    ///   if this releases the last remaining reference to it. In particular,
+    ///   this means that no logging can be performed in this case.
+    /// - \ref THREAD_CACHE_EMPTIED is set when all contents from this
+    ///   thread-local cache have been removed through either spilling or
+    ///   liberating. When this flag is set by the TSS destructor, if
+    ///   `CONTEXT_DYING` is set indicating that udipe_finalize() is waiting
+    ///   for the TSS destructor, an OS notification is sent via
+    ///   wake_by_address_all(), which can be awaited on the udipe_finalize()
+    ///   side via a wait_on_address() loop that waits for this flag to be set.
+    ///   If udipe_finalize() did need to perform this waiting, then it will
+    ///   also need to busy-wait for `THREAD_DONE` to be set for reasons
+    ///   explained below.
+    /// - \ref THREAD_CACHE_THREAD_DONE is set at the end of the TSS destructor,
+    ///   once it is done accessing this struct. If the implementation of
+    ///   udipe_finalize() lost the race and needed to await the `EMPTIED` flag,
+    ///   it must also busy-wait for this flag to be set because there is no
+    ///   other way to wait for the call to wake_by_address_all() to finish and
+    ///   the context must not be destroyed until then as this would destroy the
+    ///   logger that wake_by_address_all() is using. The thread-local cache
+    ///   struct can be liberated once this flag and `CONTEXT_DONE` are set.
+    /// - \ref THREAD_CACHE_CONTEXT_DONE is set once the context destructor is
+    ///   done liberating the contents of this cache and will not access it
+    ///   again. The threal-local cache struct can be liberated once both this
+    ///   flag and `THREAD_DONE` are set.
     ///
     /// The astute reader will notice that this synchronization protocol does
     /// not prevent race conditions between a thread that allocates a new future
@@ -146,43 +143,38 @@ typedef struct future_thread_cache_s {
     /// API contract, as any attempt to allow them would greatly complicate the
     /// udipe implementation and reduce its efficiency only to allow a small
     /// amount of extra usage patterns which are arguably not very useful.
-    _Atomic uint32_t futex;
+    _Atomic uint32_t flags;
 } future_thread_cache_t;
 
-/// Initial state of a \ref future_thread_cache_t
+/// \ref future_thread_cache_t status flag that is set when the host thread is
+/// exiting, which means that cache contents can be spilled
 ///
-/// See \ref future_thread_cache_t::futex for more information.
-#define THREAD_CACHE_READY ((uint32_t)0)
+/// See \ref future_thread_cache_t::flags for more information.
+#define THREAD_CACHE_THREAD_DYING ((uint32_t)1)
 
-/// State of a \ref future_thread_cache_t whose contents are in the process of
-/// being spilled to the parent \ref future_context_cache_t
+/// \ref future_thread_cache_t status flag that is set when the context is
+/// being finalized, which means that cache contents can be liberated
 ///
-/// See \ref future_thread_cache_t::futex for more information.
-#define THREAD_CACHE_SPILLING ((uint32_t)1)
+/// See \ref future_thread_cache_t::flags for more information.
+#define THREAD_CACHE_CONTEXT_DYING ((uint32_t)2)
 
-/// State of a \ref future_thread_cache_t whose contents are in the process of
-/// being liberated
+/// \ref future_thread_cache_t status flag that is set when its contents have
+/// been removed through either spilling or liberation
 ///
-/// See \ref future_thread_cache_t::futex for more information.
-#define THREAD_CACHE_LIBERATING ((uint32_t)2)
+/// See \ref future_thread_cache_t::flags for more information.
+#define THREAD_CACHE_EMPTIED ((uint32_t)4)
 
-/// State of a \ref future_thread_cache_t whose contents have been removed,
-/// either by spilling them or liberating them.
+/// \ref future_thread_cache_t status flag that is set when the TSS destructor
+/// is done with it and will not access it anymore
 ///
-/// See \ref future_thread_cache_t::futex for more information.
-#define THREAD_CACHE_EMPTIED ((uint32_t)3)
+/// See \ref future_thread_cache_t::flags for more information.
+#define THREAD_CACHE_THREAD_DONE ((uint32_t)8)
 
-/// Flag which is set in \ref future_thread_cache_t::futex when the process that
-/// did not win the state machine race is done with the thread cache.
+/// \ref future_thread_cache_t status flag that is set when the udipe_finalize()
+/// is done with it and will not access it anymore
 ///
-/// See \ref future_thread_cache_t::futex for more information.
-#define THREAD_CACHE_OTHER_DONE ((uint32_t)4)
-
-/// Final \ref future_thread_cache_t::futex value
-///
-/// Once a \ref future_thread_cache_t::futex reaches this value, the \ref
-/// future_thread_cache_t has become unreachable and can be liberated.
-#define THREAD_CACHE_ALL_DONE (THREAD_CACHE_DESTROYED | THREAD_CACHE_OTHER_DONE)
+/// See \ref future_thread_cache_t::flags for more information.
+#define THREAD_CACHE_CONTEXT_DONE ((uint32_t)16)
 
 /// Set up a thread-local futures cache
 ///
@@ -195,10 +187,9 @@ typedef struct future_thread_cache_s {
 /// its owners have released control over it:
 ///
 /// - As the host \ref udipe_context_t is destroyed by udipe_finalize(), it must
-///   release control over this thread cache through
-///   future_thread_cache_finalize_from_context().
+///   call future_thread_cache_finalize_from_context().
 /// - As the host thread exits and its TSS destructor is called, it must call
-///   future_thread_cache_finalize_from_thread() too.
+///   future_thread_cache_finalize_from_thread().
 ///
 /// Once both of the following have happened, the \ref future_thread_cache_t
 /// will be liberated, which will possibly also result in the liberation of the
@@ -209,45 +200,14 @@ typedef struct future_thread_cache_s {
 /// \param context must point to a context that was previously created by
 ///                udipe_initialize() and wasn't destroyed by udipe_finalize()
 ///                yet.
-// TODO implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 future_thread_cache_t* future_thread_cache_initialize(udipe_context_t* context);
 
-/// Handle the context finalization half of thread-local cache finalization
-///
-/// As explained in the documentation of \ref future_thread_cache_t::futex, the
-/// exact behavior of this function depends on the relative ordering of
-/// udipe_finalize() and thread exit. But at the time this function returns, it
-/// is guaranteed that...
-///
-/// - All contents of the target \ref future_thread_cache_t have either been
-///   liberated or spilled into the associated \ref future_context_cache_t, i.e.
-///   the cache does not contain any meaningful content anymore.
-/// - If the thread has not exited yet, its TSS destructor will not access the
-///   \ref udipe_context_t again for any other purpose than calling
-///   refcounted_tss_release() on `thread_future_cache` and eventually
-///   liberating it once the last reference is dropped.
-/// - Once this functions has been called and the associated thread has exited,
-///   what remains of the \ref future_thread_cache_t struct will be deallocated.
-///
-/// This function must be called within the scope of with_logger().
-///
-/// \param cache must be a `future_thread_cache_t*` that was previously set up
-///              by future_thread_cache_initialize() and was not finalized via
-///              future_thread_cache_finalize_from_context() yet. After a call
-///              this function, the cache pointer will be set to `NULL` and the
-///              cache should not be accessed again by the udipe_finalize()
-///              implementation.
-//
-// TODO implement
-UDIPE_NON_NULL_ARGS
-void future_thread_cache_finalize_from_context(future_thread_cache_t** cache);
-
 /// Handle the thread exit half of thread-local cache finalization
 ///
-/// As explained in the documentation of \ref future_thread_cache_t::futex, the
+/// As explained in the documentation of \ref future_thread_cache_t::flags, the
 /// exact behavior of this function depends on the relative ordering of
 /// udipe_finalize() and thread exit. But at the time this function returns, it
 /// is guaranteed that...
@@ -264,10 +224,36 @@ void future_thread_cache_finalize_from_context(future_thread_cache_t** cache);
 ///              future_thread_cache_finalize_from_thread() yet. After a call
 ///              this function, the cache pointer will be set to `NULL` and the
 ///              cache should not be accessed again by its home thread.
-//
-// TODO implement
 UDIPE_NON_NULL_ARGS
 void future_thread_cache_finalize_from_thread(future_thread_cache_t** cache);
+
+/// Handle the context finalization half of thread-local cache finalization
+///
+/// As explained in the documentation of \ref future_thread_cache_t::flags, the
+/// exact behavior of this function depends on the relative ordering of
+/// udipe_finalize() and thread exit. But at the time this function returns, it
+/// is guaranteed that...
+///
+/// - All contents of the target \ref future_thread_cache_t have either been
+///   liberated or spilled into the associated \ref future_context_cache_t, i.e.
+///   the cache does not contain any meaningful content anymore.
+/// - If the thread has not exited yet, its TSS destructor will not access the
+///   \ref udipe_context_t again for any other purpose than calling
+///   refcounted_tss_release() on `thread_future_cache` and eventually
+///   liberating the context once the last reference to it is gone.
+/// - Once this functions has been called and the associated thread has exited,
+///   what remains of the \ref future_thread_cache_t struct will be deallocated.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param cache must be a `future_thread_cache_t*` that was previously set up
+///              by future_thread_cache_initialize() and was not finalized via
+///              future_thread_cache_finalize_from_context() yet. After a call
+///              this function, the cache pointer will be set to `NULL` and the
+///              cache should not be accessed again by the udipe_finalize()
+///              implementation.
+UDIPE_NON_NULL_ARGS
+void future_thread_cache_finalize_from_context(future_thread_cache_t** cache);
 
 
 // TODO: Unit tests

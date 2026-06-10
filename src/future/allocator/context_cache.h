@@ -197,6 +197,9 @@ void future_context_cache_register_thread(future_context_cache_t* context_cache,
 /// Importantly, this function must be called at a time where the context
 /// cache's mutex is **not** being locked, otherwise deadlock may ensue.
 ///
+/// After calling this function, members of `cache` whose name starts with
+/// `thread_caches` are invalid and cannot be used anymore.
+///
 /// This function must be called within the scope of with_logger().
 ///
 /// \param cache must be a context cache that was set up with
@@ -216,7 +219,6 @@ void future_context_cache_finalize_threads(future_context_cache_t* cache);
 /// \param cache must be a context cache that was set up with
 ///              future_context_cache_initialize() and wasn't destroyed with
 ///              future_context_cache_finalize() yet.
-// TODO implement based on above function.
 UDIPE_NON_NULL_ARGS
 void future_context_cache_finalize(future_context_cache_t* cache);
 
