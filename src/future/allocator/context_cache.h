@@ -202,7 +202,6 @@ void future_context_cache_register_thread(future_context_cache_t* context_cache,
 /// \param cache must be a context cache that was set up with
 ///              future_context_cache_initialize() and wasn't destroyed with
 ///              future_context_cache_finalize() yet.
-// TODO: implement
 UDIPE_NON_NULL_ARGS
 void future_context_cache_finalize_threads(future_context_cache_t* cache);
 

@@ -9,6 +9,7 @@
 #include "log.h"
 
 #include <stdlib.h>
+#include <threads.h>
 
 #ifdef _WIN32
     #include <winerror.h>
@@ -49,6 +50,42 @@ void warn_on_errno();
     do {  \
         int udipe_result = (result);  \
         if (udipe_result < 0) exit_after_c_error(error_message);  \
+    } while(false)
+
+/// Exit if a C11 threading function does not return `thrd_success`
+///
+/// This handles functions where all of the following is true:
+///
+/// - The return type is `int` and guaranteed to be a `thrd_` constant
+/// - Errors are signaled by returning a value other than `thrd_success`
+/// - exit_after_c_error() preconditions are fulfilled
+///
+/// Be careful that a `thrd_timedout` return value is sometimes expected and
+/// should not be handed over to this function without extra thought.
+#define exit_on_thread_error(result, error_message)  \
+    do {  \
+        int udipe_result = (result);  \
+        if (udipe_result == thrd_success) break;  \
+        char* message;  \
+        switch (udipe_result) {  \
+        case thrd_success:  \
+            exit_with_error("This code path cannot be taken due to the break above!");  \
+            break;  \
+        case thrd_nomem:  \
+            message = "C11 thread operation failed by running out of memory!";  \
+            break;  \
+        case thrd_timedout:  \
+            message = "C11 thread operation timed out!";  \
+            break;  \
+        case thrd_busy:  \
+            message = "C11 thread operation failed due to an unavailable resource!";  \
+            break;  \
+        case thrd_error:  \
+        default:  \
+            message = "C11 thread operation failed for unknown reasons!";  \
+        };  \
+        error(message);  \
+        exit_after_c_error(error_message);  \
     } while(false)
 
 /// Exit if a pointer-returning C functions fails

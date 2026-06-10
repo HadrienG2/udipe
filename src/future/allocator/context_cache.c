@@ -1,6 +1,7 @@
 #include "context_cache.h"
 
 #include <udipe/nodiscard.h>
+#include <udipe/pointer.h>
 
 #include "pointer_cache.h"
 
@@ -21,11 +22,10 @@ future_context_cache_t future_context_cache_initialize() {
     future_context_cache_t cache = { 0 };
 
     trace("- Setting up the mutex...");
-    int result = mtx_init(&cache.mutex, mtx_plain);
-    if (result != thrd_success) {
-        exit_after_c_error("Failed to set up the mutex of the context-global "
-                           "futures allocator cache.");
-    }
+    exit_on_thread_error(
+        mtx_init(&cache.mutex, mtx_plain),
+        "Failed to set up the context cache's mutex."
+    );
 
     trace("- Setting up the pointer cache...");
     cache.futures = future_pointer_cache_initialize(true);
@@ -51,6 +51,11 @@ void future_context_cache_register_thread(future_context_cache_t* context_cache,
     debugf("Registering thread cache %p into context cache %p...",
            thread_cache, context_cache);
 
+    exit_on_thread_error(
+        mtx_lock(&context_cache->mutex),
+        "Failed to lock the context cache's mutex."
+    );
+
     assert(context_cache->thread_caches_length
            <= context_cache->thread_caches_capacity);
     if (
@@ -66,8 +71,13 @@ void future_context_cache_register_thread(future_context_cache_t* context_cache,
             (void*)context_cache->thread_caches,
             context_cache->thread_caches_capacity * sizeof(future_thread_cache_t*)
         );
-        exit_on_null(context_cache->thread_caches,
-                     "Failed to grow thread caches array");
+        if (context_cache->thread_caches == NULL) {
+            exit_on_thread_error(
+                mtx_unlock(&context_cache->mutex),
+                "Failed to unlock the context cache's mutex."
+            );
+            exit_after_c_error("Failed to grow thread caches array");
+        }
         debugf("- Thread cache list is now at address %p with capacity %zu.",
                (void*)context_cache->thread_caches,
                context_cache->thread_caches_capacity);
@@ -78,6 +88,16 @@ void future_context_cache_register_thread(future_context_cache_t* context_cache,
     debugf("- Will insert thread cache at index %zu of the context cache's list.",
            index);
     context_cache->thread_caches[index] = thread_cache;
+
+    exit_on_thread_error(
+        mtx_unlock(&context_cache->mutex),
+        "Failed to unlock the context cache's mutex."
+    );
+}
+
+UDIPE_NON_NULL_ARGS
+void future_context_cache_finalize_threads(future_context_cache_t* cache) {
+    // TODO implement
 }
 
 
