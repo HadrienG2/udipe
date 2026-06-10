@@ -152,7 +152,6 @@ typedef struct future_context_cache_s {
 ///
 /// \returns a context-global future cache that must eventually be destroyed
 ///          using future_context_cache_finalize().
-// TODO implement
 UDIPE_NODISCARD
 future_context_cache_t future_context_cache_initialize();
 
