@@ -59,11 +59,11 @@ typedef struct future_thread_cache_s {
     ///
     /// This pointer is needed during the thread exit procedure...
     ///
-    /// - To access the global cache for spilling purpose if the host thread's
-    ///   TSS destructor wins the race away from the `READY` state (i.e. the
-    ///   thread exits before the context's global cache is finalized). At this
+    /// - To access the global cache for spilling purpose if the host thread
+    ///   starts exiting before the context starts being destroyed. At this
     ///   point, you can safely assume that the context is mostly initialized
-    ///   and e.g. logging is still available.
+    ///   and e.g. logging is still available, because if the context destructor
+    ///   starts concurrently it will wait for the spilling to complete.
     /// - To call refcounted_tss_release() at the end and finish liberating the
     ///   \ref udipe_context_t if this drops the last reference to it. At this
     ///   point, you must be careful that every member of the context struct
@@ -79,11 +79,12 @@ typedef struct future_thread_cache_s {
     /// Status flags used to coordinate future spilling and liberation
     ///
     /// A thread cache stops being useful and its contents must be diposed of
-    /// when either of the following events happens:
+    /// when either of the following happens:
     ///
-    /// - The host thread exits, which means it won't need its contents anymore.
-    ///   When this happens, resources from the cache should be spilled into the
-    ///   parent context, making them available for reuse by other threads.
+    /// - The host thread exits, which means it won't need its thread-local
+    ///   cache's contents anymore. When this happens, resources from the cache
+    ///   should be spilled into the parent context's global cache, making them
+    ///   available for reuse by other threads.
     /// - The host context is finalized, which means its contents are not safe
     ///   to use anymore. When this happens, inner resources can be liberated
     ///   directly without going through the global cache.
@@ -100,10 +101,11 @@ typedef struct future_thread_cache_s {
     ///   destructor. If it is set before `CONTEXT_DYING`, the cache's contents
     ///   will be spilled to the context-global cache by the TSS destructor. If
     ///   udipe_finalize() starts concurrently as this is happening, it must
-    ///   wait for this process to complete by waiting for the `EMPTIED` flag to
-    ///   be set then busy-waiting for the `THREAD_DONE` flag to be set too (see
-    ///   below). Once all of this is done, udipe_finalize() can proceed with
-    ///   liberating this thread-local cache and the context-global cache.
+    ///   wait for this process to complete. To do so, it will need to first
+    ///   wait for the `EMPTIED` flag to be set, then busy-wait for the
+    ///   `THREAD_DONE` flag to be set as well (see below for the explanation).
+    ///   Once all of this is done, udipe_finalize() can proceed with liberating
+    ///   this thread-local cache and the context-global cache.
     /// - \ref THREAD_CACHE_CONTEXT_DYING is set at the beginning of
     ///   udipe_finalize(). If it is set before `THREAD_DYING`, the cache's
     ///   contents will be destroyed directly. The TSS destructor does not need
