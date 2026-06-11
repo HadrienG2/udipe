@@ -296,10 +296,10 @@ typedef struct future_pointer_cache_s {
 ///
 /// - Thread-local caches have fixed and preallocated pointer storage capacity,
 ///   and they should be spilled into the global cache with
-///   future_pointer_cache_recycle_local() if the corresponding thread exits
-///   before the host context is destroyed by udipe_finalize(). When the host
-///   context is destroyed, it will liberate all remaining thread local caches
-///   after notifying the corresponding threads that they shouldn't spill to the
+///   future_pointer_cache_spill() if the corresponding thread exits before the
+///   host context is destroyed by udipe_finalize(). When the host context is
+///   destroyed, it will liberate all remaining thread local caches after
+///   notifying the corresponding threads that they shouldn't spill to the
 ///   global cache anymore.
 /// - The global context cache has unbounded storage capacity with no
 ///   preallocated pointer pages, and gets eventually liberated with
@@ -313,11 +313,11 @@ typedef struct future_pointer_cache_s {
 ///               local cache of a single thread (if false).
 ///
 /// \returns a freshly initialized future cache that must eventually be either
-///          1/recycled into the global cache with
-///          future_pointer_cache_recycle_local() at thread exit time, if it is
-///          a thread-local cache and the host context has not been destroyed
-///          yet; or 2/destroyed with future_pointer_cache_finalize() when the
-///          host context gets destroyed by udipe_finalize().
+///          1/spilled into the global cache with future_pointer_cache_spill()
+///          at thread exit time, if it is a thread-local cache and the host
+///          context has not been destroyed yet; or 2/destroyed with
+///          future_pointer_cache_finalize() when the host context gets
+///          destroyed by udipe_finalize().
 UDIPE_NODISCARD
 future_pointer_cache_t future_pointer_cache_initialize(bool global);
 
@@ -350,7 +350,7 @@ future_pointer_cache_t future_pointer_cache_initialize(bool global);
 ///
 /// \param local_cache must point to a thread-local cache that was set up with
 ///                    future_pointer_cache_initialize(false) and wasn't
-///                    destroyed by future_pointer_cache_recycle_local() or
+///                    destroyed by future_pointer_cache_spill() or
 ///                    future_pointer_cache_finalize() yet.
 ///
 /// \returns an uninitialized future object if available, or `NULL` if no future
@@ -382,7 +382,7 @@ future_pointer_cache_allocate_local(future_pointer_cache_t* local_cache);
 ///
 /// \param local_cache must point to a thread-local cache that was set up with
 ///                    future_pointer_cache_initialize(false) and wasn't
-///                    destroyed by future_pointer_cache_recycle_local() or
+///                    destroyed by future_pointer_cache_spill() or
 ///                    future_pointer_cache_finalize() yet.
 /// \param future must point to a future that was previously allocated from one
 ///               cache of the same \ref udipe_context_t with
@@ -419,8 +419,8 @@ bool future_pointer_cache_liberate_local(future_pointer_cache_t* local_cache,
 /// When calling this on a thread-local cache for the purpose of transfering
 /// futures into the global cache, remember that you must keep the capacity of
 /// thread-local caches constant until liberation time. This means that except
-/// in future_pointer_cache_recycle_local(), every page you extract must be
-/// replaced with an empty page through a combination of
+/// in future_pointer_cache_spill(), every page you extract must be replaced
+/// with an empty page through a combination of
 /// future_pointer_cache_obtain_empty() on the global cache and
 /// future_pointer_cache_insert_empty() on the thread-local cache.
 ///
@@ -428,7 +428,7 @@ bool future_pointer_cache_liberate_local(future_pointer_cache_t* local_cache,
 ///
 /// \param cache must point to a cache that was set up with
 ///              future_pointer_cache_initialize() and wasn't destroyed by
-///              future_pointer_cache_recycle_local() or
+///              future_pointer_cache_spill() or
 ///              future_pointer_cache_finalize() yet.
 ///
 /// \returns a page containing at least one future pointer on success or `NULL`
@@ -445,7 +445,7 @@ future_pointer_cache_extract_futures(future_pointer_cache_t* cache);
 ///
 /// \param cache must point to a cache that was set up with
 ///              future_pointer_cache_initialize() and wasn't destroyed by
-///              future_pointer_cache_recycle_local() or
+///              future_pointer_cache_spill() or
 ///              future_pointer_cache_finalize() yet.
 ///
 /// \returns a page containing only `NULL` future pointers.
@@ -462,7 +462,7 @@ future_pointer_cache_obtain_empty(future_pointer_cache_t* cache);
 ///
 /// \param cache must point to a cache that was set up with
 ///              future_pointer_cache_initialize() and wasn't destroyed by
-///              future_pointer_cache_recycle_local() or
+///              future_pointer_cache_spill() or
 ///              future_pointer_cache_finalize() yet.
 /// \param non_empty must point to a \ref future_pointer_page_t that contains at
 ///                  least one valid pointer, and will usually (but not always)
@@ -480,7 +480,7 @@ void future_pointer_cache_insert_futures(future_pointer_cache_t* cache,
 ///
 /// \param cache must point to a cache that was set up with
 ///              future_pointer_cache_initialize() and wasn't destroyed by
-///              future_pointer_cache_recycle_local() or
+///              future_pointer_cache_spill() or
 ///              future_pointer_cache_finalize() yet.
 /// \param empty must point to a \ref future_pointer_page_t that contains only
 ///              `NULL` pointers. This page should have been obtained via
@@ -501,7 +501,7 @@ void future_pointer_cache_insert_empty(future_pointer_cache_t* cache,
 ///
 /// \param local_cache must point to a thread-local cache that was set up with
 ///                    future_pointer_cache_initialize(false), wasn't destroyed
-///                    by future_pointer_cache_recycle_local() or
+///                    by future_pointer_cache_spill() or
 ///                    future_pointer_cache_finalize() yet, and is currently
 ///                    empty.
 /// \param new_futures must point to a new page of futures that was freshly
@@ -512,7 +512,7 @@ UDIPE_NON_NULL_ARGS
 void future_pointer_cache_refill_local(future_pointer_cache_t* local_cache,
                                        future_storage_page_t* new_futures);
 
-/// Recycle a thread-local future cache's contents into the global process cache
+/// Spill a thread-local future cache's contents into the global process cache
 ///
 /// This function can be called at thread exit time to spill the contents of the
 /// active thread's local future cache into the associated global context cache,
@@ -524,9 +524,9 @@ void future_pointer_cache_refill_local(future_pointer_cache_t* local_cache,
 ///
 /// \param local must point to a thread-local cache that was set up with
 ///              future_pointer_cache_initialize(false), wasn't destroyed by
-///              future_pointer_cache_recycle_local() or
-///              future_pointer_cache_finalize() yet. It cannot be used again
-///              after this function has been called on it.
+///              future_pointer_cache_spill() or future_pointer_cache_finalize()
+///              yet. It cannot be used again after this function has been
+///              called on it.
 /// \param global designates the global cache into which the thread-local cache
 ///               will be spilled. It should have been set up with
 ///               future_pointer_cache_initialize(true) and not have been
@@ -534,23 +534,22 @@ void future_pointer_cache_refill_local(future_pointer_cache_t* local_cache,
 ///               when manipulating the global cache, the associated lock must
 ///               have been acquired first.
 UDIPE_NON_NULL_ARGS
-void future_pointer_cache_recycle_local(future_pointer_cache_t* local,
-                                        future_pointer_cache_t* global);
+void future_pointer_cache_spill(future_pointer_cache_t* local,
+                                future_pointer_cache_t* global);
 
 /// Destroy a future pointer cache
 ///
 /// This function can only be used when the \ref udipe_context_t that holds this
 /// cache is destroyed. If a thread exits before that and it has a thread-local
 /// cache, it should instead spill its local cache to the global cache with
-/// future_pointer_cache_recycle_local().
+/// future_pointer_cache_spill().
 ///
 /// This function must be called within the scope of with_logger().
 ///
 /// \param cache must point to a pointer cache that was set up with
 ///              future_pointer_cache_initialize() and wasn't destroyed by
-///              future_pointer_cache_recycle_local() or
-///              future_pointer_cache_finalize() yet. It cannot be used again
-///              after calling this function.
+///              future_pointer_cache_spill() or future_pointer_cache_finalize()
+///              yet. It cannot be used again after calling this function.
 UDIPE_NON_NULL_ARGS
 void future_pointer_cache_finalize(future_pointer_cache_t* cache);
 
