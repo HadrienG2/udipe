@@ -102,8 +102,10 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** pcache) {
                 mtx_lock(&cache->context->global_future_cache.mutex),
                 "Failed to lock the context cache's mutex."
             );
-            future_pointer_cache_spill(&cache->futures,
-                                       &cache->context->global_future_cache.futures);
+            future_pointer_cache_spill(
+                &cache->futures,
+                &cache->context->global_future_cache.futures
+            );
             exit_on_thread_error(
                 mtx_unlock(&cache->context->global_future_cache.mutex),
                 "Failed to lock the context cache's mutex."

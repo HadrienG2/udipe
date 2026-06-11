@@ -79,6 +79,11 @@ void udipe_finalize(udipe_context_t* context) {
     // is the last reference to it (otherwise some TSS destructors must still
     // run and access the context in the process, so context destruction will be
     // deferred until the last of these destructors is done).
+    //
+    // The reason we can afford to call this function so late is that
+    // future_context_cache_finalize() already does the work of telling the TSS
+    // destructors that they cannot access any part of the context other than
+    // thread_future_cache from this point on.
     if (refcounted_tss_discard(&context->thread_future_cache)) {
         free((void*)context);
     }
