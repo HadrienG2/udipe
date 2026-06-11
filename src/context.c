@@ -1,6 +1,7 @@
 #include "context.h"
 
 #include <udipe/nodiscard.h>
+#include <udipe/pointer.h>
 #include <udipe/visibility.h>
 
 #include "error.h"
@@ -16,11 +17,11 @@
 #include <string.h>
 
 
-/// thread_future_cache_destructor() wrapper that has the `tss_dtor_t` signature
-///
-static void thread_future_cache_destructor(void* thread_cache) {
+/// future_thread_cache_finalize_from_context() wrapper that has the signature
+/// expected by `tss_dtor_t`.
+static void future_thread_cache_destructor(void* thread_cache) {
     future_thread_cache_t* cache = (future_thread_cache_t*)thread_cache;
-    future_thread_cache_finalize_from_context(&cache);
+    if (cache) future_thread_cache_finalize_from_context(&cache);
 }
 
 DEFINE_PUBLIC
@@ -45,11 +46,11 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
         context->connect_options = connect_options_allocator_initialize();
 
         debug("Initializing the context-global future allocator cache...");
-        context->global_future_cache = future_context_cache_initialize();
+        context->future_global_cache = future_context_cache_initialize();
 
         debug("Initializing the thread-local future allocator cache...");
-        context->thread_future_cache = refcounted_tss_initialize(
-            thread_future_cache_destructor
+        context->future_local_cache_key = refcounted_tss_initialize(
+            future_thread_cache_destructor
         );
     });
     return context;
@@ -60,7 +61,7 @@ UDIPE_NON_NULL_ARGS
 void udipe_finalize(udipe_context_t* context) {
     with_logger(&context->logger, {
         debug("Liberating all the future allocator caches...");
-        future_context_cache_finalize(&context->global_future_cache);
+        future_context_cache_finalize(&context->future_global_cache);
 
         debug("Finalizing the connection options allocator...");
         connect_options_allocator_finalize(&context->connect_options);
@@ -84,7 +85,7 @@ void udipe_finalize(udipe_context_t* context) {
     // future_context_cache_finalize() already does the work of telling the TSS
     // destructors that they cannot access any part of the context other than
     // thread_future_cache from this point on.
-    if (refcounted_tss_discard(&context->thread_future_cache)) {
+    if (refcounted_tss_discard(&context->future_local_cache_key)) {
         free((void*)context);
     }
 }

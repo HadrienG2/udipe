@@ -67,7 +67,7 @@ typedef struct future_thread_cache_s {
     /// - To call refcounted_tss_release() at the end and finish liberating the
     ///   \ref udipe_context_t if this drops the last reference to it. At this
     ///   point, you must be careful that every member of the context struct
-    ///   except for `thread_future_cache` may be finalized and should not be
+    ///   except for `future_local_cache_key` may be finalized and should not be
     ///   used. This means in particular that no logging is possible.
     ///
     /// Outside of these circumstances, the thread-local cache is normally
@@ -112,9 +112,9 @@ typedef struct future_thread_cache_s {
     ///   to wait for that to happen, but it must acknowledge that the context
     ///   is being destroyed by refraining from accessing the `context` pointer
     ///   in any other way than calling refcounted_tss_release() on the \ref
-    ///   udipe_context_t::thread_future_cache + liberating the context struct
-    ///   if this releases the last remaining reference to it. In particular,
-    ///   this means that no logging can be performed in this case.
+    ///   udipe_context_t::future_local_cache_key + liberating the context
+    ///   struct if this releases the last remaining reference to it. In
+    ///   particular, this means that no logging can be performed in this case.
     /// - \ref THREAD_CACHE_EMPTIED is set when all contents from this
     ///   thread-local cache have been removed through either spilling or
     ///   liberating. When this flag is set by the TSS destructor, if
@@ -241,7 +241,7 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** cache);
 ///   the cache does not contain any meaningful content anymore.
 /// - If the thread has not exited yet, its TSS destructor will not access the
 ///   \ref udipe_context_t again for any other purpose than calling
-///   refcounted_tss_release() on `thread_future_cache` and eventually
+///   refcounted_tss_release() on `future_local_cache_key` and eventually
 ///   liberating the context once the last reference to it is gone.
 /// - Once this functions has been called and the associated thread has exited,
 ///   what remains of the \ref future_thread_cache_t struct will be deallocated.

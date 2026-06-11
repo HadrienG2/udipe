@@ -61,7 +61,7 @@ struct udipe_context_s {
     ///   holding the `udipe_context_t` if this call returns `true`. Otherwise
     ///   it must leave liberation up to the TSS destructors of other threads as
     ///   they call refcounted_tss_release() on their side.
-    refcounted_tss_t thread_future_cache;
+    refcounted_tss_t future_local_cache_key;
 
     /// hwloc topology
     ///
@@ -73,7 +73,7 @@ struct udipe_context_s {
     ///
     /// The future allocator will query this cache if `local_future_cache` does
     /// not have some resources that it needs.
-    future_context_cache_t global_future_cache;
+    future_context_cache_t future_global_cache;
 
     /// Allocator of \ref shared_connect_options_t
     ///

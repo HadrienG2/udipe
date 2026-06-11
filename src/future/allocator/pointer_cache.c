@@ -76,21 +76,21 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 udipe_future_t*
 future_pointer_cache_allocate_local(future_pointer_cache_t* local_cache) {
-    debug("Trying to allocate a future from the thread-local cache...");
+    trace("Trying to allocate a future from the thread-local cache...");
     if (local_cache->num_top_futures == 0) {
         debug("No future available. Time to steal from to the global cache!");
         return NULL;
     }
     assert(local_cache->num_top_futures <= future_pointer_page_capacity());
     const size_t last_idx = local_cache->num_top_futures - 1;
-    debugf("Can allocate future from slot #%zu of the current top page.",
+    tracef("Can allocate future from slot #%zu of the current top page.",
            last_idx);
 
     assert(local_cache->top);
     udipe_future_t* const future = local_cache->top->futures[last_idx];
     assert(future);
     local_cache->top->futures[last_idx] = NULL;
-    debugf("Allocated future %p, decrement num_top_futures accordingly...",
+    tracef("Allocated future %p, decrement num_top_futures accordingly...",
            future);
 
     if (--(local_cache->num_top_futures) == 0) {
@@ -111,7 +111,7 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 bool future_pointer_cache_liberate_local(future_pointer_cache_t* local_cache,
                                          udipe_future_t* future) {
-    debugf("Trying to liberate future %p into thread-local cache %p...",
+    tracef("Trying to liberate future %p into thread-local cache %p...",
            future, local_cache);
     assert(local_cache->top);
 
@@ -129,7 +129,7 @@ bool future_pointer_cache_liberate_local(future_pointer_cache_t* local_cache,
     assert(local_cache->num_top_futures < future_pointer_page_capacity());
     const size_t next_idx = local_cache->num_top_futures;
 
-    debugf("Found room in slot #%zu of top page %p. Liberating future...",
+    tracef("Found room in slot #%zu of top page %p. Liberating future...",
            next_idx, local_cache->top);
     *future = (udipe_future_t){ 0 };
     #ifdef __linux__

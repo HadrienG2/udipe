@@ -99,16 +99,16 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** pcache) {
                    "as the corresponding thread is exiting...",
                    (void*)cache, (void*)cache->context);
             exit_on_thread_error(
-                mtx_lock(&cache->context->global_future_cache.mutex),
+                mtx_lock(&cache->context->future_global_cache.mutex),
                 "Failed to lock the context cache's mutex."
             );
             future_pointer_cache_spill(
                 &cache->futures,
-                &cache->context->global_future_cache.futures
+                &cache->context->future_global_cache.futures
             );
             exit_on_thread_error(
-                mtx_unlock(&cache->context->global_future_cache.mutex),
-                "Failed to lock the context cache's mutex."
+                mtx_unlock(&cache->context->future_global_cache.mutex),
+                "Failed to unlock the context cache's mutex."
             );
 
             debug("Liberating event objects...");
@@ -148,7 +148,7 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** pcache) {
 
     // Decrement the reference count of the context's tss_t and deallocate the
     // host context if it turns out we held the last reference to it
-    if (refcounted_tss_release(&cache->context->thread_future_cache)) {
+    if (refcounted_tss_release(&cache->context->future_local_cache_key)) {
         free((void*)(cache->context));
     }
     cache->context = NULL;

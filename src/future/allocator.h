@@ -12,8 +12,14 @@
 #include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
+#include "allocator/thread_cache.h"
+#include "allocator/context_cache.h"
+
 #include "type.h"
 
+
+/// \name Public allocator interface
+/// \{
 
 /// Allocate a future
 ///
@@ -35,11 +41,13 @@
 ///   future type, in such a way that all required system resources are
 ///   preallocated and relations between these are already set up, but other
 ///   state which requires access to other future configuration parameters is
-///   not set up.
-///   * `status_sync.event`, is is allocated and in an unsignaled state.
-///   * `status_sync.timer` is allocated but in an unspecified state. It may be
-///     set to a particular deadline/period or be unset. You must set it to the
-///     desired deadline with no period before use.
+///   not set up. This means that...
+///   * `status_sync.event`, is allocated and in an unsignaled state for all
+///     "eager" future types that support event-based signaling.
+///   * `status_sync.timer` is allocated but in an unspecified state for \ref
+///     TYPE_TIMER_ONCE. It may be set to a particular deadline/period or be
+///     unset. You must set it to the desired deadline with no period before
+///     exposing the future to the outside world.
 ///   * `status_sync.latched_epoll` (Linux-only) is already allocated and
 ///     attached to the associated \ref epoll_latch_event_t with identifier
 ///     `U64_MAX`, and...
@@ -104,13 +112,38 @@ udipe_future_t* future_allocate(udipe_context_t* context,
 UDIPE_NON_NULL_ARGS
 void future_liberate(udipe_future_t* future);
 
-// TODO: Ensure that 1/when a user thread exits, its thread-local unallocated
-//       future cache is spilled into a global unallocated future cache and 2/on
-//       atexit(), this global future cache is fully wiped: not just individual
-//       futures, but also the memory pages as part of which these futures were
-//       allocated. I think it makes most sense for the global future cache to
-//       not be specific to any udipe context but shared across all udipe
-//       contexts.
+/// \}
+
+
+/// \name Implementation details
+/// \{
+
+/// Allocate a future without partially initializing it
+///
+/// This is an implementation detail of future_allocate() that must not be
+/// called directly.
+///
+/// \internal
+///
+/// The future will be provided in a fully unallocated state where the status
+/// word is set to an invalid "zero-ish" value and all file descriptors are set
+/// to -1.
+///
+/// \param thread_cache should point to the thread-local cache from this thread.
+/// \param context_cache should point to the context-global cache from the
+///                      associated context.
+///
+/// \returns a freshly allocated future object that must be initialized as
+///          described by the documentation of future_allocate() before being
+///          returned to the user.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+UDIPE_NON_NULL_RESULT
+udipe_future_t*
+future_allocate_uninitialized(future_thread_cache_t* thread_cache,
+                              future_context_cache_t* context_cache);
+
+/// \}
 
 
 // TODO: Unit tests

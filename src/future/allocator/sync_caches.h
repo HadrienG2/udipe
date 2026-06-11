@@ -121,13 +121,13 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static inline
 event_t event_cache_allocate(event_cache_t* cache) {
-    debugf("Event object requested from cache %p.", cache);
+    tracef("Event object requested from cache %p.", cache);
     const event_t candidate = cache->events[cache->latest];
     if (candidate == EVENT_INVALID) {
         debug("Must allocate a new event object as the cache is empty.");
         return event_initialize(false);
     } else {
-        debugf("Picked an event object from the latest entry (#%zu).",
+        tracef("Picked an event object from the latest entry (#%zu).",
                (size_t)(cache->latest));
         cache->events[cache->latest] = EVENT_INVALID;
         sync_cache_decrement_index(&cache->latest, EVENT_CACHE_CAPACITY);
@@ -150,9 +150,9 @@ event_t event_cache_allocate(event_cache_t* cache) {
 UDIPE_NON_NULL_ARGS
 static inline
 void event_cache_liberate(event_cache_t* cache, event_t event) {
-    debugf("Discarding event object into cache %p.", cache);
+    tracef("Discarding event object into cache %p.", cache);
     sync_cache_increment_index(&cache->latest, EVENT_CACHE_CAPACITY);
-    debugf("Will put it into the next entry (#%zu).",
+    tracef("Will put it into the next entry (#%zu).",
            (size_t)(cache->latest));
     if (cache->events[cache->latest] != EVENT_INVALID) {
         debug("Cache is full, must liberate oldest entry first.");
