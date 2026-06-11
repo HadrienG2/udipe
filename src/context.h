@@ -61,8 +61,6 @@ struct udipe_context_s {
     ///   holding the `udipe_context_t` if this call returns `true`. Otherwise
     ///   it must leave liberation up to the TSS destructors of other threads as
     ///   they call refcounted_tss_release() on their side.
-    //
-    // TODO: Set this up in context constructor/destructor
     refcounted_tss_t thread_future_cache;
 
     /// hwloc topology
@@ -75,8 +73,6 @@ struct udipe_context_s {
     ///
     /// The future allocator will query this cache if `local_future_cache` does
     /// not have some resources that it needs.
-    //
-    // TODO: Set this up in context constructor
     future_context_cache_t global_future_cache;
 
     /// Allocator of \ref shared_connect_options_t
@@ -84,5 +80,3 @@ struct udipe_context_s {
     /// See \ref connect.h for more info on how this works and how to use it.
     connect_options_allocator_t connect_options;
 };
-
-// TODO: Add constructor for context setup

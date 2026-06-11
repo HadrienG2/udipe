@@ -316,8 +316,8 @@ void future_pointer_cache_refill_local(future_pointer_cache_t* local_cache,
 }
 
 UDIPE_NON_NULL_ARGS
-void future_pointer_cache_recycle_local(future_pointer_cache_t* local,
-                                        future_pointer_cache_t* global) {
+void future_pointer_cache_spill(future_pointer_cache_t* local,
+                                future_pointer_cache_t* global) {
     debugf("Spilling contents of thread-local cache %p into global cache %p...",
            local, global);
 
@@ -345,7 +345,7 @@ void future_pointer_cache_finalize(future_pointer_cache_t* cache) {
     debugf("Liberating all pages from pointer cache %p...", cache);
 
     future_pointer_page_t* page = cache->bottom;
-    assert(cache->bottom->previous == NULL);
+    assert(page == NULL || page->previous == NULL);
     while (page) {
         future_pointer_page_t* const next_page = page->next;
         free((void*)page);

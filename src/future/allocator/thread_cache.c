@@ -137,13 +137,12 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** pcache) {
                 wake_by_address_all(&cache->flags);
             }
         });
+        // WARNING: No logging or logger-based functionality allowed beyond this
+        //          point as we may to things that will destroy the logger.
     }
     // No need to await the context destructor if it came here first because the
     // following operations can safely happen in parallel with context
     // destruction, as all dangerous operations are refcount-protected.
-    //
-    // On the other hand, be sure not to use any logging or logger-based
-    // functionality like ensure_ assertions below this point.
 
     // Decrement the reference count of the context's tss_t and deallocate the
     // host context if it turns out we held the last reference to it
