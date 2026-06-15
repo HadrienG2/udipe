@@ -13,6 +13,7 @@
 
 #include <errno.h>
 #include <hwloc.h>
+#include <stdalign.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -32,7 +33,8 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
     udipe_context_t* context = NULL;
     with_logger(&logger, {
         debug("Allocating a libudipe context...");
-        context = malloc(sizeof(udipe_context_t));
+        context = aligned_alloc(alignof(udipe_context_t),
+                                sizeof(udipe_context_t));
         memset(context, 0, sizeof(udipe_context_t));
         context->logger = logger;
 
