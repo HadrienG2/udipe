@@ -38,8 +38,6 @@ static inline stopwatch_t stopwatch_initialize() {
 
 /// Measure the amount of elapsed time since the last measurement (or
 /// initialization).
-///
-///
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static inline udipe_duration_ns_t stopwatch_measure(stopwatch_t* stopwatch) {

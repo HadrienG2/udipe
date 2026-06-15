@@ -27,8 +27,9 @@
     /// Close a "virtual" file descriptor which does not map into a file on disk
     ///
     /// \param fd must point to an unclosed file descriptor which is not
-    ///           associated to an actual file on disk. It will be set to \ref
-    ///           FD_INVALID after closing and must not be used afterwards.
+    ///           associated to an actual file on disk, such as an eventfd or an
+    ///           epollfd. It will be set to \ref FD_INVALID after closing and
+    ///           must not be used afterwards.
     UDIPE_NON_NULL_ARGS
     static inline
     void close_virtual_fd(fd_t* fd) {
@@ -44,6 +45,8 @@
             #endif
             break;
         case EBADF:   // Invalid file descriptor.
+            exit_after_c_error("Called close_virtual_fd() on an invalid fd.");
+            break;
         case EIO:     // I/O error occurred during file system access.
         case ENOSPC:  // NFS quota blown by previous write
         case EDQUOT:  // NFS quota blown by previous write

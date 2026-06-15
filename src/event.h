@@ -72,7 +72,8 @@ UDIPE_NODISCARD
 static inline
 event_t event_initialize(bool signaled) {
     #ifdef __linux__
-        int maybe_eventfd = eventfd((unsigned)signaled, EFD_NONBLOCK);
+        int maybe_eventfd = eventfd((unsigned)signaled,
+                                    EFD_CLOEXEC | EFD_NONBLOCK);
         if (maybe_eventfd == -1) switch(errno) {
         case EMFILE:  // Reached process fd limit
             exit_after_c_error(

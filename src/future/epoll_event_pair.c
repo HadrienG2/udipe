@@ -23,7 +23,7 @@
         const event_t eventfd = event_initialize(false);
 
         debug("Allocating epollfd...");
-        const int maybe_epollfd = epoll_create1(0);
+        const int maybe_epollfd = epoll_create1(EPOLL_CLOEXEC);
         if (maybe_epollfd == -1) switch(errno) {
         case EMFILE:  // Reached process fd limit
             exit_after_c_error(
