@@ -103,8 +103,8 @@
     ///             inpoll_finalize() yet.
     /// TODO finish docs
     //
-    // TODO implement, epoll_ctl with EPOLL_CTL_ADD, EPOLLIN, and
-    //      none of EPOLLET, EPOLLONESHOT, EPOLLWAKEUP, EPOLLEXCLUSIVE
+    // TODO implement, epoll_ctl with EPOLL_CTL_ADD, EPOLLIN, and none of
+    //      EPOLLET, EPOLLONESHOT, EPOLLWAKEUP, EPOLLEXCLUSIVE
     UDIPE_NON_NULL_ARGS
     void inpoll_attach(inpoll_t poll, fd_t upstream_fd, uint64_t identifier);
 
