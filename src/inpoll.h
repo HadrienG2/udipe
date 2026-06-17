@@ -59,7 +59,6 @@
     ///
     /// \returns an input polling file descriptor that must later be destroyed
     ///          using inpoll_finalize().
-    // TODO implement, epoll_create1 with EPOLL_CLOEXEC
     UDIPE_NODISCARD
     inpoll_t inpoll_initialize();
 
