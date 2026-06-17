@@ -71,6 +71,9 @@ udipe_future_t* future_allocate(udipe_context_t* context,
     trace("Setting up type-specific file descriptors...");
     // TODO: Extract this into a utility function + add more logging
     inpoll_event_pair_t inpoll_event;
+    #ifdef __linux__
+        inpoll_attach_result_t attach_result;
+    #endif
     switch (type) {
     case TYPE_NETWORK_CONNECT:  // aliases TYPE_NETWORK_START
     case TYPE_NETWORK_DISCONNECT:
@@ -91,7 +94,7 @@ udipe_future_t* future_allocate(udipe_context_t* context,
             break;
         case TYPE_UNORDERED:
             trace("Allocating the upstream inpoll...");
-            specific.unordered.upstream_inpoll = inpoll_initialize();
+            future->specific.unordered.upstream_inpoll = inpoll_initialize();
 
             trace("Allocating the output inpoll+eventfd pair...");
             inpoll_event = inpoll_event_cache_allocate(
@@ -101,20 +104,29 @@ udipe_future_t* future_allocate(udipe_context_t* context,
             future->status_sync.latched_inpoll = inpoll_event.inpoll;
 
             trace("Attaching the upstream inpoll to the output inpoll...");
-            inpoll_attach(future->status_sync.latched_inpoll,
-                          specific.unordered.upstream_inpoll,
-                          // TODO: Extract this hardcoded constant somewhere
-                          (uint64_t)0);
+            attach_result =
+                inpoll_attach(future->status_sync.latched_inpoll,
+                              future->specific.unordered.upstream_inpoll,
+                              // TODO: Extract this hardcoded constant somewhere
+                              (uint64_t)0);
+            switch (attach_result) {
+            case INPOLL_ATTACH_SUCCESS:
+                break;
+            case INPOLL_ATTACH_TOO_NESTED:
+                // Can't happen, upstream_inpoll has nothing attached to it yet.
+                exit_after_c_error("This error is not expected to happen!");
+            }
             break;
         case TYPE_TIMER_REPEAT:
             // TODO: Allocate specific.timer_repeat.timerfd, sharing code with
             //       the TIMER_ONCE path
+            trace("Allocating the output inpoll+eventfd pair...");
             inpoll_event = inpoll_event_cache_allocate(
                 &thread_cache->inpolls_with_events
             );
             future->specific.timer_repeat.inpoll_latch = inpoll_event.event;
-            // TODO: Attach timerfd to inpoll_event.inpoll with inpoll_attach().
             future->status_sync.latched_inpoll = inpoll_event.inpoll;
+            // TODO: Attach timerfd to inpoll_event.inpoll with inpoll_attach().
             break;
         case TYPE_TIMER_ONCE:
             // TODO: Allocate future->status_sync.timer, sharing code with
