@@ -164,7 +164,6 @@
     /// \param upstream_fd must be a valid file descriptor that was previously
     ///                    attached to this \ref inpoll_t with inpoll_attach()
     ///                    and wasn't detached since.
-    // TODO docs+implement, epoll_ctl with EPOLL_CTL_DEL and NULL
     void inpoll_detach(inpoll_t poll, fd_t upstream_fd);
 
     /// Wait for at least one of the previously attached upstream file

@@ -74,13 +74,37 @@
                 "Consider increasing the limit if possible."
             );
         case EBADF:  // epfd or fd is not a valid file descriptor.
-        case EEXIST:  // op was EPOLL_CTL_ADD, and fd is already registered.
+        case EEXIST:  // (op is EPOLL_CTL_ADD) fd is already registered.
         case EINVAL:  // - epfd is not an epoll file descriptor.
                       // - fd is the same as epfd.
                       // - requested operation (ADD) is not supported.
                       // - (other errors can only happen with EPOLLEXCLUSIVE)
-        case ENOENT:  // (can only happen with op of MOD or DEL)
+        case ENOENT:  // (can only happen when op is MOD or DEL)
         case ENOMEM:  // Not enough memory to perform this operation.
+        case EPERM:  // The target file fd does not support epoll.
+        default:
+            exit_after_c_error("This error is not expected to happen!");
+        }
+    }
+
+    void inpoll_detach(inpoll_t poll, fd_t upstream_fd) {
+        const int result = epoll_ctl(poll,
+                                     EPOLL_CTL_DEL,
+                                     upstream_fd,
+                                     NULL);
+        if (result == 0) return;
+        assert(result == -1);
+        switch (errno) {
+        case EBADF:  // epfd or fd is not a valid file descriptor.
+        case EEXIST:  // (can only oppen when op is ADD).
+        case EINVAL:  // - epfd is not an epoll file descriptor.
+                      // - fd is the same as epfd.
+                      // - requested operation (DEL) is not supported.
+                      // - (other errors can only happen with EPOLLEXCLUSIVE)
+        case ELOOP:  // (can only happen when op is ADD)
+        case ENOENT:  // (op is DEL) fd is not registered with this epollfd.
+        case ENOMEM:  // Not enough memory to perform this operation.
+        case ENOSPC:  // (can only happen when op is ADD)
         case EPERM:  // The target file fd does not support epoll.
         default:
             exit_after_c_error("This error is not expected to happen!");
