@@ -184,6 +184,7 @@ target_sources(udipe
                        src/future/unordered_state.h
                        src/future/wait.c
                        src/future/wait.h
+                       src/inpoll.c
                        src/inpoll.h
                        src/log.c
                        src/log.h
