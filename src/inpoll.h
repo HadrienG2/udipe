@@ -92,6 +92,11 @@
         ///   up monitoring each other.
         /// - It does not result in an `epollfd` nesting depth greater than 5.
         ///
+        /// We unfortunately cannot differentiate these two cases, but since
+        /// inpoll is currently only used to implement futures and futures
+        /// cannot be dynamically attached to other futures after creation, we
+        /// can assume it is the latter problem.
+        ///
         /// This error is non-fatal because the intent is to eventually handle
         /// it by switching to an slower thread-based join/unordered future
         /// implementation, taking inspiration from the Windows version.
@@ -142,8 +147,6 @@
     ///          operation succeeded or failed for a non-fatal reason. You must
     ///          handle all the non-fatal failure modes, which is why this
     ///          function is annotated with \ref UDIPE_NODISCARD.
-    // TODO implement, epoll_ctl with EPOLL_CTL_ADD, EPOLLIN, and none of
-    //      EPOLLET, EPOLLONESHOT, EPOLLWAKEUP, EPOLLEXCLUSIVE
     UDIPE_NODISCARD
     inpoll_attach_result_t inpoll_attach(inpoll_t poll,
                                          fd_t upstream_fd,
