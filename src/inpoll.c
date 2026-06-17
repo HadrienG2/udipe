@@ -179,4 +179,9 @@
         } while (true);
     }
 
+    UDIPE_NON_NULL_ARGS
+    void inpoll_finalize(inpoll_t* poll) {
+        close_virtual_fd(poll);
+    }
+
 #endif  // __linux__

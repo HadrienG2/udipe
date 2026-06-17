@@ -203,7 +203,6 @@
     ///             up with inpoll_initialize() and wasn't destroyed with
     ///             inpoll_finalize() yet. It cannot be used again after calling
     ///             this function, and will be set to FD_INVALID accordingly.
-    // TODO docs+implement, close and set to FD_INVALID
     UDIPE_NON_NULL_ARGS
     void inpoll_finalize(inpoll_t* poll);
 
