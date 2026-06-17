@@ -7,18 +7,19 @@
 
 #ifdef __linux__
     #include "../fd.h"
+    #include "../inpoll.h"
 #endif
 
 
 /// Synchronization object signaling future status changes
 ///
 /// On Linux, this is a file descriptor, and it is possible to await future
-/// status changes by adding this file descriptor to an epollfd's interest
+/// status changes by adding this file descriptor to an \ref inpoll_t's interest
 /// list. Before you do so, however, "eager" future types which support more
-/// efficient waiting methods will require you to first enable fd-based
-/// status notifications via the `notify_event` status flag.
+/// efficient waiting methods will require you to first enable fd-based status
+/// notifications via the `notify_event` status flag.
 ///
-/// To make the epollfd-based waiting described above possible and
+/// To make the inpoll-based waiting described above possible and
 /// straightforward, the associated file descriptor number is guaranteed to
 /// remain constant for the entire lifetime of the future.
 //
@@ -81,92 +82,92 @@ typedef union status_sync_u {
         //       the __linux__ section.
         fd_t timer;
 
-        /// epollfd with an attached \ref epoll_latch_event_t, used for most
-        /// lazy future types
+        /// \ref inpoll_t with an attached \ref inpoll_latch_event_t, used for
+        /// most lazy future types
         ///
         /// This synchronization style is used for "collective" future types
         /// that await several other futures and for "chained" futures that emit
-        /// a chain of successor futures. It uses an epollfd that monitors the
-        /// readiness of some file descriptors of interest, along with an
-        /// additional \ref epoll_latch_event_t eventfd which signals when this
+        /// a chain of successor futures. It uses an \ref inpoll_t that monitors
+        /// the readiness of some file descriptors of interest, along with an
+        /// additional \ref inpoll_latch_event_t eventfd which signals when this
         /// future has reached its final state.
         ///
         /// How exactly dependencies are awaited depends on the kind of
         /// future that you are dealing with:
         ///
         /// - Joined futures directly attached all upstream fds to
-        ///   `latched_epoll`, using their index in the array of dependencies as
-        ///   an epoll identifier, while the \ref epoll_latch_event_t uses an
-        ///   identifier of `UINT64_MAX`.
-        /// - Unordered futures use a cascaded pair of epollfds. Upstream fds
-        ///   are attached to an "inner" `specific.unordered.upstream_epollfd`
+        ///   `latched_inpoll`, using their index in the array of dependencies
+        ///   as an inpoll identifier, while the \ref inpoll_latch_event_t uses
+        ///   an identifier of `UINT64_MAX`.
+        /// - Unordered futures use a cascaded pair of inpolls. Upstream fds
+        ///   are attached to an "inner" `specific.unordered.upstream_inpoll`
         ///   with index-based signaling as before, but no accompanying latch
-        ///   eventfd. This "inner" epollfd is in turn attached with identifier
-        ///   0 to this "outer" epollfd, which is additionally attached to the
-        ///   \ref epoll_latch_event_t with identifier `UINT64_MAX`. This
-        ///   curious cascading epollfd structure makes it possible to later
-        ///   detach the inner epollfd and migrate it to the next future in the
-        ///   unordered chain, while leaving the original future's
-        ///   `latched_epoll` with the same fd number and in a perpetually
-        ///   signaled state.
+        ///   eventfd. This "inner" inpoll is in turn attached with identifier 0
+        ///   to this "outer" inpoll, which is additionally attached to the \ref
+        ///   inpoll_latch_event_t with identifier `UINT64_MAX`. This curious
+        ///   cascading inpoll structure makes it possible to later detach the
+        ///   inner inpoll and migrate it to the next future in the unordered
+        ///   chain, while leaving the original future's `latched_inpoll` with
+        ///   the same fd number and in a perpetually signaled state.
         /// - Repeating timers produce a chain of output futures using the same
-        ///   trick, except instead of cascading epollfds they simply have one
-        ///   outer `latched_epoll` which is connected to an inner timerfd (that
-        ///   performs time-based signaling and can be detached and migrated to
-        ///   the next future in the chain) and the usual \ref
-        ///   epoll_latch_event_t (that eventually remains attached to the
-        ///   epollfd in a perpetually signaled state to broadcast the
+        ///   trick, except instead of cascading inpolls they simply have one
+        ///   outer `latched_inpoll` which is connected to an inner timerfd
+        ///   (that performs time-based signaling and can be detached and
+        ///   migrated to the next future in the chain) and the usual \ref
+        ///   inpoll_latch_event_t (that eventually remains attached to the
+        ///   inpoll in a perpetually signaled state to broadcast the
         ///   information that the final outcome is available).
         ///
-        /// Because epoll's API design is not very friendly to
-        /// multi-threaded use, `epoll_wait()` on the inner epollfds
-        /// requires `lazy_lock` protection, which acts as a mutex to
-        /// control access to the epollfd and associated future state.
+        /// Because \ref inpoll_t's API design (which is inherited from epoll's)
+        /// is not very friendly to multi-threaded use, `inpoll_wait()` on the
+        /// inner inpoll requires `lazy_lock` protection, which acts as a mutex
+        /// to control access to the \ref inpoll_t and associated future state.
         ///
-        /// Whenever `epoll_wait()` output indicates that a particular
-        /// upstream future has underwent a status change or this future has
-        /// been canceled, the status word of the upstream future (if any)
-        /// must be checked, then the fields of this collective future must
-        /// be modified accordingly, and finally any other thread which
-        /// registered to be notified of state changes while we were probing
-        /// `epoll_wait()` must be notified via `wake_by_address_`. Once the
-        /// future outcome is known, whether successful or unsuccessful, its
-        /// availability must be signaled via the dedicated \ref
-        /// epoll_latch_event_t if at least one other future awaited this
-        /// future, as indicated by `downstream_count`.
+        /// Whenever `inpoll_wait()` output indicates that a particular upstream
+        /// future has underwent a status change or this future has been
+        /// canceled, the status word of the upstream future (if any) must be
+        /// checked, then the fields of this collective future must be modified
+        /// accordingly, and finally any other thread which registered to be
+        /// notified of state changes while we were probing `inpoll_wait()` must
+        /// be notified via `wake_by_address_`. Once the future outcome is
+        /// known, whether successful or unsuccessful, its availability must be
+        /// signaled via the dedicated \ref inpoll_latch_event_t if at least one
+        /// other future awaited this future, as indicated by
+        /// `downstream_count`.
         ///
-        /// At least for joined futures, this epollfd must be destroyed
-        /// along with the host future. There seems to be little point in
-        /// trying to recycle epollfds for these futures, because resetting
-        /// their epollfd requires an arbitrary amount of epoll_ctl() calls
-        /// and setting up the next epollfd for another futures also
-        /// requires an arbitrary amount of epoll_ctl() calls. It is
-        /// therefore dubious that epollfd allocation/liberation will ever
-        /// be such a bottleneck that the extra overhead of recycling (which
-        /// is high in the case of epollfds) becomes worthwhile.
+        /// At least for joined futures, this \ref inpoll_t must be destroyed
+        /// along with the host future. There seems to be little point in trying
+        /// to recycle inpolls for these futures, because resetting their \ref
+        /// inpoll_t requires an arbitrary amount of inpoll_detach() calls, each
+        /// of which requires a syscall, then setting up the next inpoll for
+        /// another futures also requires an arbitrary amount of inpoll_attach()
+        /// calls, each of which also requires a syscall. It is therefore
+        /// dubious that \ref inpoll_t allocation/liberation will ever be such a
+        /// bottleneck that the extra overhead of recycling (which is high in
+        /// the case of inpolls) becomes worthwhile.
         ///
-        /// For unordered and periodic timer futures, however, the epollfd only
-        /// has a small amount of futures attached to it (1 eventfd + either one
-        /// epollfd for unordered or one timerfd for periodic timers), and many
-        /// such epollfd+eventfd pairs may be needed by the arbitrary many
-        /// continuation futures that will follow in the chain. In this case, it
-        /// is expected that recycling this epollfd along with its
-        /// (still-attached) associated \ref epoll_latch_event_t could be
+        /// For unordered and periodic timer futures, however, the \ref inpoll_t
+        /// only has a small amount of futures attached to it (1 eventfd +
+        /// either one \ref inpoll_t for unordered or one timerfd for periodic
+        /// timers), and many such inpoll+eventfd pairs may be needed by the
+        /// arbitrary many continuation futures that will follow in the chain.
+        /// In this case, it is expected that recycling this inpoll along with
+        /// its (still-attached) associated \ref inpoll_latch_event_t could be
         /// worthwhile.
         //
         // TODO: Prove the above assertions through benchmarking and
         //       profiling of real-world workloads.
-        // TODO: Find an epoll replacement for Windows. Will most likely be
+        // TODO: Find an inpoll replacement for Windows. Will most likely be
         //       based on the Win32 thread pool driving an event object
         //       after they receive the right signals from thread pool
         //       timers or NT synchronization objects.
-        fd_t latched_epoll;
+        inpoll_t latched_inpoll;
 
         /// Catch-all file descriptor type
         ///
         /// Use this union variant in situations where the active file
         /// descriptors doesn't matter, such as when managing attachment of
-        /// upstream fds to collective future epollfds.
+        /// upstream fds to collective future inpolls.
         //
         // TODO: Figure out if Windows can have this convenience too, I
         //       think that is the case if we use `HANDLE` as the catch-all

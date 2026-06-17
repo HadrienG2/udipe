@@ -48,16 +48,16 @@
 ///     TYPE_TIMER_ONCE. It may be set to a particular deadline/period or be
 ///     unset. You must set it to the desired deadline with no period before
 ///     exposing the future to the outside world.
-///   * `status_sync.latched_epoll` (Linux-only) is already allocated and
-///     attached to the associated \ref epoll_latch_event_t with identifier
+///   * `status_sync.latched_inpoll` (Linux-only) is already allocated and
+///     attached to the associated \ref inpoll_latch_event_t with identifier
 ///     `U64_MAX`, and...
 ///     - ...nothing else yet for \ref TYPE_JOIN. You must attach to it the
 ///       `status_sync` fds of upstream futures, identified with their index in
 ///       \ref collective_upstream_t before use.
-///     - ...the `upstream_epollfd` for \ref TYPE_UNORDERED, which is
+///     - ...the `upstream_inpoll` for \ref TYPE_UNORDERED, which is
 ///       preallocated but not yet attached to any file descriptor. See the \ref
 ///       TYPE_JOIN case described above, except upstream fds must be attached
-///       to `upstream_epollfd` not `status_sync.latched_epoll`.
+///       to `upstream_inpoll` not `status_sync.latched_inpoll`.
 ///     - ...the `timerfd` for \ref TYPE_TIMER_REPEAT, which must be configured
 ///       as in the case of `status_sync.timer` above, but with a period.
 ///

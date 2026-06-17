@@ -152,6 +152,38 @@
                                          fd_t upstream_fd,
                                          uint64_t identifier);
 
+    /// Result of inpoll_detach(), describing success or a non-fatal error
+    ///
+    /// At the time of writing, the following errors are considered fatal
+    /// because they are either blatant usage errors or very hard to recover
+    /// from. When encountered, these errors will therefore lead to program exit
+    /// instead of returning an error code.
+    ///
+    /// - `poll` or `upstream_fd` is not a valid file descriptor
+    /// - `poll` is not an `epollfd`
+    /// - `upstream_fd` does not support `epoll` (e.g. it is a file descriptor
+    ///   associated with a regular file or a directory)
+    /// - `upstream_fd` designates the same `epollfd` as `poll`
+    /// - The system does not have enough memory to process this information
+    typedef enum inpoll_detach_result_e {
+        /// Successfully detached `upstream_fd` to `poll`
+        ///
+        INPOLL_DETACH_SUCCESS = 0,
+
+        /// Failed to detach `upstream_fd` because it wasn't attached to `poll`
+        ///
+        /// This error is non-fatal because it is expected to happen when
+        /// canceling a joined or unordered future that has already been
+        /// partially awaited (in which case epoll's opaque nature does not let
+        /// us query which upstream futures were still attached) and is
+        /// reasonably harmless overall.
+        INPOLL_DETACH_NONEXISTENT,
+
+        // WARNING: As this is an internal API, more variants may be added
+        //          without advance notice and code that uses inpoll_detach()
+        //          will need be adapted accordingly.
+    } inpoll_detach_result_t;
+
     /// Detach an upstream file descriptor from an \ref inpoll_t
     ///
     /// After calling this function, the input polling descriptor will stop
@@ -161,10 +193,15 @@
     /// \param poll must be an input polling file descriptor that was set up
     ///             with inpoll_initialize() and wasn't destroyed with
     ///             inpoll_finalize() yet.
-    /// \param upstream_fd must be a valid file descriptor that was previously
+    /// \param upstream_fd should be a valid file descriptor that was previously
     ///                    attached to this \ref inpoll_t with inpoll_attach()
-    ///                    and wasn't detached since.
-    void inpoll_detach(inpoll_t poll, fd_t upstream_fd);
+    ///                    and wasn't detached since. If that isn't the case,
+    ///                    \ref INPOLL_DETACH_NONEXISTENT will be returned.
+    ///
+    /// \returns \ref INPOLL_DETACH_SUCCESS if `upstream_fd` was successfully
+    ///          detached from `poll` or \ref INPOLL_DETACH_NONEXISTENT if
+    ///          `upstream_fd` was not attached to `poll`.
+    inpoll_detach_result_t inpoll_detach(inpoll_t poll, fd_t upstream_fd);
 
     /// Wait for at least one of the previously attached upstream file
     /// descriptors to become readable, and report a bounded list of them

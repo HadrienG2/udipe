@@ -7,7 +7,7 @@
 #include "../../log.h"
 
 #ifdef __linux__
-    #include "../epoll_event_pair.h"
+    #include "../inpoll_event_pair.h"
 
     #include "../../fd.h"
 #endif
@@ -39,70 +39,71 @@ void event_cache_finalize(event_cache_t* cache) {
 #ifdef __linux__
 
     UDIPE_NODISCARD
-    epoll_event_cache_t epoll_event_cache_initialize() {
-        debug("Setting up new epollfd+eventfd cache...");
-        epoll_event_cache_t result = { 0 };
+    inpoll_event_cache_t inpoll_event_cache_initialize() {
+        debug("Setting up new inpoll+eventfd cache...");
+        inpoll_event_cache_t result = { 0 };
         result.event_cache = event_cache_initialize();
         for (sync_cache_index_t i = 0; i < EVENT_CACHE_CAPACITY; ++i) {
-            result.epolls[i] = FD_INVALID;
+            result.inpolls[i] = FD_INVALID;
         }
         return result;
     }
 
     UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
-    epoll_event_pair_t epoll_event_cache_allocate(epoll_event_cache_t* cache) {
-        tracef("Allocating an epollfd+eventfd pair from cache %p.", cache);
+    inpoll_event_pair_t
+    inpoll_event_cache_allocate(inpoll_event_cache_t* cache) {
+        tracef("Allocating an inpoll+eventfd pair from cache %p.", cache);
         sync_cache_index_t const target = cache->event_cache.latest;
-        const fd_t epoll_candidate = cache->epolls[target];
-        if (epoll_candidate == FD_INVALID) {
-            debug("Must allocate a new epollfd+eventfd pair as the cache is empty.");
-            return epoll_event_pair_initialize();
+        const fd_t inpoll_candidate = cache->inpolls[target];
+        if (inpoll_candidate == FD_INVALID) {
+            debug("Must allocate a new inpoll+eventfd pair as the cache is empty.");
+            return inpoll_event_pair_initialize();
         } else {
-            assert(epoll_candidate >= 0);
-            cache->epolls[target] = FD_INVALID;
+            assert(inpoll_candidate >= 0);
+            cache->inpolls[target] = FD_INVALID;
             assert(cache->event_cache.events[target] != EVENT_INVALID);
-            return (epoll_event_pair_t){
-                .epoll = epoll_candidate,
+            return (inpoll_event_pair_t){
+                .inpoll = inpoll_candidate,
                 .event = event_cache_allocate(&cache->event_cache)
             };
         }
     }
 
     UDIPE_NON_NULL_ARGS
-    void epoll_event_cache_liberate(epoll_event_cache_t* cache,
-                                    epoll_event_pair_t pair) {
-        tracef("Discarding coupled epollfd %d + eventfd %d into cache %p.",
-               pair.epoll, pair.event, cache);
+    void inpoll_event_cache_liberate(inpoll_event_cache_t* cache,
+                                     inpoll_event_pair_t pair) {
+        tracef("Discarding coupled inpoll %d + eventfd %d into cache %p.",
+               pair.inpoll, pair.event, cache);
 
         trace("Offloading eventfd liberation to inner event cache...");
         event_cache_liberate(&cache->event_cache, pair.event);
 
         sync_cache_index_t const target = cache->event_cache.latest;
         assert(target < EVENT_CACHE_CAPACITY);
-        tracef("Discarding epollfd into matching epolls ring slot #%zu...",
+        tracef("Discarding inpoll into ring slot inpolls[%zu]...",
                (size_t)target);
-        if (cache->epolls[target] != FD_INVALID) {
-            debug("epolls ring is full, must liberate oldest entry first.");
-            close_virtual_fd(&cache->epolls[target]);
+        if (cache->inpolls[target] != FD_INVALID) {
+            debug("inpoll ring is full, must liberate oldest entry first.");
+            inpoll_finalize(&cache->inpolls[target]);
         }
-        cache->epolls[target] = pair.epoll;
+        cache->inpolls[target] = pair.inpoll;
     }
 
     UDIPE_NON_NULL_ARGS
-    void epoll_event_cache_finalize(epoll_event_cache_t* cache) {
-        debugf("Destroying epollfd+eventfd cache %p...", cache);
+    void inpoll_event_cache_finalize(inpoll_event_cache_t* cache) {
+        debugf("Destroying inpoll+eventfd cache %p...", cache);
 
         // Must not modify cache->event_cache.latest in order not to break
         // event_cache_finalize() later
         sync_cache_index_t target = cache->event_cache.latest;
-        while (cache->epolls[target] != FD_INVALID) {
+        while (cache->inpolls[target] != FD_INVALID) {
             assert(target < EVENT_CACHE_CAPACITY);
-            const fd_t fd = cache->epolls[target];
+            const fd_t fd = cache->inpolls[target];
             assert(fd >= 0);
-            tracef("Liberating epollfd %d from entry %zu...",
+            tracef("Liberating inpoll %d from entry %zu...",
                    fd, (size_t)target);
-            close_virtual_fd(&cache->epolls[target]);
+            inpoll_finalize(&cache->inpolls[target]);
             sync_cache_decrement_index(&target, EVENT_CACHE_CAPACITY);
         }
 

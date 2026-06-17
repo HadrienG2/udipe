@@ -92,22 +92,26 @@
         }
     }
 
-    void inpoll_detach(inpoll_t poll, fd_t upstream_fd) {
+    inpoll_detach_result_t inpoll_detach(inpoll_t poll, fd_t upstream_fd) {
         const int result = epoll_ctl(poll,
                                      EPOLL_CTL_DEL,
                                      upstream_fd,
                                      NULL);
-        if (result == 0) return;
+        if (result == 0) return INPOLL_DETACH_SUCCESS;
         assert(result == -1);
         switch (errno) {
+        case ENOENT:  // (op is DEL) fd is not registered with this epollfd.
+            debug("Attempted to detach a nonexistent upstream fd from an "
+                  "inpoll, this can happen normally on collective future "
+                  "cancelation or it can be suspicious.");
+            return INPOLL_DETACH_NONEXISTENT;
         case EBADF:  // epfd or fd is not a valid file descriptor.
-        case EEXIST:  // (can only oppen when op is ADD).
+        case EEXIST:  // (can only happen when op is ADD).
         case EINVAL:  // - epfd is not an epoll file descriptor.
                       // - fd is the same as epfd.
                       // - requested operation (DEL) is not supported.
                       // - (other errors can only happen with EPOLLEXCLUSIVE)
         case ELOOP:  // (can only happen when op is ADD)
-        case ENOENT:  // (op is DEL) fd is not registered with this epollfd.
         case ENOMEM:  // Not enough memory to perform this operation.
         case ENOSPC:  // (can only happen when op is ADD)
         case EPERM:  // The target file fd does not support epoll.
@@ -151,7 +155,9 @@
                        num_valid_identifiers);
                 ensure_le(num_valid_identifiers, num_identifiers);
                 for (size_t i = 0; i < num_valid_identifiers; ++i) {
-                    assert(events[i].events == EPOLLIN);
+                    // We only subscribe to EPOLLIN and don't expect EPOLLERR or
+                    // EPOLLHUP for the kind of fds that we are monitoring.
+                    ensure_eq(events[i].events, EPOLLIN);
                     identifiers[i] = events[i].data.u64;
                 }
                 return num_valid_identifiers;

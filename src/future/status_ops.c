@@ -123,8 +123,8 @@ void future_status_debug_check(future_status_t status,
     case STATE_RESULT:
         assert(is_allocated);
         has_outcome = true;
-        // Can be locked in the RESULT state if a lazy future getss canceled
-        // while a thread acquired the lock to call epoll_pwait2().
+        // Can be locked in the RESULT state if a lazy future gets canceled
+        // while a thread acquired the lock to call inpoll_wait().
         could_be_locked = requires_locking;
         break;
     case NUM_STATES:

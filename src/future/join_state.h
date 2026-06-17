@@ -6,7 +6,7 @@
 #include "collective_upstream.h"
 
 #ifdef __linux__
-    #include "epoll_latch_event.h"
+    #include "inpoll_latch_event.h"
 #endif
 
 
@@ -24,10 +24,10 @@ typedef struct future_join_state_s {
     collective_upstream_t upstream;
 
     #ifdef __linux__
-        /// Event object used to keep `status_sync.latched_epoll` perma-ready
-        /// after the future has reached its final state.
+        /// Event object used to keep `status_sync.latched_inpoll`
+        /// perma-readable after the future has reached its final state.
         ///
-        /// See \ref epoll_latch_event_t for more information.
-        epoll_latch_event_t epoll_latch;
+        /// See \ref inpoll_latch_event_t for more information.
+        inpoll_latch_event_t inpoll_latch;
     #endif
 } future_join_state_t;

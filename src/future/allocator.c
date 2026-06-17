@@ -7,7 +7,7 @@
 #include "allocator/storage_page.h"
 #include "allocator/sync_caches.h"
 #include "allocator/thread_cache.h"
-#include "epoll_event_pair.h"
+#include "inpoll_event_pair.h"
 #include "status.h"
 #include "status_ops.h"
 #include "type.h"
@@ -15,11 +15,13 @@
 #include "../context.h"
 #include "../error.h"
 #include "../future.h"
+#include "../inpoll.h"
 #include "../log.h"
 #include "../refcounted_tss.h"
 
 #include <stdatomic.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 
 /// future_thread_cache_initialize() wrapper that has the signature expected by
@@ -67,45 +69,52 @@ udipe_future_t* future_allocate(udipe_context_t* context,
     future_status_store(future, initial_status, memory_order_relaxed);
 
     trace("Setting up type-specific file descriptors...");
-    // TODO: Extract this into a utility function
-    epoll_event_pair_t epoll_event;
+    // TODO: Extract this into a utility function + add more logging
+    inpoll_event_pair_t inpoll_event;
     switch (type) {
     case TYPE_NETWORK_CONNECT:  // aliases TYPE_NETWORK_START
     case TYPE_NETWORK_DISCONNECT:
     case TYPE_NETWORK_SEND:
     case TYPE_NETWORK_RECV:
     case TYPE_CUSTOM:  // aliases TYPE_NETWORK_END
+        trace("Allocating the output eventfd...");
         future->status_sync.event = event_cache_allocate(&thread_cache->events);
         break;
     #ifdef __linux__
         case TYPE_JOIN:
-            epoll_event = epoll_event_cache_allocate(
-                &thread_cache->epolls_with_events
+            trace("Allocating the output inpoll+eventfd pair...");
+            inpoll_event = inpoll_event_cache_allocate(
+                &thread_cache->inpolls_with_events
             );
-            future->specific.join.epoll_latch = epoll_event.event;
-            future->status_sync.latched_epoll = epoll_event.epoll;
+            future->specific.join.inpoll_latch = inpoll_event.event;
+            future->status_sync.latched_inpoll = inpoll_event.inpoll;
             break;
         case TYPE_UNORDERED:
-            // TODO: Allocate specific.unordered.upstream_epollfd, extracting
-            //       the epollfd allocation code from epoll_event_pair.c
-            epoll_event = epoll_event_cache_allocate(
-                &thread_cache->epolls_with_events
+            trace("Allocating the upstream inpoll...");
+            specific.unordered.upstream_inpoll = inpoll_initialize();
+
+            trace("Allocating the output inpoll+eventfd pair...");
+            inpoll_event = inpoll_event_cache_allocate(
+                &thread_cache->inpolls_with_events
             );
-            future->specific.unordered.epoll_latch = epoll_event.event;
-            // TODO: Attach upstream_epollfd to epoll_event.epoll, extracting
-            //       the epollfd binding code from epoll_event_pair.c
-            future->status_sync.latched_epoll = epoll_event.epoll;
+            future->specific.unordered.inpoll_latch = inpoll_event.event;
+            future->status_sync.latched_inpoll = inpoll_event.inpoll;
+
+            trace("Attaching the upstream inpoll to the output inpoll...");
+            inpoll_attach(future->status_sync.latched_inpoll,
+                          specific.unordered.upstream_inpoll,
+                          // TODO: Extract this hardcoded constant somewhere
+                          (uint64_t)0);
             break;
         case TYPE_TIMER_REPEAT:
             // TODO: Allocate specific.timer_repeat.timerfd, sharing code with
             //       the TIMER_ONCE path
-            epoll_event = epoll_event_cache_allocate(
-                &thread_cache->epolls_with_events
+            inpoll_event = inpoll_event_cache_allocate(
+                &thread_cache->inpolls_with_events
             );
-            future->specific.timer_repeat.epoll_latch = epoll_event.event;
-            // TODO: Attach timerfd to epoll_event.epoll, extracting the epollfd
-            //       binding code from epoll_event_pair.c
-            future->status_sync.latched_epoll = epoll_event.epoll;
+            future->specific.timer_repeat.inpoll_latch = inpoll_event.event;
+            // TODO: Attach timerfd to inpoll_event.inpoll with inpoll_attach().
+            future->status_sync.latched_inpoll = inpoll_event.inpoll;
             break;
         case TYPE_TIMER_ONCE:
             // TODO: Allocate future->status_sync.timer, sharing code with

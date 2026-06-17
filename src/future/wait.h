@@ -184,33 +184,33 @@ typedef enum address_wait_outcome_e {
     /// \ref STATE_RESULT
     ///
     /// This outcome can only happen for future types like \ref TYPE_JOIN where
-    /// the waiting procedure involves awaiting an epollfd. Because the design
-    /// of epoll_wait() makes it hard to use from multiple threads, this waiting
-    /// method is implemented by having one thread probe the epollfd while other
-    /// threads wait for it to report its conclusion via a futex. The selection
-    /// of the thread that will call epoll_wait() is performed via simple
-    /// locking of a flag in the future status word.
+    /// the waiting procedure involves awaiting an \ref inpoll_t. Because the
+    /// design of inpoll_wait() makes it hard to use from multiple threads, this
+    /// waiting method is implemented by having one thread await the \ref
+    /// inpoll_t while other threads wait for it to report its conclusion via a
+    /// futex. The selection of the thread that will call inpoll_wait() is
+    /// performed via simple locking of a flag in the future status word.
     ///
     /// One limitation of this design, however is that something like the
     /// following can happen:
     ///
     /// - Thread A starts waiting for future F with a timeout of 1s
-    /// - Thread A locks state and starts waiting via epoll_wait().
+    /// - Thread A locks state and starts waiting via inpoll_wait().
     /// - Thread B starts waiting for future F with a timeout of 2s.
     /// - Thread B observes that thread A got there first and starts waiting for
     ///   thread A via the futex method.
     /// - Thread A reaches its 1s timeout without getting a notification from
-    ///   epoll_wait(), so it stops waiting and reports the timeout.
+    ///   inpoll_wait(), so it stops waiting and reports the timeout.
     /// - At this point, thread B still has 1s of timeout to go, but it cannot
     ///   passively wait for thread A via the futex anymore, instead it must
-    ///   switch to active waiting via epoll_wait().
+    ///   switch to active waiting via inpoll_wait().
     ///
     /// This situation is handled by unblocking **one** of the threads that's
     /// waiting on the futex (to avoid thundering herds), which will retult in
     /// is future_wait_by_address() call returning this outcome. Upon receiving
     /// this outcome, the thread must either lock the future status and start an
-    /// epoll_wait() or wake another futex waiter if it cannot call epoll_wait()
-    /// because its timeout elapsed at the same time.
+    /// inpoll_wait() or wake another futex waiter if it cannot call
+    /// inpoll_wait() because its timeout elapsed at the same time.
     ADDRESS_WAIT_UNLOCKED,
 } address_wait_outcome_t;
 

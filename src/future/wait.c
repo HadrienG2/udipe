@@ -19,6 +19,7 @@
 #include "../error.h"
 #include "../event.h"
 #include "../future.h"
+#include "../inpoll.h"
 #include "../log.h"
 #include "../stopwatch.h"
 
@@ -30,20 +31,21 @@
 
 #ifdef __linux__
     #include <poll.h>
-    #include <sys/epoll.h>
 #endif
 
 
 
 // === Tuning parameters ===
 
-/// Maximal number of epoll events that future_wait_join() can fetch.
+/// Maximal number of \ref inpoll_t identifiers that future_wait_join() can
+/// fetch.
 ///
 /// Setting this higher may reduce the number of syscalls made by the
 /// application when polling large join-sets, at the expense of increasing stack
 /// memory usage.
 ///
-/// Other epoll-based futures at time of writing cannot use this optimization:
+/// Other \ref inpoll_t-based futures at time of writing cannot use this
+/// optimization:
 ///
 /// - With unordered futures, events should be fetched one by one to ensure that
 ///   we stop fetching events as soon as one of the parent futures is ready.
@@ -51,7 +53,7 @@
 ///   allocating a buffer of >1 events is useless.
 //
 // TODO: Tune based on benchmarking on realistic use cases
-#define MAX_JOIN_EPOLL_EVENTS ((size_t)4)
+#define MAX_JOIN_INPOLL_IDENTIFIERS ((size_t)4)
 
 
 // === Implementation of functions defined in wait.h ===
@@ -207,12 +209,12 @@ future_status_t future_wait_join(udipe_future_t* future,
                                  future_status_t latest_status,
                                  udipe_duration_ns_t timeout,
                                  downstream_count_policy_t count_policy) {
-    // TODO: Much of this code should be identical across all epoll-based
-    //       future types, with only handling of epoll notifications differing,
+    // TODO: Much of this code should be identical across all inpoll-based
+    //       future types, with only handling of inpoll notifications differing,
     //       so a generic function with a callback should be eventually devised.
     // TODO: This function is also too complex and should be broken up. Perhaps
     //       the aforementioned refactor could be a first step in this direction.
-    // TODO: Consider moving some of this to epoll_event_pair.[ch]
+    // TODO: Consider moving some of this to inpoll_event_pair.[ch]
 
     stopwatch_t stopwatch = stopwatch_initialize();
     future_status_debug_check(latest_status, true);
@@ -305,55 +307,33 @@ future_status_t future_wait_join(udipe_future_t* future,
                 assert(latest_status.outcome == OUTCOME_UNKNOWN);
                 future_outcome_t outcome = OUTCOME_UNKNOWN;
                 do {
-                    struct timespec delay;
-                    struct timespec* pdelay = make_unix_timeout(&delay, timeout);
+                    trace("Beginning wait for inpoll events...");
+                    uint64_t identifiers[MAX_JOIN_INPOLL_IDENTIFIERS];
+                    size_t result = inpoll_wait(
+                        future->status_sync.latched_inpoll,
+                        identifiers,
+                        MAX_JOIN_INPOLL_IDENTIFIERS,
+                        timeout
+                    );
 
-                    trace("Beginning wait for epoll events...");
-                    struct epoll_event events[MAX_JOIN_EPOLL_EVENTS];
-                    int result = epoll_pwait2(future->status_sync.latched_epoll,
-                                              events,
-                                              MAX_JOIN_EPOLL_EVENTS,
-                                              pdelay,
-                                              NULL);
-
-                    bool epoll_timed_out = false;
-                    bool interrupted_by_signal = false;
+                    bool inpoll_timed_out = false;
                     switch (result) {
                     case 0:
-                        trace("Reached a timeout during epoll_pwait2().");
-                        epoll_timed_out = true;
-                        break;
-                    case -1:
-                        switch (errno) {
-                        case EINTR:
-                            trace("Got interrupted by a signal.");
-                            interrupted_by_signal = true;
-                            break;
-                        case EBADF:  // epfd is not a valid file descriptor.
-                        case EFAULT:  // events cannot be written to.
-                        case EINVAL:  // epfd is not an epollfd or n <= zero.
-                            exit_with_error("These errors should never happen");
-                        }
+                        trace("Reached a timeout during inpoll_wait().");
+                        assert(timeout < UDIPE_DURATION_MAX);
+                        inpoll_timed_out = true;
                         break;
                     default:
                         // Expecting at least one ready event on this branch
-                        ensure_ge(result, 1);
-                        trace("Successfully received events from epoll_pwait2().");
+                        trace("Successfully received events from inpoll_wait().");
                         collective_upstream_t* const upstream_set =
                             &future->specific.join.upstream;
                         for (size_t i = 0; i < (size_t)result; ++i) {
-                            const struct epoll_event* event = &events[i];
-                            // We only subscribed to EPOLLIN, and we don't
-                            // expect any of the EPOLLERR/EPOLLHUP
-                            // auto-subscribed events for the kind of fds that
-                            // we are monitoring.
-                            ensure_eq(event->events, EPOLLIN);
-
                             // Because we hold the lock that controls status
                             // updates other than cancelation, eventfd
                             // notifications can only occur if this future was
                             // concurrently canceled.
-                            const size_t upstream_index = event->data.u64;
+                            const size_t upstream_index = identifiers[i];
                             if (upstream_index == UINT64_MAX) {
                                 // Synchronize-with concurrent state changes
                                 latest_status =
@@ -384,19 +364,12 @@ future_status_t future_wait_join(udipe_future_t* future,
                             if (upstream_status.state != STATE_RESULT) continue;
 
                             // If this upstream future's outcome is now known,
-                            // remove it from our epoll set...
+                            // remove it from our inpoll set...
                             ensure_ge(upstream_set->remaining, (uint32_t)1);
                             --(upstream_set->remaining);
                             const fd_t upstream_fd = upstream->status_sync.any;
-                            // FIXME: Forgot to handle epoll_ctl errors here!
-                            //        But this code is already way too nested,
-                            //        should extract it into another function
-                            //        before adding more nesting to it. Then use
-                            //        epoll_event_pair.c for inspiration.
-                            epoll_ctl(future->status_sync.latched_epoll,
-                                      EPOLL_CTL_DEL,
-                                      upstream_fd,
-                                      NULL);
+                            inpoll_detach(future->status_sync.latched_inpoll,
+                                          upstream_fd);
                             // TODO: Call future_downstream_count_dec() on
                             //       upstream futures at the time where this
                             //       future is destroyed by udipe_finish(). We
@@ -404,8 +377,9 @@ future_status_t future_wait_join(udipe_future_t* future,
                             //       cancelation, the upstream future could be
                             //       accessed again, as the cancelation routine
                             //       does not know which upstreams were removed
-                            //       from our epoll set. All it can do is call
-                            //       epoll_ctl on everything and ignore errors.
+                            //       from our inpoll set. All it can do is call
+                            //       inpoll_detach() on everything and ignore
+                            //       errors.
 
                             // Integrate the upstream future's outcome into our
                             // own outcome.
@@ -436,15 +410,15 @@ future_status_t future_wait_join(udipe_future_t* future,
                     const bool outcome_known = (outcome != OUTCOME_UNKNOWN);
                     const bool canceled = (outcome == OUTCOME_FAILURE_CANCELED);
 
-                    bool reached_timeout = epoll_timed_out;
-                    if (!outcome_known || interrupted_by_signal) {
+                    bool reached_timeout = inpoll_timed_out;
+                    if (!outcome_known) {
                         udipe_duration_ns_t elapsed_time =
                             stopwatch_measure(&stopwatch);
                         if (elapsed_time >= timeout) {
-                            trace("Reached timeout after epoll_pwait2().");
+                            trace("Reached timeout after inpoll_wait().");
                             reached_timeout = true;
                         } else {
-                            trace("Updating timeout after epoll_pwait2().");
+                            trace("Updating timeout after inpoll_wait().");
                             timeout -= elapsed_time;
                         }
                     }
@@ -515,7 +489,7 @@ future_status_t future_wait_join(udipe_future_t* future,
                                   "waiting for lazy_lock.");
                             wake_by_address_all(&future->status_word);
                         }
-                        event_signal(future->specific.join.epoll_latch);
+                        event_signal(future->specific.join.inpoll_latch);
                     } else {
                         assert(reached_timeout);
                         trace("Reached timeout without completing the wait.");
@@ -704,7 +678,7 @@ address_wait_outcome_t future_wait_by_adress(
     assert(latest_status->state != STATE_RESULT);
     assert(timeout != UDIPE_DURATION_DEFAULT);
 
-    trace("Checking if future type is lazy / awaited via epoll_wait()...");
+    trace("Checking if future type is lazy / awaited via inpoll_wait()...");
     bool lazy;
     switch (latest_status->type) {
     case TYPE_NETWORK_CONNECT:
@@ -718,7 +692,7 @@ address_wait_outcome_t future_wait_by_adress(
     case TYPE_UNORDERED:
     case TYPE_TIMER_REPEAT:
         lazy = true;
-        // This function should only be called if waiting for the epollfd
+        // This function should only be called if waiting for the inpoll
         // directly is not possible because another thread is polling it.
         assert(latest_status->notify_event_or_lazy_lock);
         break;
@@ -746,7 +720,7 @@ address_wait_outcome_t future_wait_by_adress(
                 trace("Future result is now available: we're done.");
                 break;
             } else if (lazy && !latest_status->notify_event_or_lazy_lock) {
-                trace("Lazy future has been unlocked: must switch to epoll_wait() or wake up next waiter.");
+                trace("Lazy future has been unlocked: must switch to inpoll_wait() or wake up next waiter.");
                 break;
             }
             trace("Did not reach any of the state we are waiting for!");

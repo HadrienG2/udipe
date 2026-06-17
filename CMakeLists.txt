@@ -168,9 +168,9 @@ target_sources(udipe
                        src/future/allocator/thread_cache.c
                        src/future/allocator/thread_cache.h
                        src/future/collective_upstream.h
-                       src/future/epoll_event_pair.c
-                       src/future/epoll_event_pair.h
-                       src/future/epoll_latch_event.h
+                       src/future/inpoll_event_pair.c
+                       src/future/inpoll_event_pair.h
+                       src/future/inpoll_latch_event.h
                        src/future/inner_fd.h
                        src/future/join_state.h
                        src/future/outcome.h

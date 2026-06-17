@@ -16,11 +16,9 @@
 #include <stdint.h>
 
 #ifdef __linux__
+    #include "../inpoll_event_pair.h"
 
-    #include "../epoll_event_pair.h"
-
-    #include "../../fd.h"
-
+    #include "../../inpoll.h"
 #endif
 
 
@@ -177,50 +175,50 @@ void event_cache_finalize(event_cache_t* cache);
 
 #ifdef __linux__
 
-    /// \name epollfd+eventfd cache (Linux-only)
+    /// \name inpoll+eventfd cache (Linux-only)
     /// \{
 
-    /// Cache for epollfds with pre-attached eventfds
+    /// Cache for inpolls with pre-attached eventfds
     ///
-    /// This is an extension of \ref event_cache_t that manages (eventfd,
-    /// epollfd) pairs where the epollfd is pre-attached to the eventfd with an
-    /// `epoll_data` of `UINT64_MAX`, at the exclusion of any other file
+    /// This is an extension of \ref event_cache_t that manages (eventfd, \ref
+    /// inpoll_t) pairs where the \ref inpoll_t is pre-attached to the eventfd
+    /// with an `identifier` of `UINT64_MAX`, at the exclusion of any other file
     /// descriptor.
     ///
-    /// Resetting an epollfd involves detaching it from every other fd which
-    /// it's currently bound to, and that can be a lot more work than liberating
-    /// it and allocating a new one. Therefore epollfds are only reset and
-    /// cached in situations where they are attached to a tightly bounded amount
-    /// of other fds, a.g. a single other fd for \ref TYPE_UNORDERED or \ref
-    /// TYPE_TIMER_REPEAT.
-    typedef struct epoll_event_cache_s {
-        /// Storage for epollfds
+    /// Resetting an \ref inpoll_t involves detaching it from every other fd
+    /// which it's currently bound to, and that can be a lot more work than
+    /// liberating it and allocating a new one. Therefore inpolls are only reset
+    /// and cached in situations where they are attached to a tightly bounded
+    /// amount of other fds, a.g. a single other fd for \ref TYPE_UNORDERED or
+    /// \ref TYPE_TIMER_REPEAT.
+    typedef struct inpoll_event_cache_s {
+        /// Storage for inpolls
         ///
         /// For each valid index `i` from `event_cache`, the associated
-        /// `epolls[i]` is an epollfd that is attached to
+        /// `inpolls[i]` is an \ref inpoll_t that is attached to
         /// `event_cache.events[i]` as described in the struct documentation.
         ///
         /// For each invalid index `i` of `event_cache` that is set to \ref
-        /// EVENT_INVALID, the associated `epolls[i]` is set to \ref FD_INVALID.
-        fd_t epolls[EVENT_CACHE_CAPACITY];
+        /// EVENT_INVALID, the associated `inpolls[i]` is set to \ref FD_INVALID.
+        inpoll_t inpolls[EVENT_CACHE_CAPACITY];
 
         /// Event cache which this builds upon
         ///
-        /// Must not be manipulated directly, or `epolls` will go out of sync.
-        /// Use the dedicated `epoll_event_cache_` functions instead.
+        /// Must not be manipulated directly, or `inpolls` will go out of sync.
+        /// Use the dedicated `inpoll_event_cache_` functions instead.
         event_cache_t event_cache;
-    } epoll_event_cache_t;
+    } inpoll_event_cache_t;
 
-    /// Set up an epollfd+eventfd cache
+    /// Set up an inpoll+eventfd cache
     ///
     /// This function must be called in the scope of with_logger().
     ///
-    /// \returns an epollfd+eventfd cache that must be later liberated with
-    ///          epoll_event_cache_finalize().
+    /// \returns an inpoll+eventfd cache that must be later liberated with
+    ///          inpoll_event_cache_finalize().
     UDIPE_NODISCARD
-    epoll_event_cache_t epoll_event_cache_initialize();
+    inpoll_event_cache_t inpoll_event_cache_initialize();
 
-    /// Try to reuse an epollfd+eventfd pair from the specified cache,
+    /// Try to reuse an inpoll+eventfd pair from the specified cache,
     /// allocating a fresh pair on failure.
     ///
     /// This function must be called in the scope of with_logger().
@@ -229,26 +227,27 @@ void event_cache_finalize(event_cache_t* cache);
     ///              event_cache_initialize() and wasn't finalized with
     ///              event_cache_finalize() yet.
     ///
-    /// \returns an epollfd+eventfd pair in the state described by the
-    ///          documentation of \ref epoll_event_pair_t.
+    /// \returns an inpoll+eventfd pair in the state described by the
+    ///          documentation of \ref inpoll_event_pair_t.
     UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
-    epoll_event_pair_t epoll_event_cache_allocate(epoll_event_cache_t* cache);
+    inpoll_event_pair_t
+    inpoll_event_cache_allocate(inpoll_event_cache_t* cache);
 
-    /// Liberate an epollfd+eventfd pair into the specified cache
+    /// Liberate an inpoll+eventfd pair into the specified cache
     ///
     /// This function must be called in the scope of with_logger().
     ///
     /// \param cache must be an event cache that was initialized with
     ///              event_cache_initialize() and wasn't finalized with
     ///              event_cache_finalize() yet.
-    /// \param pair must be an epollfd+eventfd pair in the state described by
-    ///             the documentation of \ref epoll_event_pair_t.
+    /// \param pair must be an inpoll+eventfd pair in the state described by
+    ///             the documentation of \ref inpoll_event_pair_t.
     UDIPE_NON_NULL_ARGS
-    void epoll_event_cache_liberate(epoll_event_cache_t* cache,
-                                    epoll_event_pair_t pair);
+    void inpoll_event_cache_liberate(inpoll_event_cache_t* cache,
+                                     inpoll_event_pair_t pair);
 
-    /// Destroy an epollfd+eventfd cache
+    /// Destroy an inpoll+eventfd cache
     ///
     /// This function must be called in the scope of with_logger().
     ///
@@ -257,7 +256,7 @@ void event_cache_finalize(event_cache_t* cache);
     ///              event_cache_finalize() yet. It cannot be used again after
     ///              calling this function.
     UDIPE_NON_NULL_ARGS
-    void epoll_event_cache_finalize(epoll_event_cache_t* cache);
+    void inpoll_event_cache_finalize(inpoll_event_cache_t* cache);
 
     /// \}
 

@@ -43,8 +43,8 @@ future_thread_cache_t* future_thread_cache_initialize(udipe_context_t* context) 
     cache->events = event_cache_initialize();
 
     #ifdef __linux__
-        debug("- Setting up the epollfd+eventfd cache...");
-        cache->epolls_with_events = epoll_event_cache_initialize();
+        debug("- Setting up the inpoll+eventfd cache...");
+        cache->inpolls_with_events = inpoll_event_cache_initialize();
     #endif
 
     debug("- Setting up flags...");
@@ -115,8 +115,8 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** pcache) {
             event_cache_finalize(&cache->events);
 
             #ifdef __linux__
-                debug("Liberating epollfd+eventfd pairs...");
-                epoll_event_cache_finalize(&cache->epolls_with_events);
+                debug("Liberating inpoll+eventfd pairs...");
+                inpoll_event_cache_finalize(&cache->inpolls_with_events);
             #endif
 
             debug("Notifying the context destructor that we are done...");
@@ -212,8 +212,8 @@ void future_thread_cache_finalize_from_context(future_thread_cache_t** pcache) {
         event_cache_finalize(&cache->events);
 
         #ifdef __linux__
-            debug("Liberating epollfd+eventfd pairs...");
-            epoll_event_cache_finalize(&cache->epolls_with_events);
+            debug("Liberating inpoll+eventfd pairs...");
+            inpoll_event_cache_finalize(&cache->inpolls_with_events);
         #endif
 
         debug("Notifying the TSS destructor that we are done...");

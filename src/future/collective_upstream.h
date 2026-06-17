@@ -21,7 +21,7 @@ typedef struct collective_upstream_s {
     ///
     /// Must have been checked to contain no duplicates and no `NULL`s at
     /// collective future construction time. As long as we do not expose a
-    /// `status_sync` accessor that lets users call `dup()`, `epoll_ctl()`
+    /// `status_sync` accessor that lets users call `dup()`, `inpoll_attach()`
     /// should take care of the former for us on Linux.
     udipe_future_t* const* array;
 

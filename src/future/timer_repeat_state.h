@@ -6,7 +6,7 @@
 #include <udipe/result.h>
 
 #ifdef __linux__
-    #include "epoll_latch_event.h"
+    #include "inpoll_latch_event.h"
     #include "inner_fd.h"
 #endif
 
@@ -31,13 +31,13 @@ typedef struct future_timer_repeat_state_s {
     #ifdef __linux__
         /// timerfd that tracks recuring deadlines
         ///
-        /// This inner fd is attached to `status_sync.latched_epoll`. See \ref
+        /// This inner fd is attached to `status_sync.latched_inpoll`. See \ref
         /// inner_fd_t for more information about this cascading file descriptor
         /// pattern.
         ///
         /// It must be read under `lazy_lock` protection, and eventually
-        /// detached from `status_sync.latched_epoll` and attached to the
-        /// `latched_epoll` of the successor future (if any) once a result is
+        /// detached from `status_sync.latched_inpoll` and attached to the
+        /// `latched_inpoll` of the successor future (if any) once a result is
         /// ready.
         ///
         /// It must be destroyed when the future is liberated, for now. We may
@@ -54,10 +54,10 @@ typedef struct future_timer_repeat_state_s {
         //       for those poor Windows souls.
         inner_fd_t timerfd;
 
-        /// Event object used to keep `status_sync.latched_epoll` perma-ready
+        /// Event object used to keep `status_sync.latched_inpoll` perma-ready
         /// after the future has reached its final state.
         ///
-        /// See \ref epoll_latch_event_t for more information.
-        epoll_latch_event_t epoll_latch;
+        /// See \ref inpoll_latch_event_t for more information.
+        inpoll_latch_event_t inpoll_latch;
     #endif
 } future_timer_repeat_state_t;

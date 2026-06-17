@@ -8,7 +8,7 @@
 #include "collective_upstream.h"
 
 #ifdef __linux__
-    #include "epoll_latch_event.h"
+    #include "inpoll_latch_event.h"
     #include "inner_fd.h"
 #endif
 
@@ -37,34 +37,34 @@ typedef struct future_unordered_state_s {
     udipe_unordered_payload_t payload;
 
     #ifdef __linux__
-        /// Inner epollfd that monitors the upstream `status_sync` fds
+        /// Inner inpoll that monitors the upstream `status_sync` fds
         ///
-        /// This inner fd is attached to the \ref status_sync_t::latched_epoll
+        /// This inner fd is attached to the \ref status_sync_t::latched_inpoll
         /// of the host future. See \ref inner_fd_t for more information about
         /// this cascading file descriptor pattern.
         ///
         /// It must be awaited under `lazy_lock` protection, then eventually
-        /// detached from the `latched_epoll` of the original future and
-        /// attached to the `latched_epoll` of the successor future (if any)
+        /// detached from the `latched_inpoll` of the original future and
+        /// attached to the `latched_inpoll` of the successor future (if any)
         /// once a result is ready.
         ///
         /// It must be destroyed when the last future in the unordered chain is
         /// liberated. There seems to be little point in trying to recycle the
-        /// epollfds of unordered futures because setting up a collective future
-        /// requires an arbitrarily large amount of epoll_ctl() syscalls, so
-        /// it's not expected that epollfd allocation/liberation will often be
+        /// inpolls of unordered futures because setting up a collective future
+        /// requires an arbitrarily large amount of inpoll_detach() operations,
+        /// so it's not expected that inpoll allocation/liberation will often be
         /// the bottleneck.
         //
         // TODO: Prove the above assertion through benchmarking and profiling of
         //       real-world workloads.
         // TODO: Find an epoll replacement for Windows. Will likely be based on
         //       the Win32 thread pool driving an eager future.
-        inner_fd_t upstream_epollfd;
+        inner_fd_t upstream_inpoll;
 
-        /// Event object used to keep `latched_epoll` perma-ready after the
+        /// Event object used to keep `latched_inpoll` perma-ready after the
         /// future has reached its final state.
         ///
-        /// See \ref epoll_latch_event_t for more information.
-        epoll_latch_event_t epoll_latch;
+        /// See \ref inpoll_latch_event_t for more information.
+        inpoll_latch_event_t inpoll_latch;
     #endif
 } future_unordered_state_t;
