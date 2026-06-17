@@ -177,19 +177,20 @@
     ///                    become readable, as specified by previous calls to
     ///                    inpoll_attach().
     /// \param num_identifiers provides a lower bound on the storage capacity of
-    ///                        `identifiers`. If more file descriptors turn out
-    ///                        to be readable, this function will only report an
-    ///                        arbitrarily subset of `num_identifiers` of them.
+    ///                        `identifiers`, which should be at least 1. If
+    ///                        more file descriptors turn out to be readable,
+    ///                        this function will only report an arbitrarily
+    ///                        subset of `num_identifiers` of them.
     /// \param timeout indicates after how much time the active thread should
     ///                stop waiting and report zero readable file descriptors.
+    ///                Beware that the actually applied timeout will be slightly
+    ///                longer due to scheduling delays and OS clock granularity.
     ///
     /// \returns the number of file descriptors that became readable during the
     ///          wait (or were already readable to begin with), matching the
     ///          number of entries that were filled in the `identifiers` array.
     ///          If `timeout` is \ref UDIPE_DURATION_MAX, this number is
     ///          guaranteed to be at least one.
-    // TODO docs+implement, epoll_pwait2 with sigmask=NULL and events in an
-    //      alloca, repeat on EINTR using a stopwatch
     UDIPE_NODISCARD
     size_t inpoll_wait(inpoll_t poll,
                        uint64_t identifiers[],

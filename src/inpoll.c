@@ -2,12 +2,17 @@
 
     #include "inpoll.h"
 
+    #include "duration.h"
     #include "error.h"
     #include "fd.h"
     #include "log.h"
+    #include "stopwatch.h"
 
+    #include <alloca.h>
     #include <assert.h>
     #include <errno.h>
+    #include <limits.h>
+    #include <stddef.h>
     #include <stdint.h>
     #include <sys/epoll.h>
 
@@ -109,6 +114,69 @@
         default:
             exit_after_c_error("This error is not expected to happen!");
         }
+    }
+
+    UDIPE_NODISCARD
+    size_t inpoll_wait(inpoll_t poll,
+                       uint64_t identifiers[],
+                       size_t num_identifiers,
+                       udipe_duration_ns_t timeout) {
+        stopwatch_t stopwatch = stopwatch_initialize();
+        ensure_ge(num_identifiers, (size_t)0);
+        ensure_le(num_identifiers, (size_t)INT_MAX);
+
+        trace("Setting up events storage...");
+        struct epoll_event* events = (struct epoll_event*)alloca(
+            num_identifiers * sizeof(struct epoll_event)
+        );
+        assert(events);
+
+        size_t num_valid_identifiers;
+        do {
+            struct timespec delay;
+            struct timespec* pdelay = make_unix_timeout(&delay, timeout);
+
+            trace("Waiting for upstream fds to become readable...");
+            int result = epoll_pwait2(poll,
+                                      events,
+                                      num_identifiers,
+                                      pdelay,
+                                      NULL);
+
+            if (result > 0) {
+                const size_t num_valid_identifiers = (size_t)result;
+                tracef("epoll_pwait2() reported %zu readability events on "
+                       "attached upstream fds. Will now translate them into a "
+                       "simplified identifier list...",
+                       num_valid_identifiers);
+                ensure_le(num_valid_identifiers, num_identifiers);
+                for (size_t i = 0; i < num_valid_identifiers; ++i) {
+                    assert(events[i].events == EPOLLIN);
+                    identifiers[i] = events[i].data.u64;
+                }
+                return num_valid_identifiers;
+            }
+            assert(result == -1);
+
+            switch(errno) {
+            case EINTR:  // The call was interrupted by a signal
+                trace("Interrupted by a signal, updating timeout...");
+                const udipe_duration_ns_t elapsed_time =
+                    stopwatch_measure(&stopwatch);
+                if (elapsed_time >= timeout) {
+                    trace("Reached timeout before the epollfd became readable!");
+                    return (size_t)0;
+                } else {
+                    timeout -= elapsed_time;
+                    continue;
+                }
+            case EBADF:  // epfd is not a valid file descriptor.
+            case EFAULT:  // events is not writable.
+            case EINVAL:  // epfd is not an epollfd or n <= 0.
+            default:
+                exit_after_c_error("This error is not expected to happen!");
+            }
+        } while (true);
     }
 
 #endif  // __linux__
