@@ -125,15 +125,13 @@ future_status_t future_wait_eager(udipe_future_t* future,
                                   udipe_duration_ns_t timeout,
                                   downstream_count_policy_t count_policy) {
     // Readiness and early exit should be handled upstream
+    stopwatch_t stopwatch = stopwatch_initialize();
     future_status_debug_check(latest_status, true);
     assert((latest_status.type >= TYPE_NETWORK_START
             && latest_status.type < TYPE_NETWORK_END)
            || latest_status.type == TYPE_CUSTOM);
     assert(latest_status.state != STATE_RESULT);
     assert(timeout != UDIPE_DURATION_MIN && timeout != UDIPE_DURATION_DEFAULT);
-
-    trace("Initializing timeout stopwatch...");
-    stopwatch_t stopwatch = stopwatch_initialize();
 
     trace("Updating the future's status word...");
     bool success;
@@ -216,13 +214,11 @@ future_status_t future_wait_join(udipe_future_t* future,
     //       the aforementioned refactor could be a first step in this direction.
     // TODO: Consider moving some of this to epoll_event_pair.[ch]
 
+    stopwatch_t stopwatch = stopwatch_initialize();
     future_status_debug_check(latest_status, true);
     assert(latest_status.type == TYPE_JOIN);
     assert(latest_status.state != STATE_RESULT);
     assert(timeout != UDIPE_DURATION_DEFAULT);
-
-    trace("Initializing timeout stopwatch...");
-    stopwatch_t stopwatch = stopwatch_initialize();
 
     do {
         trace("Preparing future status update...");
@@ -565,13 +561,11 @@ future_status_t future_wait_timer_once(
     udipe_duration_ns_t timeout,
     downstream_count_policy_t count_policy
 ) {
+    stopwatch_t stopwatch = stopwatch_initialize();
     future_status_debug_check(latest_status, true);
     assert(latest_status.type == TYPE_TIMER_ONCE);
     assert(latest_status.state != STATE_RESULT);
     assert(timeout != UDIPE_DURATION_DEFAULT);
-
-    trace("Initializing timeout stopwatch...");
-    stopwatch_t stopwatch = stopwatch_initialize();
 
     switch(count_policy) {
     case DOWNSTREAM_COUNT_CYCLE:
