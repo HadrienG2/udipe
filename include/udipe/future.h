@@ -698,6 +698,20 @@ udipe_future_t* udipe_start_timer_once(udipe_context_t* context,
 ///   if for example you read the initial future at T+3.07s, the next future
 ///   will still complete at T+3.1s.
 ///
+/// Be warned that even though the `interval` is specified in nanoseconds for
+/// consistency with the rest of the udipe API, underlying OS APIs provide
+/// basically no guarantee on underlying clock resolution. Therefore...
+///
+/// - You should think twice about using an `interval` that is not a multiple
+///   of \ref UDIPE_MILLISECOND, as the lowest common denominator of OS timing
+///   APIs only support periods in milliseconds and any smaller period must be
+///   emulated by udipe at the expense of reduced timing resolution and/or
+///   increased CPU usage.
+/// - The smaller your `interval` the more likely it is that the OS will shift
+///   your timer deadlines by a bit, possibly to the point where you will always
+///   see multiple missed deadlines because you are woken up for the equivalent
+///   of multiple timer deadlines at a time.
+///
 /// \param context must point to an \ref udipe_context_t that has been set up
 ///                via udipe_initialize() and hasn't been liberated via
 ///                udipe_finalize() since.
