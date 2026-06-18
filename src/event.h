@@ -26,18 +26,19 @@
 /// This object can be signaled by a thread and awaited by any number of other
 /// threads. It is an eventfd on Linux and an event object on Windows.
 ///
-/// On Linux, an eventfd can be awaited by waiting for file descriptor
+/// On Linux, the eventfd can be awaited by waiting for file descriptor
 /// readability via poll, epoll/inpoll, io_uring and friends. Importantly, the
 /// wait method should not involve reading from the file descriptor, as this
 /// would reset the event to an unsignaled state.
 ///
-/// On Windows, an event object can be awaited using methods for awaiting
+/// On Windows, the event object can be awaited using methods for awaiting
 /// synchronization object readiness including WaitForSingleObject,
 /// WaitForMultipleObjects, or SetThreadPoolWait.
 ///
-/// The reason why the waiting method is not abstracted away is that operating
-/// systems provide multiple ways to wait for synchronization objects and the
-/// optimal choice of waiting method is context-dependent.
+/// The reason why the underlying OS object is exposed instead of abstracting
+/// the waiting method away is that operating systems provide multiple ways to
+/// wait for synchronization objects and the optimal choice of waiting method is
+/// context-dependent.
 #ifdef __linux__
     typedef fd_t event_t;
 #else
