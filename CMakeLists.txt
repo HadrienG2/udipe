@@ -197,6 +197,7 @@ target_sources(udipe
                        src/stopwatch.h
                        src/thread_name.c
                        src/thread_name.h
+                       src/timer.h
                        src/unit_tests.c
                        src/unit_tests.h
                        src/visibility.h)

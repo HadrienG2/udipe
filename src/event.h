@@ -1,10 +1,11 @@
 #pragma once
 
 //! \file
-//! \brief Manipulation of event objects
+//! \brief Event objects
 //!
-//! This module provides utilities for manipulating eventfds on Linux and event
-//! objects on Windows, in a mostly OS-agnostic way.
+//! This module provides utilities for manipulating event objects, which get
+//! signaled and reset per user request in such a way that other threads can
+//! wait for one of multiple event objects to be signaled.
 
 #include <udipe/nodiscard.h>
 
@@ -26,16 +27,17 @@
 /// threads. It is an eventfd on Linux and an event object on Windows.
 ///
 /// On Linux, an eventfd can be awaited by waiting for file descriptor
-/// readability via poll, epoll, io_uring and friends. Importantly, the wait
-/// should not involve reading from the file descriptor, as this would reset the
-/// event to an unsignaled state.
+/// readability via poll, epoll/inpoll, io_uring and friends. Importantly, the
+/// wait method should not involve reading from the file descriptor, as this
+/// would reset the event to an unsignaled state.
 ///
 /// On Windows, an event object can be awaited using methods for awaiting
-/// synchronization object readiness like WaitForSingleObject or
-/// WaitForMultipleObjects.
+/// synchronization object readiness including WaitForSingleObject,
+/// WaitForMultipleObjects, or SetThreadPoolWait.
 ///
-/// The reason why the waiting method is not abstracted away is that it lets the
-/// client use collective waiting methods for increased efficiency.
+/// The reason why the waiting method is not abstracted away is that operating
+/// systems provide multiple ways to wait for synchronization objects and the
+/// optimal choice of waiting method is context-dependent.
 #ifdef __linux__
     typedef fd_t event_t;
 #else
@@ -152,7 +154,7 @@ void event_reset(event_t event) {
             return;
         case EINVAL:  // size of the supplied buffer is less than 8 bytes.
         default:
-            exit_after_c_error("These error cases should not be encountered");
+            exit_after_c_error("These error cases should not be encountered.");
         }
         ensure_eq(result, 8);
         tracef("Reset event which was previously signaled %zu times.",

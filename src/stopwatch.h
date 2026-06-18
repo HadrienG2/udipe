@@ -7,6 +7,10 @@
 //! takes to execute. It is used to correctly handle timeouts, no matter how
 //! much some operating systems want to break them as soon as signal handling /
 //! asynchronous procedure calls get involved.
+//!
+//! Stopwatches should not be confused with timers, which provide
+//! synchronization objects that get signaled when a certain amount of time has
+//! elapsed or when a certain deadline has been reached.
 
 #include <udipe/duration.h>
 #include <udipe/nodiscard.h>
