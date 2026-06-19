@@ -9,27 +9,30 @@
 #include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
-#include "latched_inpoll.h"
 #include "outcome.h"
 #include "state.h"
 #include "status.h"
 #include "status_ops.h"
 #include "type.h"
+#ifdef __linux__
+    #include "latched_inpoll.h"
+#endif
 
 #include "../duration.h"
 #include "../error.h"
 #include "../event.h"
 #include "../future.h"
-#include "../inpoll.h"
 #include "../log.h"
 #include "../stopwatch.h"
+#ifdef __linux__
+    #include "../inpoll.h"
+#endif
 
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <time.h>
-
 #ifdef __linux__
     #include <poll.h>
 #endif
