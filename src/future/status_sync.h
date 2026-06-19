@@ -4,12 +4,26 @@
 //! \brief Future status change synchronization
 
 #include "../event.h"
-
+#include "../timer.h"
 #ifdef __linux__
     #include "../fd.h"
     #include "../inpoll.h"
 #endif
 
+#include <stdint.h>
+
+
+#ifdef __linux__
+    /// Inpoll identifier that is used when \ref status_sync_t::latched_inpoll
+    /// is attached to a single fd besides the latch event
+    ///
+    /// This pattern is used when \ref inpoll_t is not needed for its ability to
+    /// simultaneously await the readiness of multiple file descriptors, but
+    /// rather for its ability to hide the true file descriptor that is at the
+    /// heart of a future, by way of masking it behind another file descriptor
+    /// that's ready whenever the upstream file descriptor is.
+    #define INPOLL_SINGLE_UPSTREAM_ID ((uint64_t)0)
+#endif  // __linux__
 
 /// Synchronization object signaling future status changes
 ///
@@ -24,7 +38,7 @@
 /// remain constant for the entire lifetime of the future.
 //
 // TODO: Windows version, based on thread poll waits for NT synchronization
-//       objects leading to eventual signaling of `event`?
+//       objects leading to eventual signaling of an `event`?
 ///
 /// Check the future's \ref future_type_t via \ref future_status_t::type to
 /// know more about which variant of this union you are dealing with, then
@@ -53,35 +67,33 @@ typedef union status_sync_u {
     /// Must be reset and recycled when the future is liberated.
     event_t event;
 
-    #ifdef __linux__
-        /// timerfd, used for \ref TYPE_TIMER_ONCE
-        ///
-        /// This synchronization style is used for single-shot "timer" futures
-        /// that become ready at a certain time.
-        ///
-        /// When this file descriptor becomes ready, \ref OUTCOME_SUCCESS
-        /// must be signaled by one of the thread which observes this status
-        /// to be unset, without reading the timerfd. The timerfd will
-        /// therefore stay ready and thus remain effective as a downstream
-        /// readiness signal.
-        ///
-        /// Must be destroyed when the future is liberated, for now. May
-        /// switch to disarming and recycling if timerfd
-        /// creation/destruction ever becomes a bottleneck, but that seems
-        /// unlikely under correct udipe API usage given that recuring
-        /// timerfds seem to cover the main use case for which one might
-        /// want to create lots of single-shot timers.
-        //
-        // TODO: Prove the above assertion through benchmarking and
-        //       profiling of real-world workloads.
-        // TODO: Find a Windows equivalent, could likely be a Win32 waitable
-        //       timer object? If so, it might make sense to create a
-        //       portable single_shot_timer_t type that abstracts between
-        //       single-shot timerfd and single-shot NT timer, then make the
-        //       description of this field more generic and move it out of
-        //       the __linux__ section.
-        fd_t timer;
+    /// Timer object, used for \ref TYPE_TIMER_ONCE
+    ///
+    /// This synchronization object is used for single-shot "timer" futures that
+    /// become ready at a certain time.
+    ///
+    /// On Linux, waiting for readiness must be done using a nondestructive
+    /// method that doesn't read from the timerfd (like e.g. select, poll,
+    /// epoll/inpoll, io_uring...). This way, the timerfd will stay in the
+    /// readable state and thus remain an effective downstream readiness signal.
+    ///
+    /// On Windows, the timer object is configured in manual reset mode to
+    /// achieve the same effect without special precautions.
+    ///
+    /// When this object becomes ready, \ref OUTCOME_SUCCESS must be signaled by
+    /// one of the threads which observes this status to be unset.
+    ///
+    /// The object must be destroyed when the future is liberated, for now. We
+    /// may switch to disarming and recycling if timerfd creation/destruction
+    /// ever becomes a bottleneck, but that seems unlikely under correct udipe
+    /// API usage given that recuring timerfds seem to cover the main use case
+    /// for which one might want to create lots of single-shot timers.
+    //
+    // TODO: Prove the above assertion through benchmarking and
+    //       profiling of real-world workloads.
+    udipe_timer_t timer_once;
 
+    #ifdef __linux__
         /// \ref inpoll_t with an attached \ref inpoll_latch_event_t, used for
         /// most lazy future types
         ///
@@ -102,14 +114,14 @@ typedef union status_sync_u {
         /// - Unordered futures use a cascaded pair of inpolls. Upstream fds are
         ///   attached to an "inner" `specific.unordered.upstream_inpoll` with
         ///   index-based signaling as before, but no accompanying latch
-        ///   eventfd. This "inner" inpoll is in turn attached with identifier 0
-        ///   to this "outer" `latched_inpoll`, which is additionally attached
-        ///   to the \ref inpoll_latch_event_t with identifier \ref
-        ///   INPOLL_LATCH_ID as before. This cascading inpoll structure makes
-        ///   it possible to later detach the inner inpoll and migrate it to the
-        ///   next future in the unordered chain, while leaving the original
-        ///   future's `latched_inpoll` with the same fd number and in a
-        ///   perpetually signaled state.
+        ///   eventfd. This "inner" inpoll is in turn attached with identifier
+        ///   \ref INPOLL_SINGLE_UPSTREAM_ID to this "outer" `latched_inpoll`,
+        ///   which is additionally attached to the \ref inpoll_latch_event_t
+        ///   with identifier \ref INPOLL_LATCH_ID as before. This cascading
+        ///   inpoll structure makes it possible to later detach the inner
+        ///   inpoll and migrate it to the next future in the unordered chain,
+        ///   while leaving the original future's `latched_inpoll` with the same
+        ///   fd number and in a perpetually signaled state.
         /// - Repeating timers produce a chain of output futures using the same
         ///   trick, except instead of cascading inpolls they simply have one
         ///   outer `latched_inpoll` which is connected to an inner timerfd

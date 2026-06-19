@@ -20,81 +20,20 @@
 
 #ifdef __linux__
     #include "fd.h"
+
+    #include <sys/timerfd.h>
 #elif defined(_WIN32)
     // Must be included first
     #include <windows.h>
 
     #include <handleapi.h>
+    #include <synchapi.h>
 #endif
 
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
-
-
-/// Invalid timer object identifier
-///
-/// This identifier is recognized as invalid by the operating system and can be
-/// used as a safe placeholder value when you have storage for an timer object
-/// that does not currently hold an actual timer object.
-#ifdef __linux__
-    #define TIMER_INVALID  FD_INVALID
-#elif defined(_WIN32)
-    #define TIMER_INVALID  NULL
-#else
-    #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
-#endif
-
-
-#ifdef __linux__
-    /// \name Linux `timerfd` manipulation
-    /// \{
-
-    /// `timerfd` file descriptor
-    ///
-    /// Both \ref timer_once_t and \ref linux_timer_repeat_t are aliases to this
-    /// powerful special Linux file descriptor type which can handle both
-    /// one-shot and repeating timers.
-    ///
-    /// On Linux, the timerfd can be awaited by waiting for file descriptor
-    /// readability via poll, epoll/inpoll, io_uring and friends. Importantly,
-    /// the wait method should not involve reading from the file descriptor, as
-    /// this would reset the timer to an unsignaled state and thus break the
-    /// "broadcast signaling" property of timerfds as a cross-thread
-    /// synchronization primitive.
-    ///
-    /// For repeating timers, the timerfd must be read from to measure how many
-    /// timer periods have elapsed, but as outlined above this will reset it to
-    /// an unsignaled state. So if you want to broadcast a readiness signal to
-    /// multiple threads, you will need a wrapper based on \ref inpoll_t and
-    /// \ref inpoll_latch_event_t, as done in the implementation of \ref
-    /// TYPE_TIMER_REPEAT futures.
-    typedef fd_t timerfd_t;
-
-    /// Set up a timerfd with a certain deadline and an optional repeat interval
-    ///
-    /// The timerfd will be signaled when the `initial` deadline is reached,
-    /// and optionally signaled again at the periodic `interval` if it is
-    /// nonzero. It must eventually be destroyed with close_virtual_fd().
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param initial indicates at which time the timerfd should be first
-    ///                signaled, using the same conventions as
-    ///                udipe_start_timer_once().
-    /// \param interval indicates at which time period the timerfd should be
-    ///                 signaled again after `initial`, unless it is set to zero
-    ///                 in which case it has no effect.
-    ///
-    /// \returns an initialized timerfd that must later be destroyed with
-    ///          close_virtual_fd().
-    UDIPE_NODISCARD
-    timerfd_t timerfd_initialize(struct timespec initial,
-                                 udipe_duration_ns_t interval);
-
-    /// \}
-#endif  // __linux__
 
 
 #ifdef _WIN32
@@ -142,17 +81,46 @@
 #endif  // _WIN32
 
 
-/// \name One-shot timers
+/// \name Timer objects
 /// \{
 
-/// One-shot timer object
+/// Timer object
 ///
-/// This object gets signaled at a specific time, and will stay signaled after
-/// that until the user resets it to a different time. It is a timerfd on Linux
-/// (see \ref timerfd_t for more) and a waitable timer object on Windows.
+/// This is an object that gets signaled at user-specified time points. It can
+/// be configured in up to two ways depending on which OS you are using:
 ///
-/// On Windows, the waitable timer object can be awaited using methods for
-/// awaiting synchronization object readiness including WaitForSingleObject,
+/// - On all supported operating systems, it can be configured in one-shot mode
+///   with timer_set_once(). In this mode, once a specific deadline is reached,
+///   the timer will be signaled, and afterwards the timer will remain signaled
+///   until destroyed or reset.
+/// - On Linux, a timer can additionally be configured in repeating mode with
+///   linux_timer_set_repeat(). In this mode, there is both an initial deadline
+///   and a subsequent repetition interval. After being signaled at the initial
+///   deadline, the timer will repeatedly be signaled again at the specified
+///   time interval, with a way to atomically reset it to an unsignaled state
+///   and query how many timer periods have occured since the last reset.
+///     - Repeating timers are not supported on Windows because Windows waitable
+///       timer objects do not support tracking the amount of missed deadlines
+///       or following fine-grained periods, everything must be emulated using
+///       thread pool timers, and doing so just to provide the illusion that
+///       waitable timers can do it is more complex and expensive than simply
+///       using thread pool timers directly in the implementation of repeating
+///       timer futures.
+///
+/// Under the hood, this object is a timerfd on Linux and a waitable timer
+/// object on Windows.
+///
+/// Linux timerfd deadlines can be awaited using any syscall that monitors fd
+/// readability in a nondestructive manner (select, poll, epoll/inpoll,
+/// io_uring...). But in order to read the missed deadline count and reset a
+/// repeating timer, you need to destructively read from this file descriptor,
+/// which resets it to an unsignaled state and may therefore break the ability
+/// for a single timerfd to wake up multiple threads. This can be worked around
+/// by adding a layer of \ref inpoll_latch_event_t indirection, as done in the
+/// implementation of repeating timer futures.
+///
+/// Windows waitable timer objects can be awaited using methods for awaiting
+/// synchronization object readiness including WaitForSingleObject,
 /// WaitForMultipleObjects, or SetThreadPoolWait.
 ///
 /// The reason why the underlying OS object is exposed instead of abstracting
@@ -160,52 +128,209 @@
 /// wait for synchronization objects and the optimal choice of waiting method is
 /// context-dependent.
 #ifdef __linux__
-    typedef timerfd_t timer_once_t;
+    typedef fd_t udipe_timer_t;
 #elif defined(_WIN32)
-    typedef HANDLE timer_once_t;
+    typedef HANDLE udipe_timer_t;
 #else
     #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
 #endif
 
-/// Set up a one-shot timer
+/// Invalid timer object identifier
 ///
-/// The timer object will be signaled when the specified `deadline` is reached.
-/// It must eventually be destroyed via timer_once_finalize().
+/// This identifier is recognized as invalid by the operating system and can be
+/// used as a safe placeholder value when you have storage for an timer object
+/// that does not currently hold an actual timer object.
+#ifdef __linux__
+    #define TIMER_INVALID  FD_INVALID
+#elif defined(_WIN32)
+    #define TIMER_INVALID  NULL
+#else
+    #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
+#endif
+
+/// Set up a timer object
+///
+/// The timer object will be created in an unsignaled state, and a deadline
+/// and/or period must be configured with timer_set_once() or
+/// linux_timer_set_repeat() before it starts being signaled at user-specified
+/// time points. Once you are done with it, the timer object must be destroyed
+/// with timer_finalize().
 ///
 /// This function must be called within the scope of with_logger().
 ///
-/// \param deadline indicates at which time the timer object should be signaled,
-///                 using the same conventions as udipe_start_timer_once().
-///
-/// \returns an initialized one-shot timer object that must later be destroyed
-///          with timer_once_finalize().
+/// \returns an initialized timer object that must later be destroyed with
+///          timer_finalize().
 UDIPE_NODISCARD
-timer_once_t timer_once_initialize(struct timespec deadline);
+static inline
+udipe_timer_t timer_initialize() {
+    #ifdef __linux__
+        int maybe_timerfd = timerfd_create(
+            CLOCK_REALTIME,
+            // No need for TFD_NONBLOCK as these fds should never be read from
+            // until the associated future is destroyed and they are liberated.
+            TFD_CLOEXEC
+        );
+        if (maybe_timerfd == -1) switch(errno) {
+        case EMFILE:  // Reached process fd limit
+            exit_after_c_error(
+                "The number of fds in current process reached the limit. "
+                "Consider increasing the limit if possible."
+            );
+        case ENFILE:  // Reached system fd limit
+            exit_after_c_error(
+                "The number of fds in the system reached the limit. "
+                "Consider increasing the limit if possible."
+            );
+        case EINVAL:  // clockid or flags is invalid.
+        case ENODEV:  // Could not mount (internal) anonymous inode device.
+        case ENOMEM:  // Not enough memory to create a new timerfd.
+            exit_after_c_error("This error is not expected to happen");
+        }
+        ensure_ge(maybe_timerfd, 0);
+        debugf("Created a timer object with fd %d.", maybe_timerfd);
+        return maybe_timerfd;
+    #elif defined(_WIN32)
+        HANDLE handle = CreateWaitableTimerExW(
+            NULL,
+            NULL,
+            // Needed to allow N threads to wait on one future
+            CREATE_WAITABLE_TIMER_MANUAL_RESET
+                // Needed because otherwise we get ~16ms resolution which is
+                // miserable by the standards of high-performance UDP.
+                | CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+            DELETE | SYNCHRONIZE | TIMER_MODIFY_STATE
+        );
+        win32_exit_on_null(handle,
+                           "Failed to create an anonymous timer object!");
+        debugf("Set up a timer object with handle %p.", handle);
+        return handle;
+    #else
+        #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
+    #endif
+}
 
-/// Destroy a one-shot timer object which is not needed anymore
+/// Set up a timer object in one-shot mode
+///
+/// This will configure the timer object to become signaled at the specified
+/// `deadline`, resetting it to an unsignaled state if it was previously
+/// signaled.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param timer must point to a timer object that was initialized with
+///              timer_initialize() and hasn't been destroyed with
+///              timer_finalize() yet.
+/// \param deadline indicates at which time the timer object should be
+///                 signaled using the same conventions as
+///                 udipe_start_timer_once().
+static inline
+void timer_set_once(udipe_timer_t timer, struct timespec deadline) {
+    assert(deadline.tv_nsec < 1000 * 1000 * 1000);
+    #ifdef __linux__
+        debugf("Setting a deadline for the timer object with fd %d...", timer);
+        struct itimerspec spec = { 0 };
+        spec.it_value = deadline;
+        exit_on_negative(
+            timerfd_settime(
+                timer,
+                // Don't want to expose TFD_TIMER_CANCEL_ON_SET as it has no
+                // clean equivalent on Windows.
+                TFD_TIMER_ABSTIME,
+                &spec,
+                NULL
+            ),
+            "Failed to configure a timerfd's deadline!"
+        );
+    #elif defined(_WIN32)
+        debugf("Setting a deadline for timer object with handle %p...", timer);
+        const LARGE_INTEGER due = win32_filetime_from_timespec(due, false);
+        win32_exit_on_zero(
+            SetWaitableTimer(
+                timer,
+                &due,
+                0,
+                NULL,
+                NULL,
+                false
+            ),
+            "Failed to configure a Windows timer's deadline!"
+        );
+    #else
+        #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
+    #endif
+}
+
+#ifdef __linux__
+    /// Set up a Linux timer in repeating mode
+    ///
+    /// This will configure the timer object to become signaled at the specified
+    /// `initial` instant, then again every `interval` nanoseconds, resetting it
+    /// to an unsignaled state if it was previously signaled.
+    ///
+    /// This function must be called within the scope of with_logger().
+    ///
+    /// \param timer must point to a timer object that was initialized with
+    ///              timer_initialize() and hasn't been destroyed with
+    ///              timer_finalize() yet.
+    /// \param initial indicates at which time the timer object should be first
+    ///                signaled using the same conventions as
+    ///                udipe_start_timer_once().
+    /// \param interval indicates at which time interval the timer object should
+    ///                 be signaled again after the initial signal.
+    static inline
+    void linux_timer_set_repeat(udipe_timer_t timer,
+                                struct timespec initial,
+                                udipe_duration_ns_t interval) {
+        debugf("Setting a deadline and repetition interval "
+               "for the timer object with fd %d...", timer);
+        assert(initial.tv_nsec < 1000 * 1000 * 1000);
+        const struct itimerspec spec = {
+            .it_value = initial,
+            .it_interval = (struct timespec){
+                .tv_sec = interval / (1000 * 1000 * 1000),
+                .tv_nsec = interval % (1000 * 1000 * 1000)
+            }
+        };
+        exit_on_negative(
+            timerfd_settime(
+                timer,
+                // Don't want to expose TFD_TIMER_CANCEL_ON_SET as it has no
+                // clean equivalent on Windows.
+                TFD_TIMER_ABSTIME,
+                &spec,
+                NULL
+            ),
+            "Failed to configure a timerfd's deadline and period!"
+        );
+    }
+#endif  // __linux__
+
+/// Destroy a timer object which is not needed anymore
 ///
 /// This function must be called at a time where no client is waiting for the
 /// timer object and no client could start waiting for it.
 ///
-/// Unlike with event objects, you are not encouraged to recycle and reuse
-/// one-shot timer objects because all foreseen used cases for one-shot timer
-/// object reuse are better left to repeating timer objects.
+/// Unlike with event objects, you are not encouraged to recycle and reuse timer
+/// objects because 1/all known use cases for one-shot timer object reuse are
+/// better left to repeating timer objects and 2/there is no known valid use
+/// case for creating and deleting lots of repeating timer objects per second.
 ///
 /// This function must be called within the scope of with_logger().
 ///
-/// \param timer must point to a one-shot timer object that was initialized with
-///              timer_once_initialize() and hasn't been destroyed with
-///              timer_once_finalize() yet.
+/// \param timer must point to a timer object that was initialized with
+///              timer_initialize() and hasn't been destroyed with
+///              timer_finalize() yet. It cannot be used again after calling
+///              this function.
 UDIPE_NON_NULL_ARGS
 static inline
-void timer_once_finalize(timer_once_t* timer) {
+void timer_finalize(udipe_timer_t* timer) {
     #ifdef __linux__
-        debugf("Destroying the one-shot timer object with fd %d...", *timer);
+        debugf("Destroying the timer object with fd %d...", *timer);
         close_virtual_fd(timer);
     #elif defined(_WIN32)
-        debugf("Destroying the one-shot timer object with handle %p...", *timer);
+        debugf("Destroying the timer object with handle %p...", *timer);
         win32_exit_on_zero(CloseHandle(*timer),
-                           "Failed to destroy timer object!");
+                           "Failed to destroy a timer object!");
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
@@ -213,79 +338,6 @@ void timer_once_finalize(timer_once_t* timer) {
 }
 
 /// \}
-
-
-#ifdef __linux__
-    /// \name Linux repeating timers
-    /// \{
-
-    /// Linux repeating timer
-    ///
-    /// At the time of writing, Linux timerfds are the only available OS API
-    /// that can provide repeating timers as a synchronization object, which can
-    /// be awaited along with other synchronization objects then later be
-    /// atomically reset in a manner that tells you how many deadlines were
-    /// missed (which is done by simply reading from the timerfd).
-    ///
-    /// Windows waitable timer objects get close, but unfortunately lack the
-    /// ability to report the number of missed deadlines. And emulating this
-    /// feature with thread pool timers is complex and expensive enough that we
-    /// decided to just use thread pool timers directly in the implementation of
-    /// timer futures instead of exposing an intermediate timer synchronization
-    /// object layer. Hence only Linux gets a \ref linux_timer_repeat_t for now.
-    ///
-    /// The reason why the timerfd is exposed instead of abstracting the waiting
-    /// method away is that Linux provide multiple ways to wait for fds and the
-    /// optimal choice of waiting method is context-dependent.
-    typedef timerfd_t linux_timer_repeat_t;
-
-    /// Set up a Linux repeating timer
-    ///
-    /// The timer object will be signaled at the specified `initial` instant,
-    /// then again every `interval` nanoseconds. It must eventually be destroyed
-    /// via linux_timer_repeat_finalize().
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param initial indicates at which time the timer object should be first
-    ///                signaled, using the same conventions as
-    ///                udipe_start_timer_once().
-    /// \param interval indicates at which time interval the timer object should
-    ///                 be signaled again after this initial signal.
-    ///
-    /// \returns an initialized Linux repeating timer object that must later be
-    ///          destroyed with linux_timer_repeat_finalize().
-    UDIPE_NODISCARD
-    static inline
-    linux_timer_repeat_t timer_repeat_initialize(struct timespec initial,
-                                                 udipe_duration_ns_t interval) {
-        return timerfd_initialize(initial, interval);
-    }
-
-    /// Destroy a Linux repeating timer object which is not needed anymore
-    ///
-    /// This function must be called at a time where no client is waiting for
-    /// the timer object and no client could start waiting for it.
-    ///
-    /// Unlike with event objects, you are not encouraged to recycle and reuse
-    /// repeating timer objects because there is no foreseen valid use case for
-    /// repeatedly creating and destroying lots of these.
-    ///
-    /// This function must be called within the scope of with_logger().
-    ///
-    /// \param timer must point to a Linux repeating timer object that was
-    ///              initialized with linux_timer_repeat_initialize() and hasn't
-    ///              been destroyed with linux_timer_repeat_finalize() yet.
-    UDIPE_NON_NULL_ARGS
-    static inline
-    void linux_timer_repeat_finalize(linux_timer_repeat_t* timer) {
-        debugf("Destroying the one-shot timer object with fd %d...", *timer);
-        close_virtual_fd(timer);
-        *timer = TIMER_INVALID;
-    }
-
-    /// \}
-#endif
 
 
 // TODO: Unit tests

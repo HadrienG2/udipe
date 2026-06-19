@@ -19,8 +19,9 @@
 #include "../future.h"
 #include "../log.h"
 #include "../refcounted_tss.h"
+#include "../timer.h"
 #ifdef __linux__
-    #include "inpoll.h"
+    #include "../inpoll.h"
 #endif
 
 #include <stdatomic.h>
@@ -87,6 +88,9 @@ udipe_future_t* future_allocate(udipe_context_t* context,
         trace("Allocating the output eventfd...");
         future->status_sync.event = event_cache_allocate(&thread_cache->events);
         break;
+    case TYPE_TIMER_ONCE:
+        future->status_sync.timer_once = timer_initialize();
+        break;
     #ifdef __linux__
         case TYPE_JOIN:
             trace("Allocating the output inpoll+eventfd pair...");
@@ -111,8 +115,7 @@ udipe_future_t* future_allocate(udipe_context_t* context,
             attach_result =
                 inpoll_attach(future->status_sync.latched_inpoll,
                               future->specific.unordered.upstream_inpoll,
-                              // TODO: Extract this hardcoded constant somewhere
-                              (uint64_t)0);
+                              INPOLL_SINGLE_UPSTREAM_ID);
             switch (attach_result) {
             case INPOLL_ATTACH_SUCCESS:
                 break;
@@ -122,19 +125,27 @@ udipe_future_t* future_allocate(udipe_context_t* context,
             }
             break;
         case TYPE_TIMER_REPEAT:
-            // TODO: Allocate specific.timer_repeat.timerfd, sharing code with
-            //       the TIMER_ONCE path
+            trace("Allocating the upstream timerfd...");
+            future->specific.timer_repeat.timerfd = timer_initialize();
+
             trace("Allocating the output inpoll+eventfd pair...");
             latched = latched_inpoll_cache_allocate(
                 &thread_cache->latched_inpolls
             );
             future->specific.timer_repeat.inpoll_latch = latched.latch;
             future->status_sync.latched_inpoll = latched.inpoll;
-            // TODO: Attach timerfd to latched.inpoll with inpoll_attach().
-            break;
-        case TYPE_TIMER_ONCE:
-            // TODO: Allocate future->status_sync.timer, sharing code with
-            //       the TIMER_REPEAT path.
+
+            trace("Attaching the upstream timerfd to the output inpoll...");
+            attach_result =
+                inpoll_attach(future->status_sync.latched_inpoll,
+                              future->specific.timer_repeat.timerfd,
+                              INPOLL_SINGLE_UPSTREAM_ID);
+            switch (attach_result) {
+            case INPOLL_ATTACH_SUCCESS:
+                break;
+            case INPOLL_ATTACH_TOO_NESTED:  // Can't happen with a timerfd
+                exit_after_c_error("This error is not expected to happen!");
+            }
             break;
     #else
         // TODO: Add windows versions

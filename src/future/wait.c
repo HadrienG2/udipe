@@ -570,7 +570,7 @@ future_status_t future_wait_timer_once(
 
         trace("Encoding timerfd into a pollfd...");
         struct pollfd timer = (struct pollfd){
-            .fd = future->status_sync.timer,
+            .fd = future->status_sync.timer_once,
             .events = POLLIN,
             .revents = 0
         };

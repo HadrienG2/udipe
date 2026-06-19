@@ -8,6 +8,8 @@
 #ifdef __linux__
     #include "inpoll_latch_event.h"
     #include "inner_fd.h"
+
+    #include "../timer.h"
 #endif
 
 
