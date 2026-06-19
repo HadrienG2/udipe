@@ -10,7 +10,6 @@
 #include "status.h"
 #include "status_ops.h"
 #include "type.h"
-
 #ifdef __linux__
     #include "latched_inpoll.h"
 #endif
@@ -18,9 +17,11 @@
 #include "../context.h"
 #include "../error.h"
 #include "../future.h"
-#include "../inpoll.h"
 #include "../log.h"
 #include "../refcounted_tss.h"
+#ifdef __linux__
+    #include "inpoll.h"
+#endif
 
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -73,8 +74,8 @@ udipe_future_t* future_allocate(udipe_context_t* context,
 
     trace("Setting up type-specific file descriptors...");
     // TODO: Extract this into a utility function + add more logging
-    inpoll_with_latch_t latched;
     #ifdef __linux__
+        inpoll_with_latch_t latched;
         inpoll_attach_result_t attach_result;
     #endif
     switch (type) {
