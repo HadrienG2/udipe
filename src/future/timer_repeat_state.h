@@ -48,10 +48,20 @@ typedef struct future_timer_repeat_state_s {
         //
         // TODO: Prove the above assertion through benchmarking and profiling
         //       profiling of real-world workloads.
-        // TODO: Find a windows equivalent, based on Win32 thread pool timers?
-        //       That seems necessary to be able to count missed deadlines,
-        //       which is a very nice timerfd feature that we'd rather keep even
-        //       for those poor Windows souls.
+        // TODO: Find a Windows equivalent that retains the important ability to
+        //       count missed deadlines. The current plan is to do it using a
+        //       Win32 thread pool timer, which is recuring if `interval` is an
+        //       integral number of milliseconds and single-shot otherwise. In
+        //       both cases, the timer callback determines the amount of missed
+        //       timer deadlines using GetSystemTimePreciseAsFileTime() and a
+        //       variable that tracks the last lookup time, then sets up the
+        //       continuation future accordingly then marks this future as
+        //       ready. But in the single-shot case, the next timer period is
+        //       also determined and configured as the next deadline of the
+        //       single-shot thread pool timer before the future is marked as
+        //       ready. This complication is needed because Windows timers only
+        //       natively support millisecond periodicities, which is why users
+        //       are strongly advised to use those periodicities when possible.
         inner_fd_t timerfd;
 
         /// Event object used to keep `status_sync.latched_inpoll` perma-ready
