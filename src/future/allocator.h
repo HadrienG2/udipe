@@ -81,13 +81,6 @@
 //       future_status_debug_check() with a 3-states enum to account for the
 //       fact that futures will now have three states: unallocated, allocated
 //       but not yet fully initialized, and under active use.
-// TODO: Implement. Should go through the thread-local cache first, then through
-//       the global cache after locking it, and if the global cache is empty too
-//       then should allocate a new page of futures, register it into the global
-//       cache for liberation by atexit(), release the global cache lock,
-//       put the futures in a zeroed/invalid state, and add all but one
-//       future to the thread-local cache. The future which we set aside will
-//       then be returned by this function.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
