@@ -92,12 +92,11 @@ timer_once_t timer_once_initialize(struct timespec deadline) {
                            "Failed to create an anonymous timer object!");
         debugf("Set up a timer object with handle %p.", handle);
 
-        const LARGE_INTEGER deadline = win32_filetime_from_timespec(deadline,
-                                                                    false);
+        const LARGE_INTEGER due = win32_filetime_from_timespec(due, false);
         win32_exit_on_zero(
             SetWaitableTimer(
                 handle,
-                &deadline,
+                &due,
                 0,
                 NULL,
                 NULL,
