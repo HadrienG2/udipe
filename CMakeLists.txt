@@ -212,6 +212,9 @@ if (WIN32)
     # Prevents windows.h include from bringing in random junk that will break other
     # Windows headers like winsock2.h.
     target_compile_definitions(udipe PRIVATE WIN32_LEAN_AND_MEAN)
+    # Set Windows 10 as our minimal supported release, enabling newer features
+    target_compile_definitions(udipe PRIVATE WINVER=0x0A00
+                                             _WIN32_WINNT=0x0A00)
 endif()
 if (UDIPE_BUILD_TESTS)
     target_compile_definitions(udipe PUBLIC UDIPE_BUILD_BENCHMARKS)
