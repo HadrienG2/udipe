@@ -16,7 +16,7 @@
 #include <stdint.h>
 
 #ifdef __linux__
-    #include "../inpoll_event_pair.h"
+    #include "../latched_inpoll.h"
 
     #include "../../inpoll.h"
 #endif
@@ -182,8 +182,8 @@ void event_cache_finalize(event_cache_t* cache);
     ///
     /// This is an extension of \ref event_cache_t that manages (eventfd, \ref
     /// inpoll_t) pairs where the \ref inpoll_t is pre-attached to the eventfd
-    /// with an `identifier` of `UINT64_MAX`, at the exclusion of any other file
-    /// descriptor.
+    /// with an `identifier` of \ref INPOLL_LATCH_ID, at the exclusion of any
+    /// other file descriptor.
     ///
     /// Resetting an \ref inpoll_t involves detaching it from every other fd
     /// which it's currently bound to, and that can be a lot more work than
@@ -191,7 +191,7 @@ void event_cache_finalize(event_cache_t* cache);
     /// and cached in situations where they are attached to a tightly bounded
     /// amount of other fds, a.g. a single other fd for \ref TYPE_UNORDERED or
     /// \ref TYPE_TIMER_REPEAT.
-    typedef struct inpoll_event_cache_s {
+    typedef struct latched_inpoll_cache_s {
         /// Storage for inpolls
         ///
         /// For each valid index `i` from `event_cache`, the associated
@@ -205,58 +205,63 @@ void event_cache_finalize(event_cache_t* cache);
         /// Event cache which this builds upon
         ///
         /// Must not be manipulated directly, or `inpolls` will go out of sync.
-        /// Use the dedicated `inpoll_event_cache_` functions instead.
+        /// Use the dedicated `latched_inpoll_cache_` functions instead.
         event_cache_t event_cache;
-    } inpoll_event_cache_t;
+    } latched_inpoll_cache_t;
 
     /// Set up an inpoll+eventfd cache
     ///
     /// This function must be called in the scope of with_logger().
     ///
     /// \returns an inpoll+eventfd cache that must be later liberated with
-    ///          inpoll_event_cache_finalize().
+    ///          latched_inpoll_cache_finalize().
     UDIPE_NODISCARD
-    inpoll_event_cache_t inpoll_event_cache_initialize();
+    latched_inpoll_cache_t latched_inpoll_cache_initialize();
 
-    /// Try to reuse an inpoll+eventfd pair from the specified cache,
-    /// allocating a fresh pair on failure.
+    /// Try to reuse an inpoll+eventfd pair from the specified cache, allocating
+    /// a fresh pair if this fails.
     ///
     /// This function must be called in the scope of with_logger().
     ///
-    /// \param cache must be an event cache that was initialized with
-    ///              event_cache_initialize() and wasn't finalized with
-    ///              event_cache_finalize() yet.
+    /// \param cache must be an inpoll+eventfd cache that was initialized with
+    ///              latched_inpoll_cache_initialize() and wasn't finalized with
+    ///              latched_inpoll_cache_finalize() yet.
     ///
     /// \returns an inpoll+eventfd pair in the state described by the
-    ///          documentation of \ref inpoll_event_pair_t.
+    ///          documentation of \ref inpoll_with_latch_t.
     UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
-    inpoll_event_pair_t
-    inpoll_event_cache_allocate(inpoll_event_cache_t* cache);
+    inpoll_with_latch_t
+    latched_inpoll_cache_allocate(latched_inpoll_cache_t* cache);
 
     /// Liberate an inpoll+eventfd pair into the specified cache
     ///
+    /// The pair must be reset to the state described in the documentation of
+    /// \ref inpoll_with_latch_t before being provided to this recycling
+    /// function. This entails detaching all fds other than the eventfd from the
+    /// inpoll and reseting the eventfd to an unsignaled state.
+    ///
     /// This function must be called in the scope of with_logger().
     ///
-    /// \param cache must be an event cache that was initialized with
-    ///              event_cache_initialize() and wasn't finalized with
-    ///              event_cache_finalize() yet.
-    /// \param pair must be an inpoll+eventfd pair in the state described by
-    ///             the documentation of \ref inpoll_event_pair_t.
+    /// \param cache must be an inpoll+eventfd cache that was initialized with
+    ///              latched_inpoll_cache_initialize() and wasn't finalized with
+    ///              latched_inpoll_cache_finalize() yet.
+    /// \param latched must be an inpoll+eventfd pair in the state described by
+    ///                the documentation of \ref inpoll_with_latch_t.
     UDIPE_NON_NULL_ARGS
-    void inpoll_event_cache_liberate(inpoll_event_cache_t* cache,
-                                     inpoll_event_pair_t pair);
+    void latched_inpoll_cache_liberate(latched_inpoll_cache_t* cache,
+                                       inpoll_with_latch_t latched);
 
     /// Destroy an inpoll+eventfd cache
     ///
     /// This function must be called in the scope of with_logger().
     ///
-    /// \param cache must be an event cache that was initialized with
-    ///              event_cache_initialize() and wasn't finalized with
-    ///              event_cache_finalize() yet. It cannot be used again after
-    ///              calling this function.
+    /// \param cache must be an inpoll+eventfd cache that was initialized with
+    ///              latched_inpoll_cache_initialize() and wasn't finalized with
+    ///              latched_inpoll_cache_finalize() yet. It cannot be used
+    ///              again after calling this function.
     UDIPE_NON_NULL_ARGS
-    void inpoll_event_cache_finalize(inpoll_event_cache_t* cache);
+    void latched_inpoll_cache_finalize(latched_inpoll_cache_t* cache);
 
     /// \}
 

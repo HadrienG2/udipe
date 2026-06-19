@@ -95,20 +95,21 @@ typedef union status_sync_u {
         /// How exactly dependencies are awaited depends on the kind of
         /// future that you are dealing with:
         ///
-        /// - Joined futures directly attached all upstream fds to
-        ///   `latched_inpoll`, using their index in the array of dependencies
-        ///   as an inpoll identifier, while the \ref inpoll_latch_event_t uses
-        ///   an identifier of `UINT64_MAX`.
-        /// - Unordered futures use a cascaded pair of inpolls. Upstream fds
-        ///   are attached to an "inner" `specific.unordered.upstream_inpoll`
-        ///   with index-based signaling as before, but no accompanying latch
+        /// - Joined futures directly attach all upstream fds to
+        ///   `latched_inpoll`, using their index in the array of upstream
+        ///   futures as an inpoll identifier, while the \ref
+        ///   inpoll_latch_event_t uses an identifier of \ref INPOLL_LATCH_ID.
+        /// - Unordered futures use a cascaded pair of inpolls. Upstream fds are
+        ///   attached to an "inner" `specific.unordered.upstream_inpoll` with
+        ///   index-based signaling as before, but no accompanying latch
         ///   eventfd. This "inner" inpoll is in turn attached with identifier 0
-        ///   to this "outer" inpoll, which is additionally attached to the \ref
-        ///   inpoll_latch_event_t with identifier `UINT64_MAX`. This curious
-        ///   cascading inpoll structure makes it possible to later detach the
-        ///   inner inpoll and migrate it to the next future in the unordered
-        ///   chain, while leaving the original future's `latched_inpoll` with
-        ///   the same fd number and in a perpetually signaled state.
+        ///   to this "outer" `latched_inpoll`, which is additionally attached
+        ///   to the \ref inpoll_latch_event_t with identifier \ref
+        ///   INPOLL_LATCH_ID as before. This cascading inpoll structure makes
+        ///   it possible to later detach the inner inpoll and migrate it to the
+        ///   next future in the unordered chain, while leaving the original
+        ///   future's `latched_inpoll` with the same fd number and in a
+        ///   perpetually signaled state.
         /// - Repeating timers produce a chain of output futures using the same
         ///   trick, except instead of cascading inpolls they simply have one
         ///   outer `latched_inpoll` which is connected to an inner timerfd

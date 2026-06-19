@@ -51,8 +51,8 @@ typedef struct future_thread_cache_s {
     #ifdef __linux__
         /// Unallocated inpolls with pre-attached eventfds
         ///
-        /// See \ref inpoll_event_cache_t for more information.
-        inpoll_event_cache_t inpolls_with_events;
+        /// See \ref latched_inpoll_cache_t for more information.
+        latched_inpoll_cache_t latched_inpolls;
     #endif
 
     /// Udipe context which this thread-local cache belongs to

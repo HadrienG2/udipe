@@ -7,7 +7,7 @@
 #include "allocator/storage_page.h"
 #include "allocator/sync_caches.h"
 #include "allocator/thread_cache.h"
-#include "inpoll_event_pair.h"
+#include "latched_inpoll.h"
 #include "status.h"
 #include "status_ops.h"
 #include "type.h"
@@ -70,7 +70,7 @@ udipe_future_t* future_allocate(udipe_context_t* context,
 
     trace("Setting up type-specific file descriptors...");
     // TODO: Extract this into a utility function + add more logging
-    inpoll_event_pair_t inpoll_event;
+    inpoll_with_latch_t latched;
     #ifdef __linux__
         inpoll_attach_result_t attach_result;
     #endif
@@ -86,22 +86,22 @@ udipe_future_t* future_allocate(udipe_context_t* context,
     #ifdef __linux__
         case TYPE_JOIN:
             trace("Allocating the output inpoll+eventfd pair...");
-            inpoll_event = inpoll_event_cache_allocate(
-                &thread_cache->inpolls_with_events
+            latched = latched_inpoll_cache_allocate(
+                &thread_cache->latched_inpolls
             );
-            future->specific.join.inpoll_latch = inpoll_event.event;
-            future->status_sync.latched_inpoll = inpoll_event.inpoll;
+            future->specific.join.inpoll_latch = latched.latch;
+            future->status_sync.latched_inpoll = latched.inpoll;
             break;
         case TYPE_UNORDERED:
             trace("Allocating the upstream inpoll...");
             future->specific.unordered.upstream_inpoll = inpoll_initialize();
 
             trace("Allocating the output inpoll+eventfd pair...");
-            inpoll_event = inpoll_event_cache_allocate(
-                &thread_cache->inpolls_with_events
+            latched = latched_inpoll_cache_allocate(
+                &thread_cache->latched_inpolls
             );
-            future->specific.unordered.inpoll_latch = inpoll_event.event;
-            future->status_sync.latched_inpoll = inpoll_event.inpoll;
+            future->specific.unordered.inpoll_latch = latched.latch;
+            future->status_sync.latched_inpoll = latched.inpoll;
 
             trace("Attaching the upstream inpoll to the output inpoll...");
             attach_result =
@@ -121,12 +121,12 @@ udipe_future_t* future_allocate(udipe_context_t* context,
             // TODO: Allocate specific.timer_repeat.timerfd, sharing code with
             //       the TIMER_ONCE path
             trace("Allocating the output inpoll+eventfd pair...");
-            inpoll_event = inpoll_event_cache_allocate(
-                &thread_cache->inpolls_with_events
+            latched = latched_inpoll_cache_allocate(
+                &thread_cache->latched_inpolls
             );
-            future->specific.timer_repeat.inpoll_latch = inpoll_event.event;
-            future->status_sync.latched_inpoll = inpoll_event.inpoll;
-            // TODO: Attach timerfd to inpoll_event.inpoll with inpoll_attach().
+            future->specific.timer_repeat.inpoll_latch = latched.latch;
+            future->status_sync.latched_inpoll = latched.inpoll;
+            // TODO: Attach timerfd to latched.inpoll with inpoll_attach().
             break;
         case TYPE_TIMER_ONCE:
             // TODO: Allocate future->status_sync.timer, sharing code with
@@ -155,6 +155,8 @@ void future_liberate(udipe_future_t* /*future*/) {
     // TODO: See udipe_future_t field descriptions to see which inner file
     //       descriptors should be recycled and which should be
     //       destroyed/recreated.
+    // TODO: Remember to call future_downstream_count_dec() on each upstream
+    //       future.
     exit_with_error("Not implemented yet!");
 }
 

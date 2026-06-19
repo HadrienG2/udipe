@@ -10,8 +10,8 @@
 
     /// eventfd used to keep an \ref inpoll_t signaled indefinitely
     ///
-    /// At the time of writing, the Linux implementation of futures uses
-    /// inpolls in two different ways:
+    /// At the time of writing, the Linux implementation of futures uses \ref
+    /// inpoll_t in two different ways:
     ///
     /// - Collective joined and unordered futures use \ref inpoll_t as a way to
     ///   repeatedly await upstream futures. In this role, compared to select(),
@@ -27,15 +27,15 @@
     ///   a hidden file descriptor for a while, then eventually "transfer" a
     ///   hidden file descriptor to the next future in the chain, without
     ///   changing the `status_sync` file descriptor number of the active future
-    ///   in the process.
+    ///   in the process or the readiness of said file descriptor.
     ///
     /// The most straightforward and efficient way to use \ref inpoll_t like
     /// this while allowing futures to emit fd-based notifications, is to
-    /// directly designate the resulting \ref inpoll_t as the `status_sync` fd
-    /// of the host future. But this requires a way to set said fd to a
-    /// permanently ready state after the future has reached its final state,
-    /// thus allowing all fd-based clients to reliably notice that this future
-    /// has reached this stage.
+    /// directly designate the output \ref inpoll_t as the `status_sync` fd of
+    /// the host future. But this requires a way to set said fd to a permanently
+    /// ready state after the future has reached its final state, thus allowing
+    /// all fd-based clients to reliably notice that this future has reached
+    /// this stage.
     ///
     /// We do this by attaching an extra eventfd to the `status_sync` \ref
     /// inpoll_t in addition to all other file descriptors that are being
@@ -51,7 +51,7 @@
     // TODO: Find the Windows equivalent of this pattern. Since windows does not
     //       have inpoll, the simplest option might be to make all futures eager
     //       and use the Win32 thread pool to await dependencies + use an output
-    //       event object or WakeByAddress to signal dependents.
+    //       event object and/or WakeByAddress to signal dependents.
     typedef event_t inpoll_latch_event_t;
 
 #else

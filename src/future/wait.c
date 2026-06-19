@@ -9,6 +9,7 @@
 #include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
+#include "latched_inpoll.h"
 #include "outcome.h"
 #include "state.h"
 #include "status.h"
@@ -214,7 +215,7 @@ future_status_t future_wait_join(udipe_future_t* future,
     //       so a generic function with a callback should be eventually devised.
     // TODO: This function is also too complex and should be broken up. Perhaps
     //       the aforementioned refactor could be a first step in this direction.
-    // TODO: Consider moving some of this to inpoll_event_pair.[ch]
+    // TODO: Consider moving some of this to latched_inpoll.[ch]
 
     stopwatch_t stopwatch = stopwatch_initialize();
     future_status_debug_check(latest_status, true);
@@ -334,7 +335,7 @@ future_status_t future_wait_join(udipe_future_t* future,
                             // notifications can only occur if this future was
                             // concurrently canceled.
                             const size_t upstream_index = identifiers[i];
-                            if (upstream_index == UINT64_MAX) {
+                            if (upstream_index == INPOLL_LATCH_ID) {
                                 // Synchronize-with concurrent state changes
                                 latest_status =
                                     future_status_load(future,

@@ -44,7 +44,7 @@ future_thread_cache_t* future_thread_cache_initialize(udipe_context_t* context) 
 
     #ifdef __linux__
         debug("- Setting up the inpoll+eventfd cache...");
-        cache->inpolls_with_events = inpoll_event_cache_initialize();
+        cache->latched_inpolls = latched_inpoll_cache_initialize();
     #endif
 
     debug("- Setting up flags...");
@@ -116,7 +116,7 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** pcache) {
 
             #ifdef __linux__
                 debug("Liberating inpoll+eventfd pairs...");
-                inpoll_event_cache_finalize(&cache->inpolls_with_events);
+                latched_inpoll_cache_finalize(&cache->latched_inpolls);
             #endif
 
             debug("Notifying the context destructor that we are done...");
@@ -213,7 +213,7 @@ void future_thread_cache_finalize_from_context(future_thread_cache_t** pcache) {
 
         #ifdef __linux__
             debug("Liberating inpoll+eventfd pairs...");
-            inpoll_event_cache_finalize(&cache->inpolls_with_events);
+            latched_inpoll_cache_finalize(&cache->latched_inpolls);
         #endif
 
         debug("Notifying the TSS destructor that we are done...");

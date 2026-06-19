@@ -2,7 +2,7 @@
 
     #define _GNU_SOURCE
 
-    #include "inpoll_event_pair.h"
+    #include "latched_inpoll.h"
 
     #include <udipe/nodiscard.h>
 
@@ -16,24 +16,21 @@
 
 
     UDIPE_NODISCARD
-    inpoll_event_pair_t inpoll_event_pair_initialize() {
+    inpoll_with_latch_t latched_inpoll_initialize() {
         debug("Setting up a coupled inpoll+eventfd pair...");
 
-        debug("Allocating eventfd...");
-        const event_t event = event_initialize(false);
+        debug("Allocating latch eventfd...");
+        const event_t latch = event_initialize(false);
 
         debug("Allocating inpoll...");
         inpoll_t inpoll = inpoll_initialize();
 
-        debugf("Binding allocated eventfd %d to allocated inpoll %d...",
-               event, inpoll);
+        debugf("Binding latch eventfd %d to inpoll %d with id %zx...",
+               latch, inpoll, INPOLL_LATCH_ID);
         const inpoll_attach_result_t result =
             inpoll_attach(inpoll,
-                          event,
-                          // TODO: Expose this UINT64_MAX as a constant in
-                          //       inpoll_event_pair.h and remove all mentions
-                          //       of it elsewhere.
-                          UINT64_MAX);
+                          latch,
+                          INPOLL_LATCH_ID);
         switch (result) {
         case INPOLL_ATTACH_SUCCESS:
             break;
@@ -41,9 +38,9 @@
             exit_after_c_error("This error is not expected to happen!");
         }
 
-        return (inpoll_event_pair_t){
+        return (inpoll_with_latch_t){
             .inpoll = inpoll,
-            .event = event
+            .latch = latch
         };
     }
 
