@@ -211,4 +211,5 @@ void event_finalize(event_t* event) {
     *event = EVENT_INVALID;
 }
 
+
 // TODO: Add unit tests
