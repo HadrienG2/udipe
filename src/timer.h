@@ -24,7 +24,7 @@
     // Must be included first
     #include <windows.h>
 
-    #include <synchapi.h>
+    #include <handleapi.h>
 #endif
 
 #include <assert.h>
