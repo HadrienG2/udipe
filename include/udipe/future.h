@@ -660,8 +660,9 @@ udipe_future_t* udipe_start_unordered(udipe_context_t* context,
 /// \param context must point to an \ref udipe_context_t that has been set up
 ///                via udipe_initialize() and hasn't been liberated via
 ///                udipe_finalize() since.
-/// \param ts must be a valid `struct timespec` indicating at which time the
-///           wait will complete, following the conventions outlined above.
+/// \param deadline must be a valid `struct timespec` indicating at which time
+///                 the wait will complete, following the conventions outlined
+///                 above.
 ///
 /// \returns a future that will terminate with an empty result once the
 ///          specified absolute time point has been reached.
@@ -672,7 +673,7 @@ UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 UDIPE_PUBLIC
 udipe_future_t* udipe_start_timer_once(udipe_context_t* context,
-                                       struct timespec ts);
+                                       struct timespec deadline);
 
 /// Return a repeating timer future that will first complete once a specific
 /// absolute time is reached, then yield a chain of other futures that complete

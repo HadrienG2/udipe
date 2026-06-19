@@ -66,19 +66,20 @@
     #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
 #endif
 
-/// Set up an unsignaled \ref event_t
+/// Set up an unsignaled event object
 ///
 /// The event object can be signaled with event_signal() and reset to an
 /// unsignaled state with event_reset(). Other threads can wait for it to be
 /// signaled with fd wait methods on Linux and synchronization object wait
-/// methods on Windows. It is destroyed via event_finalize().
+/// methods on Windows. It must eventually be destroyed via event_finalize().
 ///
 /// This function must be called within the scope of with_logger().
 ///
 /// \param signaled indicates whether the event should initially be in the
 ///                 signaled state.
 ///
-/// \returns an initialized event_t
+/// \returns an initialized event object in the specified signaling state that
+///          must later be destroyed with event_finalize().
 UDIPE_NODISCARD
 static inline
 event_t event_initialize(bool signaled) {
@@ -118,16 +119,7 @@ event_t event_initialize(bool signaled) {
     #endif
 }
 
-#ifdef __linux__
-    /// Mechanism for casting beteen a typed and untyped event payload
-    ///
-    typedef union event_payload_u {
-        uint64_t payload;  ///< Typed payload for high-level interpretation
-        char chars[8];  ///< Untyped buffers for read/write syscalls
-    } event_payload_t;
-#endif
-
-/// Switch an \ref event_t to the signaled state
+/// Switch an event object to the signaled state
 ///
 /// This will unblock clients waiting for the event to be signaled. Any client
 /// which subsequently attempts to await the event's readiness will also see the
@@ -135,13 +127,14 @@ event_t event_initialize(bool signaled) {
 ///
 /// This function must be called within the scope of with_logger().
 ///
-/// \param event must be an event_t that was initialized with event_initialize()
-///              and hasn't been destroyed with event_finalize() yet.
+/// \param event must be an event object that was initialized with
+///              event_initialize() and hasn't been destroyed with
+///              event_finalize() yet.
 static inline
 void event_signal(event_t event) {
     #ifdef __linux__
         debugf("Signaling the event object with fd %d...", event);
-        event_payload_t addend = (event_payload_t){ .payload = 1 };
+        u64_chars_t addend = (u64_chars_t){ .u64 = 1 };
         exit_on_negative(write(event, addend.chars, sizeof(addend.chars)),
                          "Failed to signal eventfd");
     #elif defined(_WIN32)
@@ -153,20 +146,21 @@ void event_signal(event_t event) {
     #endif
 }
 
-/// Switch an \ref event_t to the unsignaled state
+/// Switch an event object to the unsignaled state
 ///
 /// Starting from the call to this function, clients which attempt to wait for
 /// this event object's readiness will block until event_signal() is called.
 ///
 /// This function must be called within the scope of with_logger().
 ///
-/// \param event must be an event_t that was initialized with event_initialize()
-///              and hasn't been destroyed with event_finalize() yet.
+/// \param event must be an event object that was initialized with
+///              event_initialize() and hasn't been destroyed with
+///              event_finalize() yet.
 static inline
 void event_reset(event_t event) {
     #ifdef __linux__
         debugf("Resetting the event object with fd %d...", event);
-        event_payload_t total;
+        u64_chars_t total;
         const int result = read(event, total.chars, sizeof(total.chars));
         if (result == -1) switch(errno) {
         case EAGAIN:  // eventfd not signaled but is in nonblocking mode
@@ -178,7 +172,7 @@ void event_reset(event_t event) {
         }
         ensure_eq(result, 8);
         tracef("Reset event which was previously signaled %zu times.",
-               total.payload);
+               total.u64);
     #elif defined(_WIN32)
         debugf("Resetting the event object with handle %p...", event);
         win32_exit_on_zero(ResetEvent(event),
@@ -188,9 +182,9 @@ void event_reset(event_t event) {
     #endif
 }
 
-/// Destroy an \ref event_t which is not needed anymore
+/// Destroy an event object which is not needed anymore
 ///
-/// This function should be called at a time where no client is waiting for the
+/// This function must be called at a time where no client is waiting for the
 /// event object and no client could start waiting for it.
 ///
 /// Note that building event objects is relatively expensive, and therefore
@@ -199,7 +193,7 @@ void event_reset(event_t event) {
 ///
 /// This function must be called within the scope of with_logger().
 ///
-/// \param event must point to an event_t that was initialized with
+/// \param event must point to an event object that was initialized with
 ///              event_initialize() and hasn't been destroyed with
 ///              event_finalize() yet.
 UDIPE_NON_NULL_ARGS
