@@ -586,6 +586,7 @@ future_status_t future_wait_timer_once(
                                NULL);
             switch (result) {
             case 1:
+                ensure_eq(timer.revents, POLLIN);
                 trace("timerfd is now ready. Will now propagate the good news "
                       "while decrementing our downstream_count");
                 do {
