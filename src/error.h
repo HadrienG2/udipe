@@ -113,13 +113,29 @@ void warn_on_errno();
     /// This macro handles situations where all of the following is true:
     ///
     /// - A Win32 API function signals errors by returning a value that is
-    ///   zero-like (can be a NULL pointer or a false boolean) and setting up
-    ///   GetLastError().
+    ///   zero-like (can be a false boolean) and setting up GetLastError().
     /// - None of the known error cases can or should be recovered from.
     /// - exit_with_error() preconditions are fulfilled.
     #define win32_exit_on_zero(result, error_message)  \
         do {  \
             if (!(result)) {  \
+                win32_warn_on_error();  \
+                exit_with_error(error_message);  \
+            }  \
+        } while(false)
+
+    /// Exit if a Windows API function returns a null pointer, logging the
+    /// associated error code.
+    ///
+    /// This macro handles situations where all of the following is true:
+    ///
+    /// - A Win32 API function signals errors by returning NULL and setting up
+    ///   GetLastError().
+    /// - None of the known error cases can or should be recovered from.
+    /// - exit_with_error() preconditions are fulfilled.
+    #define win32_exit_on_null(result, error_message)  \
+        do {  \
+            if (result == NULL) {  \
                 win32_warn_on_error();  \
                 exit_with_error(error_message);  \
             }  \

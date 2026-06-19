@@ -18,6 +18,8 @@
     #include <errno.h>
     #include <sys/eventfd.h>
     #include <unistd.h>
+#elif defined(_WIN32)
+    #include <synchapi.h>
 #endif
 
 
@@ -41,8 +43,9 @@
 /// context-dependent.
 #ifdef __linux__
     typedef fd_t event_t;
+#elif defined(_WIN32)
+    typedef HANDLE event_t;
 #else
-    // TODO add windows version based on event objects
     #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
 #endif
 
@@ -53,8 +56,9 @@
 /// that does not currently hold an actual event object.
 #ifdef __linux__
     #define EVENT_INVALID  FD_INVALID
+#elif defined(_WIN32)
+    #define EVENT_INVALID  NULL
 #else
-    // TODO add windows version, most likely a null handle
     #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
 #endif
 
@@ -96,8 +100,16 @@ event_t event_initialize(bool signaled) {
         ensure_ge(maybe_eventfd, 0);
         debugf("Set up an event object with fd %d.", maybe_eventfd);
         return maybe_eventfd;
+    #elif defined(_WIN32)
+        HANDLE handle = CreateEventA(NULL,
+                                     true,
+                                     signaled,
+                                     NULL);
+        win32_exit_on_null(handle,
+                           "Failed to create an anonymous event object");
+        debugf("Set up an event object with handle %p.", handle);
+        return handle;
     #else
-        // TODO add windows version based on CreateEvent
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
 }
@@ -128,8 +140,10 @@ void event_signal(event_t event) {
         event_payload_t addend = (event_payload_t){ .payload = 1 };
         exit_on_negative(write(event, addend.chars, sizeof(addend.chars)),
                          "Failed to signal eventfd");
+    #elif defined(_WIN32)
+        debugf("Signaling the event object with handle %p...", event);
+        win32_exit_on_zero(SetEvent(event));
     #else
-        // TODO add windows version based on SetEvent()
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
 }
@@ -160,8 +174,10 @@ void event_reset(event_t event) {
         ensure_eq(result, 8);
         tracef("Reset event which was previously signaled %zu times.",
                total.payload);
+    #elif defined(_WIN32)
+        debugf("Resetting the event object with handle %p...", event);
+        win32_exit_on_zero(ResetEvent(event));
     #else
-        // TODO add windows version based on ResetEvent()
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
 }
@@ -184,9 +200,12 @@ UDIPE_NON_NULL_ARGS
 static inline
 void event_finalize(event_t* event) {
     #ifdef __linux__
+        debugf("Destroying the event object with fd %d...", *event);
         close_virtual_fd(event);
+    #elif defined(_WIN32)
+        debugf("Destroying the event object with handle %p...", *event);
+        win32_exit_on_zero(CloseHandle(*event));
     #else
-        // TODO add windows version based on CloseEvent() + set to NULL
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
     *event = EVENT_INVALID;
