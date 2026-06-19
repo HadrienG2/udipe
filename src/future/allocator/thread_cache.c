@@ -149,7 +149,11 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** pcache) {
     // Decrement the reference count of the context's tss_t and deallocate the
     // host context if it turns out we held the last reference to it
     if (refcounted_tss_release(&cache->context->future_local_cache_key)) {
-        free((void*)(cache->context));
+        #ifdef _WIN32
+            _aligned_free((void*)(cache->context));
+        #else
+            free((void*)(cache->context));
+        #endif
     }
     cache->context = NULL;
 

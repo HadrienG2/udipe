@@ -35,7 +35,8 @@
     ///
     /// - The "inner" file descriptor that signals the event of interest, tagged
     ///   with this typedef.
-    /// - An \ref inpoll_latch_event_t.
+    /// - An \ref inpoll_latch_event_t, used to mark the "outer" inpoll as
+    ///   perma-readable once the future has reached completion.
     ///
     /// Through this peculiar cascading file descriptor configuration, the event
     /// of interest can then be handled in the following manner:

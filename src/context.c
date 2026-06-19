@@ -33,8 +33,13 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
     udipe_context_t* context = NULL;
     with_logger(&logger, {
         debug("Allocating a libudipe context...");
-        context = aligned_alloc(alignof(udipe_context_t),
-                                sizeof(udipe_context_t));
+        #ifdef _WIN32
+            context = _aligned_malloc(sizeof(udipe_context_t),
+                                      alignof(udipe_context_t));
+        #else
+            context = aligned_alloc(alignof(udipe_context_t),
+                                    sizeof(udipe_context_t));
+        #endif
         memset(context, 0, sizeof(udipe_context_t));
         context->logger = logger;
 
@@ -88,6 +93,10 @@ void udipe_finalize(udipe_context_t* context) {
     // destructors that they cannot access any part of the context other than
     // thread_future_cache from this point on.
     if (refcounted_tss_discard(&context->future_local_cache_key)) {
-        free((void*)context);
+        #ifdef _WIN32
+            _aligned_free((void*)context);
+        #else
+            free((void*)context);
+        #endif
     }
 }
