@@ -19,6 +19,10 @@
     #include <sys/eventfd.h>
     #include <unistd.h>
 #elif defined(_WIN32)
+    // Must be included first
+    #include <windows.h>
+
+    #include <handleapi.h>
     #include <synchapi.h>
 #endif
 
@@ -142,7 +146,8 @@ void event_signal(event_t event) {
                          "Failed to signal eventfd");
     #elif defined(_WIN32)
         debugf("Signaling the event object with handle %p...", event);
-        win32_exit_on_zero(SetEvent(event));
+        win32_exit_on_zero(SetEvent(event),
+                           "Failed to signal event object!");
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
@@ -176,7 +181,8 @@ void event_reset(event_t event) {
                total.payload);
     #elif defined(_WIN32)
         debugf("Resetting the event object with handle %p...", event);
-        win32_exit_on_zero(ResetEvent(event));
+        win32_exit_on_zero(ResetEvent(event),
+                           "Failed to reset event object!");
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
@@ -204,7 +210,8 @@ void event_finalize(event_t* event) {
         close_virtual_fd(event);
     #elif defined(_WIN32)
         debugf("Destroying the event object with handle %p...", *event);
-        win32_exit_on_zero(CloseHandle(*event));
+        win32_exit_on_zero(CloseHandle(*event),
+                           "Failed to destroy event object!");
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif

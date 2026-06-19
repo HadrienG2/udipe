@@ -7,10 +7,13 @@
 #include "allocator/storage_page.h"
 #include "allocator/sync_caches.h"
 #include "allocator/thread_cache.h"
-#include "latched_inpoll.h"
 #include "status.h"
 #include "status_ops.h"
 #include "type.h"
+
+#ifdef __linux__
+    #include "latched_inpoll.h"
+#endif
 
 #include "../context.h"
 #include "../error.h"
