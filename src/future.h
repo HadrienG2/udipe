@@ -84,6 +84,11 @@ struct udipe_future_s {
     /// parameter after future allocation.
     udipe_context_t* context;
 
+    /// Synchronization object signaling future status changes
+    ///
+    /// See \ref status_sync_t for more information.
+    status_sync_t status_sync;
+
     /// Status word
     ///
     /// This innocent-looking 32-bit word actually contains most of the
@@ -106,11 +111,6 @@ struct udipe_future_s {
     /// `memory_order_release` and status word readouts must often be carried
     /// out with `memory_order_acquire`.
     _Atomic uint32_t status_word;
-
-    /// Synchronization object signaling future status changes
-    ///
-    /// See \ref status_sync_t for more information.
-    status_sync_t status_sync;
 };
 static_assert(
     alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
