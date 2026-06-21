@@ -74,12 +74,82 @@ udipe_future_t* future_allocate(udipe_context_t* context,
     future_status_store(future, initial_status, memory_order_relaxed);
 
     trace("Setting up type-specific file descriptors...");
-    // TODO: Extract this into a utility function + add more logging
+    future_setup_sync(future, thread_cache);
+    return future;
+}
+
+UDIPE_NON_NULL_ARGS
+void future_liberate(udipe_future_t* /*future*/) {
+    // TODO: Implement. Must use trace logging on the hot path.
+    // TODO: Check initial status, using swap in debug builds.
+    // TODO: Set most values to zero-ish and the output fd to -1 before
+    //       recycling the future into the thread-local pool.
+    // TODO: See udipe_future_t field descriptions to see which inner file
+    //       descriptors should be recycled and which should be
+    //       destroyed/recreated.
+    // TODO: Remember to call future_downstream_count_dec() on each upstream
+    //       future.
+    exit_with_error("Not implemented yet!");
+}
+
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+UDIPE_NON_NULL_RESULT
+udipe_future_t*
+future_allocate_uninitialized(future_thread_cache_t* thread_cache,
+                              future_context_cache_t* context_cache) {
+    trace("Trying to allocate a future from the thread-local cache...");
+    udipe_future_t* future =
+        future_pointer_cache_allocate_local(&thread_cache->futures);
+    if (future) return future;
+
+    debug("Thread-local cache is empty, looking up "
+          "the context-global cache...");
+    exit_on_thread_error(mtx_lock(&context_cache->mutex),
+                         "Failed to lock the context cache's mutex.");
+    future_pointer_page_t* const futures =
+        future_pointer_cache_extract_futures(&context_cache->futures);
+    if (futures) {
+        debug("Extracted a page with futures from the context cache, "
+              "time to inject it into the thread-local cache.");
+
+        debug("First we make room by spilling a page of NULLs...");
+        future_pointer_page_t* const empty =
+            future_pointer_cache_obtain_empty(&thread_cache->futures);
+        future_pointer_cache_insert_empty(&context_cache->futures,
+                                          empty);
+
+        debug("...then we insert the previously extracted futures.");
+        future_pointer_cache_insert_futures(&thread_cache->futures,
+                                            futures);
+    } else {
+        debug("Context cache is empty too, must allocate more futures...");
+        future_storage_allocate(&context_cache->first_storage_page);
+
+        debug("...then inject them into the thread-local cache.");
+        future_pointer_cache_refill_local(&thread_cache->futures,
+                                          context_cache->first_storage_page);
+    }
+    exit_on_thread_error(mtx_unlock(&context_cache->mutex),
+                         "Failed to unlock the context cache's mutex.");
+
+    debug("Retrying local allocation, which should now succeed...");
+    future = future_pointer_cache_allocate_local(&thread_cache->futures);
+    assert(future);
+    return future;
+}
+
+UDIPE_NON_NULL_ARGS
+void future_setup_sync(udipe_future_t* future,
+                       future_thread_cache_t* thread_cache) {
+    trace("Setting up a future's synchronization resources...");
+    const future_status_t status = future_status_load(future,
+                                                      memory_order_relaxed);
     #ifdef __linux__
         inpoll_with_latch_t latched;
         inpoll_attach_result_t attach_result;
     #endif
-    switch (type) {
+    switch (status.type) {
     case TYPE_NETWORK_CONNECT:  // aliases TYPE_NETWORK_START
     case TYPE_NETWORK_DISCONNECT:
     case TYPE_NETWORK_SEND:
@@ -155,69 +225,4 @@ udipe_future_t* future_allocate(udipe_context_t* context,
     case NUM_TYPES:
         exit_with_error("These cases should not be encountered.");
     }
-
-    // TODO: Check what comes before then remove this
-    exit_with_error("Not implemented yet!");
-    return future;
-}
-
-UDIPE_NON_NULL_ARGS
-void future_liberate(udipe_future_t* /*future*/) {
-    // TODO: Implement. Must use trace logging on the hot path.
-    // TODO: Check initial status, using swap in debug builds.
-    // TODO: Set most values to zero-ish and the output fd to -1 before
-    //       recycling the future into the thread-local pool.
-    // TODO: See udipe_future_t field descriptions to see which inner file
-    //       descriptors should be recycled and which should be
-    //       destroyed/recreated.
-    // TODO: Remember to call future_downstream_count_dec() on each upstream
-    //       future.
-    exit_with_error("Not implemented yet!");
-}
-
-UDIPE_NODISCARD
-UDIPE_NON_NULL_ARGS
-UDIPE_NON_NULL_RESULT
-udipe_future_t*
-future_allocate_uninitialized(future_thread_cache_t* thread_cache,
-                              future_context_cache_t* context_cache) {
-    trace("Trying to allocate a future from the thread-local cache...");
-    udipe_future_t* future =
-        future_pointer_cache_allocate_local(&thread_cache->futures);
-    if (future) return future;
-
-    debug("Thread-local cache is empty, looking up "
-          "the context-global cache...");
-    exit_on_thread_error(mtx_lock(&context_cache->mutex),
-                         "Failed to lock the context cache's mutex.");
-    future_pointer_page_t* const futures =
-        future_pointer_cache_extract_futures(&context_cache->futures);
-    if (futures) {
-        debug("Extracted a page with futures from the context cache, "
-              "time to inject it into the thread-local cache.");
-
-        debug("First we make room by spilling a page of NULLs...");
-        future_pointer_page_t* const empty =
-            future_pointer_cache_obtain_empty(&thread_cache->futures);
-        future_pointer_cache_insert_empty(&context_cache->futures,
-                                          empty);
-
-        debug("...then we insert the previously extracted futures.");
-        future_pointer_cache_insert_futures(&thread_cache->futures,
-                                            futures);
-    } else {
-        debug("Context cache is empty too, must allocate more futures...");
-        future_storage_allocate(&context_cache->first_storage_page);
-
-        debug("...then inject them into the thread-local cache.");
-        future_pointer_cache_refill_local(&thread_cache->futures,
-                                          context_cache->first_storage_page);
-    }
-    exit_on_thread_error(mtx_unlock(&context_cache->mutex),
-                         "Failed to unlock the context cache's mutex.");
-
-    debug("Retrying local allocation, which should now succeed...");
-    future = future_pointer_cache_allocate_local(&thread_cache->futures);
-    assert(future);
-    return future;
 }

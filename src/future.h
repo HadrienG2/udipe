@@ -39,8 +39,8 @@ struct udipe_future_s {
         /// Network command result
         ///
         /// This union variant is used for network operations, corresponding to
-        /// a \ref future_type_t is in range from \ref TYPE_NETWORK_START
-        /// inclusive to \ref TYPE_NETWORK_END exclusive.
+        /// a \ref future_type_t between \ref TYPE_NETWORK_START inclusive to
+        /// \ref TYPE_NETWORK_END exclusive.
         ///
         /// Upon completion or internal failure of the network operation, the
         /// udipe implementation will set this to the associated result before
@@ -52,8 +52,8 @@ struct udipe_future_s {
 
         /// Custom command result
         ///
-        /// This union variant is used for custom operations, corresponding to
-        /// \ref TYPE_CUSTOM.
+        /// This union variant is used for custom operations, corresponding to a
+        /// \ref future_type_t of \ref TYPE_CUSTOM.
         ///
         /// Aside from the fact that it is set by a user thread, rather than by
         /// the udipe implementation, it works just like the `network` variant.
