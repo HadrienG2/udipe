@@ -73,7 +73,6 @@
     /// - `poll` is not an `epollfd`
     /// - `upstream_fd` does not support `epoll` (e.g. it is a file descriptor
     ///   associated with a regular file or a directory)
-    /// - `upstream_fd` was registered twice on the same `poll`
     /// - `upstream_fd` designates the same `epollfd` as `poll`
     /// - The system does not have enough memory to process this information
     /// - The global /proc/sys/fs/epoll/max_user_watches limit on epoll watches
@@ -101,6 +100,13 @@
         /// it by switching to an slower thread-based join/unordered future
         /// implementation, taking inspiration from the Windows version.
         INPOLL_ATTACH_TOO_NESTED,
+
+        /// Failed to attach `upstream_fd` because it is already attached
+        ///
+        /// This error is non-fatal because it is indicative of a user error and
+        /// we can report this error more precisely at the user-facing entry
+        /// point with a context-appropriate error message.
+        INPOLL_ATTACH_REDUNDANT,
 
         // WARNING: As this is an internal API, more variants may be added
         //          without advance notice and code that uses inpoll_attach()

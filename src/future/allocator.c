@@ -189,8 +189,8 @@ void future_setup_sync(udipe_future_t* future,
             switch (attach_result) {
             case INPOLL_ATTACH_SUCCESS:
                 break;
-            case INPOLL_ATTACH_TOO_NESTED:
-                // Can't happen, upstream_inpoll has nothing attached to it yet.
+            case INPOLL_ATTACH_TOO_NESTED:  // Cannot happen with a blank inpoll
+            case INPOLL_ATTACH_REDUNDANT:  // Cannot happen for the first fd
                 exit_after_c_error("This error is not expected to happen!");
             }
             break;
@@ -213,7 +213,8 @@ void future_setup_sync(udipe_future_t* future,
             switch (attach_result) {
             case INPOLL_ATTACH_SUCCESS:
                 break;
-            case INPOLL_ATTACH_TOO_NESTED:  // Can't happen with a timerfd
+            case INPOLL_ATTACH_TOO_NESTED:  // Cannot happen with a timerfd
+            case INPOLL_ATTACH_REDUNDANT:  // Cannot happen for the first fd
                 exit_after_c_error("This error is not expected to happen!");
             }
             break;

@@ -78,8 +78,11 @@
                 "The number of epoll attachments in the system reached the limit. "
                 "Consider increasing the limit if possible."
             );
-        case EBADF:  // epfd or fd is not a valid file descriptor.
         case EEXIST:  // (op is EPOLL_CTL_ADD) fd is already registered.
+            trace("Attempted to attach the same fd to the same epollfd twice. "
+                  "This error will be reported upstream as appropriate.");
+            return INPOLL_ATTACH_REDUNDANT;
+        case EBADF:  // epfd or fd is not a valid file descriptor.
         case EINVAL:  // - epfd is not an epoll file descriptor.
                       // - fd is the same as epfd.
                       // - requested operation (ADD) is not supported.

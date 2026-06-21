@@ -34,7 +34,8 @@
         switch (result) {
         case INPOLL_ATTACH_SUCCESS:
             break;
-        case INPOLL_ATTACH_TOO_NESTED:  // Cannot happen, source is an eventfd
+        case INPOLL_ATTACH_TOO_NESTED:  // Cannot happen with an eventfd
+        case INPOLL_ATTACH_REDUNDANT:  // Cannot happen for the first fd
             exit_after_c_error("This error is not expected to happen!");
         }
 
