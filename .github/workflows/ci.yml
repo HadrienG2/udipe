@@ -36,7 +36,7 @@ jobs:
       - name: Set up Docker Buildx (needed for GHA caching)
         uses: docker/setup-buildx-action@v4
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           sparse-checkout: CI/*
           sparse-checkout-cone-mode: false
@@ -62,7 +62,7 @@ jobs:
     container: ghcr.io/hadrieng2/udipe:ubuntu
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Build with Doxygen documentation
         uses: ./.github/actions/build
         with:
@@ -84,7 +84,7 @@ jobs:
     container: ghcr.io/hadrieng2/udipe:${{ matrix.distro }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Build without Doxygen
         uses: ./.github/actions/build
         with:
@@ -101,7 +101,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Pre-build and cache vcpkg deps
         id: vcpkg
         uses: johnwason/vcpkg-action@v8
@@ -153,7 +153,7 @@ jobs:
     container: ghcr.io/hadrieng2/udipe:${{ matrix.distro }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Download the build directory
         uses: actions/download-artifact@v8
         with:
@@ -182,7 +182,7 @@ jobs:
     container: ghcr.io/hadrieng2/udipe:ubuntu
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Download the build directory
         uses: actions/download-artifact@v8
         with:
@@ -211,7 +211,7 @@ jobs:
     container: ghcr.io/hadrieng2/udipe:ubuntu
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Download the build directory
         uses: actions/download-artifact@v8
         with:
