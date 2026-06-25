@@ -145,8 +145,29 @@ future_allocate_uninitialized(future_thread_cache_t* thread_cache,
 ///               its `status_word`.
 /// \param thread_cache should point to the thread-local cache from this thread.
 UDIPE_NON_NULL_ARGS
-void future_setup_sync(udipe_future_t* future,
-                       future_thread_cache_t* thread_cache);
+void future_sync_initialize(udipe_future_t* future,
+                            future_thread_cache_t* thread_cache);
+
+/// Tear down the system resources used to notify a future's readiness.
+///
+/// This is an implementation detail of future_liberate() that should not be
+/// called directly.
+///
+/// \internal
+///
+/// The future should still have its `type` still set up in its status word.
+/// This function will take care of destroying all associated Linux file
+/// descriptors and Windows synchronization objects, replacing them with \ref
+/// INVALID_FD or `NULL` handles as appropriate.
+///
+/// \param future should point to a future that previously went through the
+///               future_sync_initialize() initialization phase and has not gone
+///               through this step of the finalization process since then.
+/// \param thread_cache should point to the thread-local cache from this thread.
+// TODO implement
+UDIPE_NON_NULL_ARGS
+void future_sync_finalize(udipe_future_t* future,
+                          future_thread_cache_t* thread_cache);
 
 /// \}
 

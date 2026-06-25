@@ -47,7 +47,7 @@ UDIPE_NON_NULL_RESULT
 udipe_future_t* future_allocate(udipe_context_t* context,
                                 future_type_t type) {
     tracef("Accessing the thread-local cache for context %p, "
-           "creating it if this is the first allocation from this thread...",
+           "creating it on first allocation...",
            (void*)context);
     future_thread_cache_t* const thread_cache =
         (future_thread_cache_t*)refcounted_tss_acquire(
@@ -56,7 +56,7 @@ udipe_future_t* future_allocate(udipe_context_t* context,
             (void*)context
         );
 
-    trace("Allocating a future...");
+    trace("Allocating a future and attaching it to the context...");
     udipe_future_t* const future = future_allocate_uninitialized(
         thread_cache,
         &context->future_global_cache
@@ -68,27 +68,57 @@ udipe_future_t* future_allocate(udipe_context_t* context,
     #endif
     future->context = context;
 
-    trace("Configuring initial future status...");
+    trace("Configuring the future's type...");
     future_status_t initial_status = { 0 };
     initial_status.type = type;
-    future_status_store(future, initial_status, memory_order_relaxed);
+    #ifndef NDEBUG
+        assert(future_status_exchange(future,
+                                      initial_status,
+                                      memory_order_relaxed)
+               == (future_status_t){ 0 });
+    #else
+        future_status_store(future, initial_status, memory_order_relaxed);
+    #endif
 
-    trace("Setting up type-specific file descriptors...");
-    future_setup_sync(future, thread_cache);
+    trace("Setting up synchronization resources...");
+    future_sync_initialize(future, thread_cache);
     return future;
 }
 
 UDIPE_NON_NULL_ARGS
 void future_liberate(udipe_future_t* /*future*/) {
     // TODO: Implement. Must use trace logging on the hot path.
-    // TODO: Check initial status, using swap in debug builds.
+    // TODO: Modularize once done implementing, or early when it's obvious
+
+    trace("Detaching from upstream futures (if any)...");
+    future_detach_and_reset(future);
+
+    trace("Tearing down synchronization resources...");
+    future_sync_finalize(future, thread_cache);
+
+    trace("Reading and resetting status...");
+    #ifndef NDEBUG
+        // Use exchange in debug builds as a slightly more sure-fire way of
+        // detecting incorrect concurrent usage after finish.
+        const future_status_t status = future_status_exchange(
+            future,
+            (future_status_t) { 0 },
+            memory_order_relaxed
+        );
+    #else
+        const future_status_t status = future_status_load(future,
+                                                          memory_order_relaxed);
+        future_status_store(future,
+                            (future_status_t){ 0 },
+                            memory_order_relaxed);
+    #endif
+    // TODO: Check the status for correctness
+    // TODO: Detach from the context and deallocate
     // TODO: Set most values to zero-ish and the output fd to -1 before
     //       recycling the future into the thread-local pool.
     // TODO: See udipe_future_t field descriptions to see which inner file
     //       descriptors should be recycled and which should be
     //       destroyed/recreated.
-    // TODO: Remember to call future_downstream_count_dec() on each upstream
-    //       future.
     exit_with_error("Not implemented yet!");
 }
 
@@ -140,8 +170,8 @@ future_allocate_uninitialized(future_thread_cache_t* thread_cache,
 }
 
 UDIPE_NON_NULL_ARGS
-void future_setup_sync(udipe_future_t* future,
-                       future_thread_cache_t* thread_cache) {
+void future_sync_initialize(udipe_future_t* future,
+                            future_thread_cache_t* thread_cache) {
     trace("Setting up a future's synchronization resources...");
     const future_status_t status = future_status_load(future,
                                                       memory_order_relaxed);
@@ -155,10 +185,11 @@ void future_setup_sync(udipe_future_t* future,
     case TYPE_NETWORK_SEND:
     case TYPE_NETWORK_RECV:
     case TYPE_CUSTOM:  // aliases TYPE_NETWORK_END
-        trace("Allocating the output eventfd...");
+        trace("Allocating the output event object...");
         future->status_sync.event = event_cache_allocate(&thread_cache->events);
         break;
     case TYPE_TIMER_ONCE:
+        trace("Allocating the output timer object...");
         future->status_sync.timer_once = timer_initialize();
         break;
     #ifdef __linux__

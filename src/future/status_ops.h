@@ -213,16 +213,42 @@ future_status_t future_status_load(const udipe_future_t* future,
 ///
 /// This operation has the semantics of `atomic_store_explicit()`. It is mostly
 /// used as a safer alternative to future_status_init() during the process of
-/// recycling a future via the thread-local cache. But it generally cannot be
-/// used for thread synchronization due to the risk of overwriting status
-/// changes caused by other threads since the last readout. You will usually
-/// need `compare_exchange` operations for such use cases.
+/// recycling a future from the thread-local cache, as it is not undefined
+/// behavior to use it even if another thread is concurrently attempting to
+/// access the same future.
+///
+/// But this function cannot be used for thread synchronization in general due
+/// to the risk of overwriting status changes caused by other threads since the
+/// last readout. You will usually need `compare_exchange` operations for that.
 UDIPE_NON_NULL_ARGS
 static inline
 void future_status_store(udipe_future_t* future,
                          future_status_t status,
                          memory_order order) {
     atomic_store_explicit(
+        &future->status_word,
+        (future_status_word_t){ .as_bitfield = status }.as_word,
+        order
+    );
+}
+
+/// Atomically change a future's status and read its former status
+///
+/// This operation has the semantics of `atomic_exchange_explicit()`. It is
+/// mostly used as an even safer alternative to future_status_store() during the
+/// process of recycling a future into the thread-local cache, as it can help
+/// you detect incorrect concurrent access of other threads to the same future.
+///
+/// But this function cannot be used for thread synchronization in general due
+/// to the of overwriting status changes caused by other threads since the last
+/// readout. You will usually need `compare_exchange` operations for that.
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+static inline
+future_status_t future_status_exchange(udipe_future_t* future,
+                                       future_status_t status,
+                                       memory_order order) {
+    return atomic_exchange_explicit(
         &future->status_word,
         (future_status_word_t){ .as_bitfield = status }.as_word,
         order
