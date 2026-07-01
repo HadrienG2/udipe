@@ -14,7 +14,6 @@
 
 #include "allocator/thread_cache.h"
 #include "allocator/context_cache.h"
-
 #include "type.h"
 
 
@@ -63,17 +62,12 @@
 /// \param context must be a udipe context that was set up with
 ///                udipe_initialized() and not yet liberated with
 ///                udipe_finalize(). It must not be liberated until the output
-///                future is liberated.
+///                future is liberated via udipe_finish().
 /// \param type indicates the type of the future that is being built. It will
 ///             be used to allocate associated system resources which are
 ///             partially type-specific.
 ///
 /// \returns a future that must later be liberated with future_liberate().
-//
-// TODO: May need to replace the boolean switch of
-//       future_status_debug_check() with a 3-states enum to account for the
-//       fact that futures will now have three states: unallocated, allocated
-//       but not yet fully initialized, and under active use.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
@@ -104,6 +98,19 @@ void future_liberate(udipe_future_t* future);
 /// \name Implementation details
 /// \{
 
+/// Access the thread-local allocator cache, creating it if it doesn't exist yet
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param context must be a udipe context that was set up with
+///                udipe_initialized() and not yet liberated with
+///                udipe_finalize().
+/// \returns a pointer to the thread-local allocator cache associated with the
+///          active thread
+UDIPE_NON_NULL_ARGS
+UDIPE_NON_NULL_RESULT
+future_thread_cache_t* future_thread_cache(udipe_context_t* context);
+
 /// Allocate a future object without any further setup
 ///
 /// This is an implementation detail of future_allocate() that should not be
@@ -113,6 +120,8 @@ void future_liberate(udipe_future_t* future);
 ///
 /// The future will be provided in a fully uninitialized state where the status
 /// word is zeroed out and all file descriptors are set to -1.
+///
+/// This function must be called within the scope of with_logger().
 ///
 /// \param thread_cache should point to the thread-local cache from this thread.
 /// \param context_cache should point to the context-global cache from the
@@ -140,6 +149,8 @@ future_allocate_uninitialized(future_thread_cache_t* thread_cache,
 /// and Windows synchronization objects as documented in the documentation of
 /// future_allocate().
 ///
+/// This function must be called within the scope of with_logger().
+///
 /// \param future should point to a future that was allocated by
 ///               future_allocate_uninitialized() and had its `type` set up in
 ///               its `status_word`.
@@ -148,6 +159,28 @@ UDIPE_NON_NULL_ARGS
 void future_sync_initialize(udipe_future_t* future,
                             future_thread_cache_t* thread_cache);
 
+/// Detach a future from the other futures after which it is scheduled, if any
+///
+/// This is an implementation detail of future_liberate() that should not be
+/// called directly.
+///
+/// \internal
+///
+/// The future should still have its `type` set up in its status word. This
+/// function will take care of decrementing the refcount of all upstream futures
+/// for the purpose of use-after-finish detection, then reset the number of
+/// upstream futures to 0 and/or set the upstream pointer to NULL to acknowledge
+/// that this has been done and upstream futures should not be accessed again.
+///
+/// This function must be called within the scope of with_logger().
+///
+/// \param future should point to a future that went through the process of
+///               setting up upstream futures, if it is of a future type that
+///               has some, and has not gone through this step of the
+///               finalization process since then.
+UDIPE_NON_NULL_ARGS
+void future_upstream_detach(udipe_future_t* future);
+
 /// Tear down the system resources used to notify a future's readiness.
 ///
 /// This is an implementation detail of future_liberate() that should not be
@@ -155,10 +188,12 @@ void future_sync_initialize(udipe_future_t* future,
 ///
 /// \internal
 ///
-/// The future should still have its `type` still set up in its status word.
-/// This function will take care of destroying all associated Linux file
-/// descriptors and Windows synchronization objects, replacing them with \ref
-/// INVALID_FD or `NULL` handles as appropriate.
+/// The future should still have its `type` set up in its status word. This
+/// function will take care of destroying all associated Linux file descriptors
+/// and Windows synchronization objects, replacing them with \ref INVALID_FD or
+/// `NULL` handles as appropriate.
+///
+/// This function must be called within the scope of with_logger().
 ///
 /// \param future should point to a future that previously went through the
 ///               future_sync_initialize() initialization phase and has not gone

@@ -46,15 +46,9 @@ UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 udipe_future_t* future_allocate(udipe_context_t* context,
                                 future_type_t type) {
-    tracef("Accessing the thread-local cache for context %p, "
-           "creating it on first allocation...",
+    tracef("Accessing the thread-local cache for context %p...",
            (void*)context);
-    future_thread_cache_t* const thread_cache =
-        (future_thread_cache_t*)refcounted_tss_acquire(
-            &context->future_local_cache_key,
-            future_thread_cache_constructor,
-            (void*)context
-        );
+    future_thread_cache_t* const thread_cache = future_thread_cache(context);
 
     trace("Allocating a future and attaching it to the context...");
     udipe_future_t* const future = future_allocate_uninitialized(
@@ -72,10 +66,15 @@ udipe_future_t* future_allocate(udipe_context_t* context,
     future_status_t initial_status = { 0 };
     initial_status.type = type;
     #ifndef NDEBUG
-        assert(future_status_exchange(future,
-                                      initial_status,
-                                      memory_order_relaxed)
-               == (future_status_t){ 0 });
+        const future_status_t prev_status = future_status_exchange(
+            future,
+            initial_status,
+            memory_order_relaxed
+        );
+        const uint32_t prev_status_word = (future_status_word_t){
+            .as_bitfield = prev_status
+        }.as_word;
+        assert(prev_status_word == (uint32_t)0);
     #else
         future_status_store(future, initial_status, memory_order_relaxed);
     #endif
@@ -86,14 +85,15 @@ udipe_future_t* future_allocate(udipe_context_t* context,
 }
 
 UDIPE_NON_NULL_ARGS
-void future_liberate(udipe_future_t* /*future*/) {
+void future_liberate(udipe_future_t* future) {
     // TODO: Implement. Must use trace logging on the hot path.
     // TODO: Modularize once done implementing, or early when it's obvious
 
     trace("Detaching from upstream futures (if any)...");
-    future_detach_and_reset(future);
+    future_upstream_detach(future);
 
     trace("Tearing down synchronization resources...");
+    future_thread_cache_t* const thread_cache = future_thread_cache(context);
     future_sync_finalize(future, thread_cache);
 
     trace("Reading and resetting status...");
@@ -120,6 +120,19 @@ void future_liberate(udipe_future_t* /*future*/) {
     //       descriptors should be recycled and which should be
     //       destroyed/recreated.
     exit_with_error("Not implemented yet!");
+}
+
+UDIPE_NON_NULL_ARGS
+UDIPE_NON_NULL_RESULT
+future_thread_cache_t* future_thread_cache(udipe_context_t* context) {
+    tracef("Accessing the thread-local cache for context %p, "
+           "creating it on first allocation...",
+           (void*)context);
+    return (future_thread_cache_t*)refcounted_tss_acquire(
+        &context->future_local_cache_key,
+        future_thread_cache_constructor,
+        (void*)context
+    );
 }
 
 UDIPE_NODISCARD
@@ -256,5 +269,58 @@ void future_sync_initialize(udipe_future_t* future,
     case TYPE_INVALID:
     case NUM_TYPES:
         exit_with_error("These cases should not be encountered.");
+    }
+}
+
+UDIPE_NON_NULL_ARGS
+void future_upstream_detach(udipe_future_t* future) {
+    trace("Determining if this future type can have an upstream...");
+    const future_status_t status = future_status_load(future,
+                                                      memory_order_relaxed);
+    collective_upstream_t* upstream = NULL;
+    switch (status.type) {
+    case TYPE_NETWORK_CONNECT:  // aliases TYPE_NETWORK_START
+    case TYPE_NETWORK_DISCONNECT:
+    case TYPE_NETWORK_SEND:
+    case TYPE_NETWORK_RECV:
+        // TODO: Implement once network futures are ready, beware that you
+        //       cannot break to the same code path as join/unordered
+        exit_with_error("Not implemented yet!");
+        break;
+    case TYPE_JOIN:
+        trace("Extracting upstream from join_state...");
+        upstream = &future->specific.join.upstream;
+        break;
+    case TYPE_UNORDERED:
+        trace("Extracting upstream from unordered_state...");
+        upstream = &future->specific.unordered.upstream;
+        break;
+    case TYPE_CUSTOM:  // aliases TYPE_NETWORK_END
+    case TYPE_TIMER_ONCE:
+    case TYPE_TIMER_REPEAT:
+        trace("No upstream to be detached for this future type.");
+        break;
+    case TYPE_INVALID:
+    case NUM_TYPES:
+        exit_with_error("These cases should not be encountered.");
+    }
+
+    if (upstream) {
+        assert(upstream->array);
+        assert(upstream->length >= 1);
+        assert(upstream->remaining <= upstream->length);
+
+        trace("Detaching futures from collective upstream...");
+        for (size_t i = 0; i < (size_t)upstream->length; ++i) {
+            udipe_future_t* upstream_future = upstream->array[i];
+            tracef("- Detaching future #%zu (%p)...", i, upstream_future);
+            future_downstream_count_dec(upstream_future,
+                                        memory_order_relaxed);
+        }
+
+        trace("Invalidating remainder of collective upstream...");
+        upstream->array = NULL;
+        upstream->length = 0;
+        upstream->remaining = 0;
     }
 }

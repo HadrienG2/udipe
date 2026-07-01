@@ -248,11 +248,13 @@ static inline
 future_status_t future_status_exchange(udipe_future_t* future,
                                        future_status_t status,
                                        memory_order order) {
-    return atomic_exchange_explicit(
-        &future->status_word,
-        (future_status_word_t){ .as_bitfield = status }.as_word,
-        order
-    );
+    return (future_status_word_t){
+        .as_word = atomic_exchange_explicit(
+            &future->status_word,
+            (future_status_word_t){ .as_bitfield = status }.as_word,
+            order
+        )
+    }.as_bitfield;
 }
 
 /// Atomically change a future's status assuming a certain initial status
