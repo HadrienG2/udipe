@@ -3,8 +3,8 @@
 # - Our minimal support target is the CMake version distributed by the Ubuntu
 #   LTS that we use in production, currently 24.04.
 # - Our latest tested target is the CMake version distributed by Arch Linux,
-#   4.2.0 at the time of writing. (TODO: Update regularly)
-cmake_minimum_required(VERSION 3.28.3..4.2.0)
+#   4.3.2 at the time of writing. (TODO: Update regularly)
+cmake_minimum_required(VERSION 3.28.3..4.3.2)
 
 project(Udipe
         VERSION 1.0
@@ -151,18 +151,53 @@ target_sources(udipe
                        src/error.c
                        src/error.h
                        src/event.h
+                       src/fd.h
                        src/format.h
                        src/future.c
                        src/future.h
+                       src/future/allocator.c
+                       src/future/allocator.h
+                       src/future/allocator/context_cache.c
+                       src/future/allocator/context_cache.h
+                       src/future/allocator/pointer_cache.c
+                       src/future/allocator/pointer_cache.h
+                       src/future/allocator/storage_page.c
+                       src/future/allocator/storage_page.h
+                       src/future/allocator/sync_caches.c
+                       src/future/allocator/sync_caches.h
+                       src/future/allocator/thread_cache.c
+                       src/future/allocator/thread_cache.h
+                       src/future/collective_upstream.h
+                       src/future/latched_inpoll.c
+                       src/future/latched_inpoll.h
+                       src/future/inpoll_latch_event.h
+                       src/future/inner_fd.h
+                       src/future/join_state.h
+                       src/future/outcome.h
+                       src/future/state.h
+                       src/future/status.h
+                       src/future/status_ops.c
+                       src/future/status_ops.h
+                       src/future/status_sync.h
+                       src/future/timer_repeat_state.h
+                       src/future/type.h
+                       src/future/unordered_state.h
+                       src/future/wait.c
+                       src/future/wait.h
+                       src/inpoll.c
+                       src/inpoll.h
                        src/log.c
                        src/log.h
                        src/memory.c
                        src/memory.h
                        src/name_filter.c
                        src/name_filter.h
+                       src/refcounted_tss.c
+                       src/refcounted_tss.h
                        src/stopwatch.h
                        src/thread_name.c
                        src/thread_name.h
+                       src/timer.h
                        src/unit_tests.c
                        src/unit_tests.h
                        src/visibility.h)
@@ -177,6 +212,9 @@ if (WIN32)
     # Prevents windows.h include from bringing in random junk that will break other
     # Windows headers like winsock2.h.
     target_compile_definitions(udipe PRIVATE WIN32_LEAN_AND_MEAN)
+    # Set Windows 10 as our minimal supported release, enabling newer features
+    target_compile_definitions(udipe PRIVATE WINVER=0x0A00
+                                             _WIN32_WINNT=0x0A00)
 endif()
 if (UDIPE_BUILD_TESTS)
     target_compile_definitions(udipe PUBLIC UDIPE_BUILD_BENCHMARKS)
@@ -198,6 +236,7 @@ if (UDIPE_BUILD_DOXYGEN)
     set(DOXYGEN_EXTRACT_STATIC YES)
     set(DOXYGEN_OPTIMIZE_OUTPUT_FOR_C YES)
     set(DOXYGEN_PREDEFINED __linux__
+                           __unix__
                            __x86_64__)
     set(DOXYGEN_REPEAT_BRIEF NO)
     set(DOXYGEN_WARN_IF_UNDOC_ENUM_VAL YES)

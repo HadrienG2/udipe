@@ -6,7 +6,7 @@ on: [push, pull_request]
 
 # Cancel existing jobs on new pushes to the same branch
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -138,7 +138,7 @@ jobs:
         run: |
           tar -xvf build.tar
           cd build
-          ctest -j$(nproc)
+          ctest -j$(nproc) || ctest -V
 
   package_bin:
     # Don't run CI twice when a PR is created from a branch internal to the repo

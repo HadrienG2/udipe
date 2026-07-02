@@ -7,6 +7,10 @@
 //! takes to execute. It is used to correctly handle timeouts, no matter how
 //! much some operating systems want to break them as soon as signal handling /
 //! asynchronous procedure calls get involved.
+//!
+//! Stopwatches should not be confused with timers, which provide
+//! synchronization objects that get signaled when a certain amount of time has
+//! elapsed or when a certain deadline has been reached.
 
 #include <udipe/duration.h>
 #include <udipe/nodiscard.h>
@@ -38,8 +42,6 @@ static inline stopwatch_t stopwatch_initialize() {
 
 /// Measure the amount of elapsed time since the last measurement (or
 /// initialization).
-///
-///
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static inline udipe_duration_ns_t stopwatch_measure(stopwatch_t* stopwatch) {

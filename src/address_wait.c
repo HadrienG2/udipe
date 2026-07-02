@@ -307,10 +307,12 @@ void wake_by_address_single(_Atomic uint32_t* atom) {
             private[worker].shared = &shared;
             atomic_init(&private[worker].private_wake_counter, 0);
             private[worker].id = worker;
-            ensure_eq(thrd_create(&handles[worker],
-                                  worker_func,
-                                  (void*)(&private[worker])),
-                      thrd_success);
+            exit_on_thread_error(
+                thrd_create(&handles[worker],
+                            worker_func,
+                            (void*)(&private[worker])),
+                "Failed to set up a worker thread"
+            );
         }
 
         trace("Entering notify/wait loop...");
@@ -320,7 +322,7 @@ void wake_by_address_single(_Atomic uint32_t* atom) {
         uint32_t global_wake[2] = { 0, 0 };
         while (global_wake[last] < NUM_WORKERS * NUM_WAIT_CYCLES) {
             trace("Giving workers time to start waiting...");
-            thrd_sleep(&WAIT_FOR_IDLE, NULL);
+            ensure_eq(thrd_sleep(&WAIT_FOR_IDLE, NULL), 0);
 
             tracef("Waking workers by increasing notify_counter to %u...",
                    notify[last] + 1);
@@ -377,7 +379,10 @@ void wake_by_address_single(_Atomic uint32_t* atom) {
         trace("All done, waiting for workers to terminate...");
         for (unsigned worker = 0; worker < NUM_WORKERS; ++worker) {
             int res;
-            ensure_eq(thrd_join(handles[worker], &res), thrd_success);
+            exit_on_thread_error(
+                thrd_join(handles[worker], &res),
+                "Failed to join a worker thread"
+            );
             ensure_eq(res, 0);
         }
     }

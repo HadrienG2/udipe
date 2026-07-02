@@ -46,13 +46,13 @@ typedef enum udipe_log_level_e {
 
     /// Basic debugging logs
     ///
-    /// This is used for rather verbose logs that are only useful when
-    /// debugging `udipe`'s internal operation, best applied to simplified error
-    /// reproducers (as they are very chatty on realistic use cases), and may
-    /// have an unacceptable performance impact in production applications.
+    /// This is used for rather verbose logs that are only useful when debugging
+    /// udipe's internal operation, best applied to simplified error reproducers
+    /// (as they are very chatty on realistic use cases), and may have an
+    /// unacceptable performance impact in production applications.
     ///
     /// Examples include lifecycle tracing of individual one-shot send/receive
-    /// requests as they pass through the various components of `udipe`, or
+    /// requests as they pass through the various components of udipe, or
     /// detailed info about each and every lost packet (note that the
     /// performance impact of such logging will make packet loss worse).
     UDIPE_DEBUG,
@@ -62,10 +62,10 @@ typedef enum udipe_log_level_e {
     /// This is used for application lifecycle events that are normal and
     /// infrequent in production applications.
     ///
-    /// Examples include explaining the final `udipe` configuration after
-    /// merging defaults and automatic system configuration detection with
-    /// manual user configuration, or beginning to listen for incoming packets
-    /// on some network port/address.
+    /// Examples include explaining the final udipe configuration after merging
+    /// defaults and automatic system configuration detection with manual user
+    /// configuration, or beginning to listen for incoming packets on some
+    /// network port/address.
     UDIPE_INFO,
 
     /// Warning logs
@@ -136,8 +136,8 @@ const char* udipe_log_level_name(udipe_log_level_t level);
 /// - Udipe source code location that the code originates from
 /// - Textual description of what happened
 ///
-/// The logging callback will be called concurrently by `udipe` worker threads
-/// and must therefore be thread-safe.
+/// The logging callback can be called concurrently by application threads and
+/// udipe worker threads and must therefore be thread-safe.
 typedef void (*udipe_log_callback_t)(void* /*context */,
                                      udipe_log_level_t /*level*/,
                                      const char[] /*location*/,
@@ -145,28 +145,46 @@ typedef void (*udipe_log_callback_t)(void* /*context */,
 
 /// Logging configuration
 ///
-/// This data structure controls `libudipe`'s logging behavior. Like other
+/// This data structure controls udipe's logging behavior. Like other
 /// configuration data structures, it is designed such that zero-initializing it
 /// should result in sane defaults for many applications.
 typedef struct udipe_log_config_s {
     /// User logging callback
     ///
-    /// This is where you can plug `udipe` logs into your pre-existing logging
-    /// infrastructure like syslog etc. If this is left unconfigured (`NULL`),
-    /// `udipe` will print log messages on `stderr`.
+    /// This configuration parameter lets you forward most udipe logs into a
+    /// pre-existing logging infrastructure such as syslog, nyx-node, etc. If
+    /// this callback is left unconfigured (`NULL`), udipe will send logs to
+    /// `stderr` by default.
     ///
-    /// If this pointer is not NULL, then you must ensure that it is valid to
+    /// If this pointer is not `NULL`, then you must ensure that it is valid to
     /// call the associated callback at any time, including from multiple
     /// threads, until the \ref udipe_context_t is destroyed by
     /// udipe_finalize(). And for this entire duration, the associated \link
     /// #udipe_log_config_t::context context \endlink, if any, must be valid to
     /// use too.
+    ///
+    /// Sadly, some rare udipe logs (which should only be emitted in exceptional
+    /// situations) cannot be forwarded to this callback and must always go to
+    /// `stderr` instead. Examples include...
+    ///
+    /// - Initialization errors occuring before the the logger is fully set up.
+    ///   The logger is purposely set up as early and quickly as possible to
+    ///   reduce the amount of affected code.
+    /// - Runtime errors originating from the logger implementation itself.
+    ///   These errors cannot be logged normally because that could result in
+    ///   infinite logger recursion.
+    /// - Finalization errors for thread-local and process-global entities, used
+    ///   sparingly in the management of OS resources that are intrinsically
+    ///   linked with a process or thread (Windows thread names, process memory
+    ///   locking limit, ...). These errors can occur long after the udipe
+    ///   context is destroyed, at a point where your logging callback may not
+    ///   be safe to call anymore, which makes stderr the only sane option.
     udipe_log_callback_t callback;
 
     /// User logging callback context
     ///
-    /// This pointer is not used by the `udipe` implementation, but merely
-    /// passed down as the first argument to each call to your \link
+    /// This pointer is not used by the udipe implementation, but merely passed
+    /// down as the first argument to each call to your \link
     /// #udipe_log_config_t::callback callback \endlink.
     ///
     /// You can use it to implement more sophisticated logging that requires

@@ -232,9 +232,11 @@
 /// and perform more fine-grained tasks per second:
 ///
 /// - Whenever possible, prefer awaiting asynchronous operations on the thread
-///   that started them. Due to a mixture of hardware constraints and
+///   that started them. Due to a mixture of hardware constraints and udipe
 ///   implementation choices, the convenience of sharing futures across threads
-///   may come at a performance cost.
+///   may come at a performance and scalability cost, especially on larger
+///   systems with non-uniform memory access (NUMA) and/or sharded last-level
+///   CPU caches.
 /// - If futures do need to be transferred between threads, try to at least
 ///   ensure that each application thread starts and finishes a comparable
 ///   amount of asynchronous operations. Avoid having threads that mainly start
@@ -658,8 +660,9 @@ udipe_future_t* udipe_start_unordered(udipe_context_t* context,
 /// \param context must point to an \ref udipe_context_t that has been set up
 ///                via udipe_initialize() and hasn't been liberated via
 ///                udipe_finalize() since.
-/// \param ts must point to a valid `struct timespec` indicating at which time
-///           the wait will complete, following the conventions outlined above.
+/// \param deadline must be a valid `struct timespec` indicating at which time
+///                 the wait will complete, following the conventions outlined
+///                 above.
 ///
 /// \returns a future that will terminate with an empty result once the
 ///          specified absolute time point has been reached.
@@ -670,7 +673,7 @@ UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 UDIPE_PUBLIC
 udipe_future_t* udipe_start_timer_once(udipe_context_t* context,
-                                       const struct timespec *ts);
+                                       struct timespec deadline);
 
 /// Return a repeating timer future that will first complete once a specific
 /// absolute time is reached, then yield a chain of other futures that complete
@@ -696,11 +699,25 @@ udipe_future_t* udipe_start_timer_once(udipe_context_t* context,
 ///   if for example you read the initial future at T+3.07s, the next future
 ///   will still complete at T+3.1s.
 ///
+/// Be warned that even though the `interval` is specified in nanoseconds for
+/// consistency with the rest of the udipe API, underlying OS APIs provide
+/// basically no guarantee on underlying clock resolution. Therefore...
+///
+/// - You should think twice about using an `interval` that is not a multiple
+///   of \ref UDIPE_MILLISECOND, as the lowest common denominator of OS timing
+///   APIs only support periods in milliseconds and any smaller period must be
+///   emulated by udipe at the expense of reduced timing resolution and/or
+///   increased CPU usage.
+/// - The smaller your `interval` the more likely it is that the OS will shift
+///   your timer deadlines by a bit, possibly to the point where you will always
+///   see multiple missed deadlines because you are woken up for the equivalent
+///   of multiple timer deadlines at a time.
+///
 /// \param context must point to an \ref udipe_context_t that has been set up
 ///                via udipe_initialize() and hasn't been liberated via
 ///                udipe_finalize() since.
-/// \param initial must point to a valid `struct timespec` indicating at which
-///                time the first yielded future will complete, following the
+/// \param initial must be a valid `struct timespec` indicating at which time
+///                the first yielded future will complete, following the
 ///                conventions outlined in the documentation of
 ///                udipe_start_timer_once().
 /// \param interval must specify a nonzero number of nanoseconds to await
@@ -719,7 +736,7 @@ UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 UDIPE_PUBLIC
 udipe_future_t* udipe_start_timer_repeat(udipe_context_t* context,
-                                         const struct timespec *initial,
+                                         struct timespec initial,
                                          udipe_duration_ns_t interval);
 
 /// Create a custom future that will complete with a result of your choosing

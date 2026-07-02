@@ -87,15 +87,11 @@ udipe_context_t* udipe_initialize(udipe_config_t config);
 
 /// Finalize a \link #udipe_context_t `libudipe` context \endlink
 ///
-/// This function cancels all unfinished `libudipe` transactions, waits for
-/// uninterruptible asynchronous work to complete, and liberates the resources
-/// formerly allocated by udipe_initialize().
-///
-/// Although udipe_finalize() may take a short amount of time to complete, its
-/// pointer invalidation effect should be considered instantaneous: starting
-/// from the moment where you _start_ calling this function, you must not call
-/// any `libudipe` function with this `udipe_context_t*` parameter from any of
-/// your application threads.
+/// This function is only safe to call after udipe_finish() has been called on
+/// all futures from ongoing asynchronous operations and the call has returned.
+/// From the moment this function starts being called, the `context` pointer
+/// should be considered liberated and cannot safely be passed to any other
+/// udipe function.
 UDIPE_PUBLIC
 UDIPE_NON_NULL_ARGS
 void udipe_finalize(udipe_context_t* context);

@@ -148,9 +148,8 @@ static mtx_t mlock_budget_mutex;
 /// Initialize mlock_budget_mutex (implementation detail of try_increase_mlock_budget)
 static void mlock_budget_mutex_initialize(void) {
     debug("Initializing mlock_budget_mutex");
-    const int result = mtx_init(&mlock_budget_mutex, mtx_plain);
-    if (result == thrd_success) return;
-    exit_after_c_error("Failed to initialize mlock_budget_mutex!");
+    exit_on_thread_error(mtx_init(&mlock_budget_mutex, mtx_plain),
+                         "Failed to initialize mlock_budget_mutex!");
 }
 
 /// Increase the OS kernel's memory locking limit to accomodate a new allocation
@@ -354,7 +353,7 @@ void* realtime_allocate(size_t size) {
                               size,
                               MEM_COMMIT | MEM_RESERVE,
                               PAGE_READWRITE);
-        win32_exit_on_zero(result, "Failed to allocate memory pages");
+        win32_exit_on_null(result, "Failed to allocate memory pages");
         tracef("Allocated memory pages at virtual location %p.", result);
         assert((size_t)result % page_size == 0);
 
