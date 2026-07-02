@@ -48,6 +48,10 @@ struct udipe_future_s {
         ///
         /// The precise \ref future_type_t that you are dealing with will tell
         /// you which variant of this payload union has been set.
+        //
+        // FIXME: Need a way to access the associated control block in order to
+        //        detach from the upstream future on destruction and propagate
+        //        cancelation signals to the worker thread.
         udipe_network_payload_t network;
 
         /// Custom command result

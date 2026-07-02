@@ -144,10 +144,11 @@ event_t event_cache_allocate(event_cache_t* cache) {
 /// \param cache must be an event cache that was initialized with
 ///              event_cache_initialize() and wasn't finalized with
 ///              event_cache_finalize() yet.
-/// \param event must be an event object in the unsignaled state.
+/// \param event must point to an event object in the unsignaled state, which
+///              will not be usable after calling this function.
 UDIPE_NON_NULL_ARGS
 static inline
-void event_cache_liberate(event_cache_t* cache, event_t event) {
+void event_cache_liberate(event_cache_t* cache, event_t* event) {
     tracef("Discarding event object into cache %p.", cache);
     sync_cache_increment_index(&cache->latest, EVENT_CACHE_CAPACITY);
     tracef("Will put it into the next entry (#%zu).",
@@ -156,7 +157,8 @@ void event_cache_liberate(event_cache_t* cache, event_t event) {
         debug("Cache is full, must liberate oldest entry first.");
         event_finalize(&cache->events[cache->latest]);
     }
-    cache->events[cache->latest] = event;
+    cache->events[cache->latest] = *event;
+    *event = EVENT_INVALID;
 }
 
 /// Destroy event object cache

@@ -79,7 +79,7 @@ void event_cache_finalize(event_cache_t* cache) {
                latched.inpoll, latched.latch, cache);
 
         trace("Offloading eventfd liberation to inner event cache...");
-        event_cache_liberate(&cache->event_cache, latched.latch);
+        event_cache_liberate(&cache->event_cache, &latched.latch);
 
         sync_cache_index_t const target = cache->event_cache.latest;
         assert(target < EVENT_CACHE_CAPACITY);
