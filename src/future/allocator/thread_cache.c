@@ -94,7 +94,7 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** pcache) {
     if ((previous_flags & THREAD_CACHE_CONTEXT_DYING) == 0) {
         // Here we can use the logger because if the context starts being
         // liberated it will notice that THREAD_DYING is set and wait for us.
-        with_logger(&cache->context->logger, {
+        LOGGER_START(&cache->context->logger)
             debugf("Spilling thread cache %p into global cache of context %p "
                    "as the corresponding thread is exiting...",
                    (void*)cache, (void*)cache->context);
@@ -138,7 +138,7 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** pcache) {
                 debug("Waking up possibly-asleep context destructor...");
                 wake_by_address_all(&cache->flags);
             }
-        });
+        LOGGER_END
         // WARNING: No logging or logger-based functionality allowed beyond this
         //          point as we may to things that will destroy the logger.
     }

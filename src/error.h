@@ -22,7 +22,7 @@
 /// If `errno` is currently set to a non-zero value, log a warning that
 /// describes its current value, then clear `errno`.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 void warn_on_errno();
 
 /// Exit following the failure of a C function
@@ -104,7 +104,7 @@ void warn_on_errno();
     /// If the thread last-error code is currently set to a non-zero value, log
     /// a warning with its current value, then clear it back to 0.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     void win32_warn_on_error();
 
     /// Exit if a Windows API function returns a zero result, logging the
@@ -170,7 +170,7 @@ void warn_on_errno();
 /// in any circumstance where an internal assertion should be checked even in
 /// `Release` builds because the impact of it being violated is too great.
 ///
-/// It must be called within the scope of with_logger().
+/// It must be called within a logging scope.
 #define ensure(assertion)  \
     do {  \
         if (!(assertion)) {  \
@@ -220,8 +220,8 @@ void warn_on_errno();
 
 /// Exit with an error message
 ///
-/// This macro must be used within the scope of with_logger(), but outside of
-/// the udipe static string logger implementation (since it emits logs).
+/// This macro must be used within a logging scope, but outside of the udipe
+/// static string logger implementation (since it emits logs).
 #define exit_with_error(error_message)  \
     do {  \
         error(error_message);  \
@@ -253,7 +253,7 @@ void ensure_comparison_failure(const char* format_template,
 /// ensure_ne(), ensure_gt(), ensure_lt(), ensure_ge() and ensure_ge(), which
 /// you should prefer over calling this low-level macro directly.
 ///
-/// It must be called within the scope of with_logger().
+/// It must be called within a logging scope.
 ///
 /// \internal
 ///

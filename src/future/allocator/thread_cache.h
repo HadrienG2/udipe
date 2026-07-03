@@ -197,7 +197,7 @@ typedef struct future_thread_cache_s {
 /// will be liberated, which will possibly also result in the liberation of the
 /// host \ref udipe_context_t if it held the last reference to it.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param context must point to a context that was previously created by
 ///                udipe_initialize() and wasn't destroyed by udipe_finalize()
@@ -246,7 +246,7 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** cache);
 /// - Once this functions has been called and the associated thread has exited,
 ///   what remains of the \ref future_thread_cache_t struct will be deallocated.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param cache must be a `future_thread_cache_t*` that was previously set up
 ///              by future_thread_cache_initialize() and was not finalized via

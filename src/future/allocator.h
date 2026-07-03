@@ -65,7 +65,7 @@
 /// collective_upstream_t of collective futures is left uninitialized as
 /// configuring it requires extra information unknown to this function.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param context must be a udipe context that was set up with
 ///                udipe_initialized() and not yet liberated with
@@ -87,7 +87,7 @@ udipe_future_t* future_allocate(udipe_context_t* context,
 /// thread-local cache where later calls to future_allocate() will be able to
 /// find and reuse it instead of resorting to a global allocation.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param future must point to a future that was previously allocated to some
 ///               asynchronous operation, and has been liberated via
@@ -104,7 +104,7 @@ void future_liberate(udipe_future_t* future);
 
 /// Access the thread-local allocator cache, creating it if it doesn't exist yet
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param context must be a udipe context that was set up with
 ///                udipe_initialized() and not yet liberated with
@@ -125,7 +125,7 @@ future_thread_cache_t* future_thread_cache(udipe_context_t* context);
 /// The future will be provided in a fully uninitialized state where the status
 /// word is zeroed out and all file descriptors are set to -1.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param thread_cache should point to the thread-local cache from this thread.
 /// \param context_cache should point to the context-global cache from the
@@ -153,7 +153,7 @@ future_allocate_uninitialized(future_thread_cache_t* thread_cache,
 /// and Windows synchronization objects as documented in the documentation of
 /// future_allocate().
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param future should point to a future that was allocated by
 ///               future_allocate_uninitialized() and had its `type` set up in
@@ -176,7 +176,7 @@ void future_sync_initialize(udipe_future_t* future,
 /// upstream futures to 0 and/or set the upstream pointer to NULL to acknowledge
 /// that this has been done and upstream futures should not be accessed again.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param future should point to a future that went through the process of
 ///               setting up upstream futures, if it is of a future type that
@@ -197,7 +197,7 @@ void future_upstream_detach(udipe_future_t* future);
 /// and Windows synchronization objects, replacing them with \ref FD_INVALID or
 /// `NULL` handles as appropriate.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param future should point to a future that previously went through the
 ///               future_sync_initialize() initialization phase and has not gone
@@ -218,7 +218,7 @@ void future_sync_finalize(udipe_future_t* future,
 /// word is zeroed out, all file descriptors are set to -1, and there are no
 /// other upstream futures attached.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param thread_cache should point to the thread-local cache from this thread.
 /// \param context_cache should point to the context-global cache from the

@@ -174,6 +174,6 @@ static_assert(sizeof(command_queue_t) <= EXPECTED_MIN_PAGE_SIZE,
     /// Unit tests
     ///
     /// This function runs all the unit tests for this module. It must be called
-    /// within the scope of with_logger().
+    /// within a logging scope.
     void command_unit_tests();
 #endif

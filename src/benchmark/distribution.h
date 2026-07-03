@@ -137,7 +137,7 @@
     ///
     /// \internal
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param capacity is the number of bins that the distribution should be
     ///                 able to hold internally before reallocating. It cannot
@@ -242,7 +242,7 @@
     /// max]` and the input `value` belongs to this range, then this function is
     /// guaranteed return a valid bin index.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist is a \ref distribution_t, which can be the `inner`
     ///             distribution of a \ref distribution_builder_t.
@@ -410,7 +410,7 @@
     ///   histogram bin that was formerly at position `pos`, if any.
     /// - `count` must not be zero.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_builder_t that has previously
     ///             been set up via distribution_initialize() and hasn't been
@@ -438,7 +438,7 @@
     /// This has the same effect as calling distribution_insert() `count` times
     /// but will be more efficient.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_builder_t that has previously
     ///             been set up via distribution_initialize() and hasn't been
@@ -491,7 +491,7 @@
 
     /// Largest amount of values in any \ref distribution_builder_t bin
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param builder must be a \ref distribution_builder_t that has previously
     ///                been set up via distribution_initialize() and hasn't been
@@ -533,7 +533,7 @@
     /// distribution_nth(), but it returns the raw bin position instead of the
     /// value, which is useful for some internal computations.
     ///
-    /// It must be called within the scope of with_logger().
+    /// It must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via
@@ -627,7 +627,7 @@
 
     /// Set up a distribution builder
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \returns a \ref distribution_builder_t that can be filled with values
     ///          via distribution_insert(), then turned into a \ref
@@ -655,7 +655,7 @@
     /// This inserts a new occurence of `value` into the distribution histogram,
     /// creating a new bin if needed to make room for it.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_builder_t that has previously
     ///             been set up via distribution_initialize() and hasn't been
@@ -673,7 +673,7 @@
     /// the distribution via distribution_insert(), and should generally be done
     /// after all data of interest has been inserted into the distribution.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param non_empty_builder must be a \ref distribution_builder_t that has
     ///                          previously received at least one value via
@@ -690,7 +690,7 @@
 
     /// Destroy a distribution builder
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param builder must be a \ref distribution_builder_t that was previously
     ///                built using distribution_initialize() and hasn't been
@@ -722,7 +722,7 @@
     /// See \ref statistics.h for more information about how and why we use
     /// bootstrap resampling in our internal statistics.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param empty_builder must be a \ref distribution_builder_t that was
     ///                      freshly built via distribution_initialize() or
@@ -744,7 +744,7 @@
     /// <= i < distribution_len(dist)`, then calling `distribution_build()`, but
     /// with a much more efficient implementation.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param empty_builder must be a \ref distribution_builder_t that was
     ///                      freshly built via distribution_initialize() or
@@ -775,7 +775,7 @@
     ///   amount of values needed for the empirical distribution to be
     ///   a good approximation of the underlying true probability distribution.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param empty_builder must be a \ref distribution_builder_t that was
     ///                      freshly built via distribution_initialize() or
@@ -804,7 +804,7 @@
     /// See the documentation of distribution_sub() for suggestions on how to
     /// measure `num` and `denom` to achieve a high-quality estimate.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param empty_builder must be a \ref distribution_builder_t that was
     ///                      freshly built via distribution_initialize() or
@@ -861,7 +861,7 @@
     /// In C indexing tradition, rank `0` designates the smallest value and
     /// `distribution_len(dist) - 1` designates the largest value.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via
@@ -926,7 +926,7 @@
     /// of observing a value that is lower than or equal to `x` while randomly
     /// sampling the distribution is greater than or equal to `probability`
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_t that has previously been
     ///             generated from a \ref distribution_builder_t via
@@ -951,7 +951,7 @@
 
     /// Smallest value from `dist`
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_t that has previously been
     ///             generated from a \ref distribution_builder_t via
@@ -969,7 +969,7 @@
 
     /// Largest value from `dist`
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via
@@ -988,7 +988,7 @@
     /// Smallest difference between two values of `dist`, if any, else
     /// `UINT64_MAX`
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist is a \ref distribution_t, which can be the `inner`
     ///             distribution of a \ref distribution_builder_t.
@@ -1023,7 +1023,7 @@
     /// Smallest difference between the values of two different distributions,
     /// if any, else `UINT64_MAX`
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param d1 is a \ref distribution_t, which can be the `inner`
     ///           distribution of a \ref distribution_builder_t.
@@ -1046,7 +1046,7 @@
     /// duplicate count divided by the total number of values that were inserted
     /// (which can be queried via distribution_len()).
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via
@@ -1069,7 +1069,7 @@
 
     /// Create an independent copy of a \ref distribution_t
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via
@@ -1089,7 +1089,7 @@
     /// to the \ref distribution_builder_t state where data points can be
     /// inserted into it again.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via
@@ -1107,7 +1107,7 @@
     ///
     /// `dist` must not be used again after calling this function.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via
@@ -1142,8 +1142,8 @@
     #ifdef UDIPE_BUILD_TESTS
         /// Unit tests
         ///
-        /// This function runs all the unit tests for this module. It must be called
-        /// within the scope of with_logger().
+        /// This function runs all the unit tests for this module. It must be
+        /// called within a logging scope.
         void distribution_unit_tests();
     #endif
 

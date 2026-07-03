@@ -24,7 +24,7 @@ typedef char* name_filter_t;
 
 /// Set up a name filter based on a user-specified textual key
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param key is a user-specified string that should be taken as the first and
 ///            only optional positional CLI argument of test and benchmark
@@ -37,7 +37,7 @@ name_filter_t name_filter_initialize(const char* key);
 
 /// Check if a test/benchmark name passes the name filter
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param filter is a name filter that was previously built with
 ///               name_filter_initialize() and hasn't been liberated with
@@ -62,7 +62,7 @@ bool name_filter_matches(name_filter_t filter, const char* name);
 
 /// Liberate a name filter
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param filter is a name filter that was previously built with
 ///               name_filter_initialize() and hasn't been liberated with
@@ -75,6 +75,6 @@ void name_filter_finalize(name_filter_t* filter);
     /// Unit tests
     ///
     /// This function runs all the unit tests for this module. It must be called
-    /// within the scope of with_logger().
+    /// within a logging scope.
     void name_filter_unit_tests();
 #endif

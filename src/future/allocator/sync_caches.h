@@ -98,7 +98,7 @@ typedef struct event_cache_s {
 
 /// Set up an event object cache
 ///
-/// This function must be called in the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \returns an event cache that must be later liberated with
 ///          event_cache_finalize().
@@ -108,7 +108,7 @@ event_cache_t event_cache_initialize();
 /// Try to reuse an event object from the specified cache, allocating a fresh
 /// one on failure.
 ///
-/// This function must be called in the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param cache must be an event cache that was initialized with
 ///              event_cache_initialize() and wasn't finalized with
@@ -137,7 +137,7 @@ event_t event_cache_allocate(event_cache_t* cache) {
 ///
 /// Unlike event_finalize(), this creates opportunities for event object reuse.
 ///
-/// This function must be called in the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// The liberated event object must be in the unsignaled state.
 ///
@@ -163,7 +163,7 @@ void event_cache_liberate(event_cache_t* cache, event_t* event) {
 
 /// Destroy event object cache
 ///
-/// This function must be called in the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param cache must be an event cache that was initialized with
 ///              event_cache_initialize() and wasn't finalized with
@@ -213,7 +213,7 @@ void event_cache_finalize(event_cache_t* cache);
 
     /// Set up an inpoll+eventfd cache
     ///
-    /// This function must be called in the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \returns an inpoll+eventfd cache that must be later liberated with
     ///          latched_inpoll_cache_finalize().
@@ -223,7 +223,7 @@ void event_cache_finalize(event_cache_t* cache);
     /// Try to reuse an inpoll+eventfd pair from the specified cache, allocating
     /// a fresh pair if this fails.
     ///
-    /// This function must be called in the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param cache must be an inpoll+eventfd cache that was initialized with
     ///              latched_inpoll_cache_initialize() and wasn't finalized with
@@ -243,7 +243,7 @@ void event_cache_finalize(event_cache_t* cache);
     /// function. This entails detaching all fds other than the eventfd from the
     /// inpoll and reseting the eventfd to an unsignaled state.
     ///
-    /// This function must be called in the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param cache must be an inpoll+eventfd cache that was initialized with
     ///              latched_inpoll_cache_initialize() and wasn't finalized with
@@ -256,7 +256,7 @@ void event_cache_finalize(event_cache_t* cache);
 
     /// Destroy an inpoll+eventfd cache
     ///
-    /// This function must be called in the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param cache must be an inpoll+eventfd cache that was initialized with
     ///              latched_inpoll_cache_initialize() and wasn't finalized with

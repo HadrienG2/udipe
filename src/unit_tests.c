@@ -40,7 +40,7 @@
     DEFINE_PUBLIC void udipe_unit_tests(int argc, char *argv[]) {
         // Set up logging
         logger_t logger = logger_initialize((udipe_log_config_t){ 0 });
-        with_logger(&logger, {
+        LOGGER_START(&logger)
             // Warn about bad build configurations
             #ifdef NDEBUG
                 warn("You are running unit tests with debug assertions "
@@ -68,7 +68,7 @@
 
             name_filter_finalize(&filter);
             info("All executed tests completed successfully!");
-        });
+        LOGGER_END
         logger_finalize(&logger);
     }
 

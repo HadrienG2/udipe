@@ -32,7 +32,7 @@
 /// The output status is used by operations like udipe_finish() that not only
 /// await the final future status, but also process it.
 ///
-/// Must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param future must be a future that was returned by an asynchronous function
 ///               (those whose name begins with `udipe_start_`) and has not been
@@ -53,7 +53,7 @@ future_status_t future_wait(udipe_future_t* future,
 /// Backend of future_wait() for all future types that get eagerly signaled by a
 /// separate thread
 ///
-/// Must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param future must be a future that was returned by an asynchronous network
 ///               operation (those whose name begins with `udipe_start_`) or by
@@ -77,7 +77,7 @@ future_status_t future_wait_eager(udipe_future_t* future,
 
 /// Backend of future_wait() for \ref TYPE_JOIN
 ///
-/// Must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param future must be a future that was returned by udipe_start_join() and
 ///               has not been liberated by udipe_finish() or udipe_cancel()
@@ -100,7 +100,7 @@ future_status_t future_wait_join(udipe_future_t* future,
 
 /// Backend of future_wait() for \ref TYPE_UNORDERED
 ///
-/// Must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param future must be a future that was returned by udipe_start_unordered()
 ///               and has not been liberated by udipe_finish() or udipe_cancel()
@@ -123,7 +123,7 @@ future_status_t future_wait_unordered(udipe_future_t* future,
 
 /// Backend of future_wait() for \ref TYPE_TIMER_ONCE
 ///
-/// Must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param future must be a future that was returned by udipe_start_timer_once()
 ///               and has not been liberated by udipe_finish() or udipe_cancel()
@@ -146,7 +146,7 @@ future_status_t future_wait_timer_once(udipe_future_t* future,
 
 /// Backend of future_wait() for \ref TYPE_TIMER_REPEAT
 ///
-/// Must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param future must be a future that was returned by
 ///               udipe_start_timer_repeat() and has not been liberated by
@@ -238,7 +238,7 @@ typedef enum address_wait_outcome_e {
 /// with at least release ordering, so that no future manipulation is reordered
 /// after the downstream count decrement.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param future must be a future that supports address-based wakeup, which has
 ///               not been liberated by udipe_finish() or udipe_cancel(). Its

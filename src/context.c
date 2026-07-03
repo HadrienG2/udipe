@@ -31,7 +31,7 @@ UDIPE_NON_NULL_RESULT
 udipe_context_t* udipe_initialize(udipe_config_t config) {
     logger_t logger = logger_initialize(config.log);
     udipe_context_t* context = NULL;
-    with_logger(&logger, {
+    LOGGER_START(&logger)
         debug("Allocating a libudipe context...");
         #ifdef _WIN32
             context = _aligned_malloc(sizeof(udipe_context_t),
@@ -59,14 +59,14 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
         context->future_local_cache_key = refcounted_tss_initialize(
             future_thread_cache_destructor
         );
-    });
+    LOGGER_END
     return context;
 }
 
 DEFINE_PUBLIC
 UDIPE_NON_NULL_ARGS
 void udipe_finalize(udipe_context_t* context) {
-    with_logger(&context->logger, {
+    LOGGER_START(&context->logger)
         debug("Liberating all the future allocator caches...");
         future_context_cache_finalize(&context->future_global_cache);
 
@@ -78,7 +78,7 @@ void udipe_finalize(udipe_context_t* context) {
         context->topology = NULL;
 
         debug("Destroying the logger...");
-    });
+    LOGGER_END
     logger_finalize(&context->logger);
     // WARNING: No logging or logger-based functionality like ensure_xyz()
     //          allowed starting from this point.

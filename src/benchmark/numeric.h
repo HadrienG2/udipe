@@ -312,7 +312,7 @@
     /// under the assumption that if the term is subtracted, its magnitude is
     /// smaller than or equal to that of the accumulator.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param acc must be a valid \ref accumulator_t such as \ref
     ///            ACCUMULATOR_ZERO.
@@ -600,7 +600,7 @@
 
     /// Accumulate a pre-decoded binary64 number into an \ref accumulator_t
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param acc must be a valid \ref accumulator_t such as \ref
     ///            ACCUMULATOR_ZERO.
@@ -631,7 +631,7 @@
     /// addends to keep their magnitudes close to unity remains a prudent
     /// precaution.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param acc must be a valid \ref accumulator_t such as \ref
     ///            ACCUMULATOR_ZERO.
@@ -696,8 +696,8 @@
     #ifdef UDIPE_BUILD_TESTS
         /// Unit tests
         ///
-        /// This function runs all the unit tests for this module. It must be called
-        /// within the scope of with_logger().
+        /// This function runs all the unit tests for this module. It must be
+        /// called within a logging scope.
         void numeric_unit_tests();
     #endif
 

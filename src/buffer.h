@@ -79,7 +79,7 @@ typedef struct buffer_allocator_s {
 /// The buffer allocator must later be liberated using
 /// buffer_allocator_finalize().
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param configurator indicates how the user wants the allocator to be
 ///                     configured.
@@ -97,7 +97,7 @@ buffer_allocator_initialize(udipe_buffer_configurator_t configurator,
 /// before calling this function. The buffer allocator cannot be used again
 /// after this is done.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param allocator points to an allocator that has previously been set up
 ///                  using allocator_initialize() and hasn't been destroyed
@@ -109,7 +109,7 @@ void buffer_allocator_finalize(buffer_allocator_t* allocator);
 ///
 /// After this is done, the buffer must not be used again for any purpose.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param allocator points to an allocator that has previously been set up
 ///                  using buffer_allocator_initialize() and hasn't been
@@ -142,7 +142,7 @@ void buffer_liberate(buffer_allocator_t* allocator, void* buffer);
 /// If this function returns a non-`NULL` buffer, then it must later be
 /// liberated using the buffer_liberate() function.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param allocator points to an allocator that has previously been set up
 ///                  using buffer_allocator_initialize() and hasn't been
@@ -161,6 +161,6 @@ void* buffer_allocate(buffer_allocator_t* allocator);
     /// Unit tests
     ///
     /// This function runs all the unit tests for this module. It must be called
-    /// within the scope of with_logger().
+    /// within a logging scope.
     void buffer_unit_tests();
 #endif

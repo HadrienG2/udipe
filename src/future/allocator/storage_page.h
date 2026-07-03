@@ -74,7 +74,7 @@ static_assert(offsetof(future_storage_page_t, futures) <= sizeof(udipe_future_t)
 /// future_storage_page_t. Its size is not known until runtime because it
 /// depends on the page size used by the host operating system.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 UDIPE_NODISCARD
 static inline
 size_t future_storage_page_length() {
@@ -94,7 +94,7 @@ size_t future_storage_page_length() {
 /// All storage allocated this way must eventually be liberated using
 /// future_storage_liberate_all().
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param next must point to the head of the list of storage pages, where a new
 ///             page of futures will be allocated, initialized and inserted.
@@ -111,7 +111,7 @@ void future_storage_allocate(future_storage_page_t** next);
 /// writing, this is only guaranteed at the time where the host \ref
 /// udipe_context_t is finalized.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param first must point to the head of the list of storage pages. All inner
 ///              pages will be liberated, then this pointer will be reset to

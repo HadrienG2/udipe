@@ -28,7 +28,7 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
 udipe_result_t udipe_finish(udipe_future_t* future) {
-    with_logger(&future->context->logger, {
+    LOGGER_START(&future->context->logger)
         tracef("Marking future %p as liberated...", future);
         // Synchronize-with the initial future state
         future_status_t latest_status =
@@ -151,19 +151,19 @@ udipe_result_t udipe_finish(udipe_future_t* future) {
         trace("Liberating the future...");
         future_liberate(future);
         return result;
-    });
+    LOGGER_END
 }
 
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 DEFINE_PUBLIC
 bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout) {
-    with_logger(&future->context->logger, {
+    LOGGER_START(&future->context->logger)
         if (timeout == UDIPE_DURATION_DEFAULT) timeout = UDIPE_DURATION_MAX;
         const future_status_t final_status =
             future_wait(future, timeout, DOWNSTREAM_COUNT_CYCLE);
         return final_status.state == STATE_RESULT;
-    });
+    LOGGER_END
 }
 
 

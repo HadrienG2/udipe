@@ -360,7 +360,7 @@ bool future_status_compare_exchange_weak(udipe_future_t* future,
 /// of a live future that's allocated to some work. Unallocated futures can be
 /// manipulated by simply overwriting their status with future_status_store().
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 UDIPE_NON_NULL_ARGS
 static inline
 bool future_status_wait(udipe_future_t* future,
@@ -458,7 +458,7 @@ future_status_t future_downstream_count_dec(udipe_future_t* future,
 /// futures can be manipulated by simply overwriting their status with
 /// future_status_store().
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param future must be a future that was returned by an asynchronous function
 ///               (those whose name begins with `udipe_start_`) and has not been
@@ -519,6 +519,6 @@ bool future_downstream_count_try_inc(udipe_future_t* future,
     /// Unit tests
     ///
     /// This function runs all the unit tests for this module. It must be called
-    /// within the scope of with_logger().
+    /// within a logging scope.
     void future_status_unit_tests();
 #endif

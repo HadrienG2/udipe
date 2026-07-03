@@ -44,7 +44,7 @@
 
     /// Allocate a distribution pool
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \returns a distribution pool that must later be liberated using
     ///          distribution_pool_finalize().
@@ -56,7 +56,7 @@
     /// If a distribution builder is available in the pool, it will be returned,
     /// otherwise a new distribution builder will be allocated and returned.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param pool must be a \ref distribution_pool_t that was previously built
     ///             using distribution_pool_initialize() and hasn't been
@@ -75,7 +75,7 @@
     /// original \ref distribution_t unusable, and should therefore only be
     /// called at the point where you won't need `dist` anymore.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param pool must be a \ref distribution_pool_t that was previously built
     ///             using distribution_pool_initialize() and hasn't been
@@ -91,7 +91,7 @@
 
     /// Liberate a distribution pool
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param pool must be a \ref distribution_pool_t that was previously built
     ///             using distribution_pool_initialize() and hasn't been

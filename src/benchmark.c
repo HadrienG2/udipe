@@ -962,7 +962,7 @@
         // Set up logging
         logger_t logger = logger_initialize((udipe_log_config_t){ 0 });
         udipe_benchmark_t* benchmark;
-        with_logger(&logger, {
+        LOGGER_START(&logger)
             debug("Setting up benchmark harness...");
             benchmark =
                 (udipe_benchmark_t*)realtime_allocate(sizeof(udipe_benchmark_t));
@@ -1009,7 +1009,7 @@
 
             // Set up the benchmark clock
             benchmark->bclock = benchmark_clock_initialize();
-        });
+        LOGGER_END
         return benchmark;
     }
 
@@ -1020,7 +1020,7 @@
                              udipe_benchmark_runnable_t runnable,
                              void* context) {
         bool name_matches;
-        with_logger(&benchmark->logger, {
+        LOGGER_START(&benchmark->logger)
             name_matches = name_filter_matches(benchmark->filter, name);
             if (name_matches) {
                 trace("Pinning the benchmark timing thread...");
@@ -1036,7 +1036,7 @@
                 trace("Recalibrating benchmark clock...");
                 benchmark_clock_recalibrate(&benchmark->bclock);
             }
-        });
+        LOGGER_END
         return name_matches;
     }
 
@@ -1044,7 +1044,7 @@
     UDIPE_NON_NULL_ARGS
     void udipe_benchmark_finalize(udipe_benchmark_t** benchmark) {
         logger_t logger = (*benchmark)->logger;
-        with_logger(&logger, {
+        LOGGER_START(&logger)
             info("All benchmarks executed successfully!");
 
             debug("Finalizing the benchmark clock...");
@@ -1066,7 +1066,7 @@
             *benchmark = NULL;
 
             debug("Finalizing the logger...");
-        });
+        LOGGER_END
         logger_finalize(&logger);
     }
 

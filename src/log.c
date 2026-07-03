@@ -273,10 +273,10 @@ logger_t logger_initialize(udipe_log_config_t config) {
 UDIPE_NON_NULL_ARGS
 void logger_finalize(logger_t* logger) {
     logger_t* curr_logger = udipe_thread_logger;
-    with_logger(logger, {
+    LOGGER_START(logger)
         debug("Poisoning logger...");
         ensure_ne((void*)curr_logger, (void*)logger);
-    });
+    LOGGER_END
     logger->callback = NULL;
     logger->context = NULL;
     logger->min_level = UDIPE_TRACE;
@@ -345,7 +345,7 @@ thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_INFO;
         //          non-fatal errors should not be signaled at all, fatal errors
         //          should be signalled on stderr before exiting.
 
-        assert(("Should not make logging calls outside a with_logger() scope",
+        assert(("Should not make logging calls outside a logging scope",
                 udipe_thread_logger));
         switch (level) {
         case UDIPE_TRACE:

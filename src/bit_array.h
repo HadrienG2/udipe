@@ -525,6 +525,6 @@ static inline bit_pos_t bit_array_find_next(const word_t bit_array[],
     /// Unit tests
     ///
     /// This function runs all the unit tests for this module. It must be called
-    /// within the scope of with_logger().
+    /// within a logging scope.
     void bit_array_unit_tests();
 #endif

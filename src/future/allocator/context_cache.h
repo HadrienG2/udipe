@@ -149,7 +149,7 @@ typedef struct future_context_cache_s {
 /// finalized by future_context_cache_finalize() as part of the context
 /// finalization process.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \returns a context-global future cache that must eventually be destroyed
 ///          using future_context_cache_finalize().
@@ -168,9 +168,9 @@ future_context_cache_t future_context_cache_initialize();
 /// liberated, it will take care to empty and invalidate all associated
 /// thread-local caches.
 ///
-/// This function must be called within the scope of with_logger(), and it must
-/// have a public `udipe_` function in its call stack (i.e. it must not be
-/// called asynchronously by a background thread).
+/// This function must be called within a logging scope, and it must have a
+/// public `udipe_` function in its call stack (i.e. it must not be called
+/// asynchronously by a background thread).
 ///
 /// \param context_cache must be a context cache that was set up with
 ///                      future_context_cache_initialize() and wasn't destroyed
@@ -201,7 +201,7 @@ void future_context_cache_register_thread(future_context_cache_t* context_cache,
 /// After calling this function, members of `cache` whose name starts with
 /// `thread_caches` are invalid and cannot be used anymore.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param cache must be a context cache that was set up with
 ///              future_context_cache_initialize() and wasn't destroyed with
@@ -215,7 +215,7 @@ void future_context_cache_finalize_threads(future_context_cache_t* cache);
 /// layer of the future allocator along with all attached thread-local caches.
 /// Futures cannot be allocated again after calling this function.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param cache must be a context cache that was set up with
 ///              future_context_cache_initialize() and wasn't destroyed with

@@ -156,7 +156,7 @@ void* refcounted_tss_create_slot(refcounted_tss_t* tss,
 ///                    thread-local data structure, that will eventually be
 ///                    destroyed by the previously specified `destructor`. It
 ///                    must not make any logging calls unless this function is
-///                    called within the scope of with_logger().
+///                    called within a logging scope.
 /// \param constructor_context can be used to pass arbitrary context information
 ///                            (e.g. a pointer to the `tss`) to the storage slot
 ///                            constructor. If no such context information is

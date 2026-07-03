@@ -45,7 +45,7 @@ UDIPE_PUBLIC extern pow2_t system_page_size_pow2;
 /// This function must be called before accessing the `system_` variables. It
 /// ensures that said variables have been initialized in a thread-safe manner.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 void expect_system_config();
 
 /// \}
@@ -79,7 +79,7 @@ void expect_system_config();
 /// sub-buffer size that you use to compute the total `size` that you pass down
 /// to realtime_allocate() to a multiple of this quantity.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 UDIPE_NODISCARD
 static inline size_t get_page_size() {
     expect_system_config();
@@ -90,7 +90,7 @@ static inline size_t get_page_size() {
 ///
 /// After this is done, the buffer must not be used again for any purpose.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param buffer points to a buffer that has previously been allocated using
 ///               realtime_allocate() and hasn't been liberated via
@@ -176,7 +176,7 @@ void realtime_liberate(void* buffer, size_t size);
 ///
 /// As with standard malloc(), `size` must not be 0.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param size sets a lower bound on the size of the buffer that will be
 ///             returned, in bytes. Due to granularity constraints of the
@@ -196,6 +196,6 @@ void* realtime_allocate(size_t size);
     /// Unit tests
     ///
     /// This function runs all the unit tests for this module. It must be called
-    /// within the scope of with_logger().
+    /// within a logging scope.
     void memory_unit_tests();
 #endif

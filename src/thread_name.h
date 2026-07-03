@@ -50,7 +50,7 @@
 /// (`udp_th_89ABCDEF`), otherwise we'll get multiple threads with the same name
 /// which is quite bad for ergonomics.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param name is a thread name that must follow the constraints listed above.
 UDIPE_NON_NULL_ARGS
@@ -79,6 +79,6 @@ const char* get_thread_name();
     /// Unit tests
     ///
     /// This function runs all the unit tests for this module. It must be called
-    /// within the scope of with_logger().
+    /// within a logging scope.
     void thread_name_unit_tests();
 #endif

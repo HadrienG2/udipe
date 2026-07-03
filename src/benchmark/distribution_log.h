@@ -30,7 +30,7 @@
     /// check out the final state of the distribution after performing all
     /// insertions.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param dist must be a \ref distribution_t that has previously
     ///             been generated from a \ref distribution_builder_t via

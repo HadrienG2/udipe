@@ -31,7 +31,7 @@
 ///
 /// The output pointer will either point to this `struct timespec` or be `NULL`.
 ///
-/// This function must be called in the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param timespec should point to a `struct timespec` that can be filled with
 ///                 a Linux-formatted timeout if need be.

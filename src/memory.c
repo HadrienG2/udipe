@@ -54,7 +54,7 @@ static pow2_t system_allocation_granularity_pow2 = { 0 };
 /// to ensure that the `system_` variables are initialized exactly once. It
 /// should not be called directly as it is not thread-safe.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 static void read_system_config(void) {
     debug("Reading OS configuration...");
 
@@ -106,7 +106,7 @@ void expect_system_config() {
 
 /// Current system allocation granularity in bytes
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 UDIPE_NODISCARD
 static inline size_t get_allocation_granularity() {
     expect_system_config();

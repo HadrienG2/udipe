@@ -138,7 +138,7 @@
 
     /// Set up an outlier filter
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \returns an \ref outlier_filter_t that can be applied to measurements
     ///          using outlier_filter_apply().
@@ -157,7 +157,7 @@
     /// call to this function. Instead, you should query the new distribution
     /// using the corresponding accessort.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param filter must be an \ref outlier_filter_t that has been initialized
     ///        with outlier_filter_initialize() and has not been destroyed with
@@ -225,7 +225,7 @@
     ///
     /// `filter` must not be used again after calling this function.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param filter must be an \ref outlier_filter_t that has been initialized
     ///        with outlier_filter_initialize() and has not been destroyed with
@@ -248,7 +248,7 @@
     /// Said weights, which are stored in `filter->bin_weights`, will later be
     /// used to score bins and eventually classify them as outlier or normal.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param filter must be an \ref outlier_filter_t that has been initialized
     ///        with outlier_filter_initialize() and has not been destroyed with
@@ -309,7 +309,7 @@
     /// to determine an appropriate outlier weight cutoff for the `target`
     /// distribution.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param filter must be an \ref outlier_filter_t that has freshly computed
     ///        weights for `target` via compute_rel_weights() and has not been
@@ -330,7 +330,7 @@
     /// to determine a bin weight cutoff that is most likely to reject outliers,
     /// without any risk of rejecting too many valid values.
     ///
-    /// It must be called within the scope of with_logger().
+    /// It must be called within a logging scope.
     ///
     /// \param filter must be an \ref outlier_filter_t that has freshly computed
     ///        scores for some `target` via compute_scores() and has not been
@@ -346,7 +346,7 @@
     /// which is meant to be called after compute_rel_weights() has been
     /// called on the same `target`.
     ///
-    /// It must be called within the scope of with_logger().
+    /// It must be called within a logging scope.
     ///
     /// \param filter must be an \ref outlier_filter_t that has freshly computed
     ///        weights for `target` via compute_rel_weights() and has not been

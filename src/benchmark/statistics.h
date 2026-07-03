@@ -407,7 +407,7 @@
     /// This will log the string specified by "header", followed by a colon,
     /// followed by a description of `estimate`.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param level is the verbosity level at which this log will be emitted
     /// \param header is a string that will be prepended to the log. This is
@@ -433,7 +433,7 @@
 
     /// Log measurement statistics
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param level is the verbosity level at which this log will be emitted
     /// \param title serves as a header to the overall statistics display
@@ -456,7 +456,7 @@
 
     /// Set up a statistical analyzer
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \returns an \ref analyzer_t that can be used to analyze measurements
     ///          with analyzer_apply().
@@ -465,7 +465,7 @@
 
     /// Perform statistical analysis of `dist`
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param analyzer must be an \ref analyzer_t that has been initialized
     ///                 with analyzer_initialize() and has not been destroyed
@@ -484,7 +484,7 @@
     ///
     /// `analyzer` must not be used again after calling this function.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param analyzer must be an \ref analyzer_t that has been initialized
     ///                 with analyzer_initialize() and has not been destroyed
@@ -548,7 +548,7 @@
 
     /// Log the estimate of a particular distribution quantile
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param level is the verbosity level at which this log will be emitted
     /// \param prefix will be prepended to each estimate's display
@@ -584,7 +584,7 @@
 
     /// Compute the mean of a distribution
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param analyzer must be an \ref analyzer_t that has been initialized
     ///                 with analyzer_initialize() and has not been destroyed

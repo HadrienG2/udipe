@@ -73,7 +73,7 @@
 /// signaled with fd wait methods on Linux and synchronization object wait
 /// methods on Windows. It must eventually be destroyed via event_finalize().
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param signaled indicates whether the event should initially be in the
 ///                 signaled state.
@@ -125,7 +125,7 @@ event_t event_initialize(bool signaled) {
 /// which subsequently attempts to await the event's readiness will also see the
 /// wait return immediately.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param event must be an event object that was initialized with
 ///              event_initialize() and hasn't been destroyed with
@@ -151,7 +151,7 @@ void event_signal(event_t event) {
 /// Starting from the call to this function, clients which attempt to wait for
 /// this event object's readiness will block until event_signal() is called.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param event must be an event object that was initialized with
 ///              event_initialize() and hasn't been destroyed with
@@ -191,7 +191,7 @@ void event_reset(event_t event) {
 /// resetting and recycling should usually be preferred over destroying and
 /// recreating them.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param event must point to an event object that was initialized with
 ///              event_initialize() and hasn't been destroyed with

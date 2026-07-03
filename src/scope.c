@@ -24,8 +24,7 @@ thread_local scope_tracker_t udipe_scope_tracker = { 0 };
 
             debug("Checking initial scope...");
             ensure(!initial_inside_local);
-            // TODO: Change to 1 once logger is migrated to scopes
-            ensure_eq(initial_depth, (size_t)0);
+            ensure_eq(initial_depth, (size_t)1);
 
             debug("Checking new scope...");
             ensure(IS_INSIDE_LOCAL_SCOPE);

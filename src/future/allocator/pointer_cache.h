@@ -63,7 +63,7 @@ struct future_pointer_page_s {
 /// future_pointer_page_t. Its size is not known until runtime because it
 /// depends on the page size used by the host operating system.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 UDIPE_NODISCARD
 static inline
 size_t future_pointer_page_capacity() {
@@ -90,7 +90,7 @@ size_t future_pointer_page_capacity() {
 /// - Eventually liberated with free() after unlinking it from any other pointer
 ///   page that continue to exist within the same cache.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \returns a new empty future pointer page
 UDIPE_NODISCARD
@@ -306,7 +306,7 @@ typedef struct future_pointer_cache_s {
 ///   future_pointer_cache_finalize() when the host context is destroyed by
 ///   udipe_finalize().
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param global controls whether the cache that is being created is the global
 ///               context cache shared between all threads (if true) or the
@@ -346,7 +346,7 @@ future_pointer_cache_t future_pointer_cache_initialize(bool global);
 /// - After refilling the thread-local cache this way, you can call
 ///   future_pointer_cache_allocate_local() again, and this call will succeed.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param local_cache must point to a thread-local cache that was set up with
 ///                    future_pointer_cache_initialize(false) and wasn't
@@ -378,7 +378,7 @@ future_pointer_cache_allocate_local(future_pointer_cache_t* local_cache);
 /// - After making room in the thread-local cache this way, you can call
 ///   future_pointer_cache_liberate() again, and this call will succeed.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param local_cache must point to a thread-local cache that was set up with
 ///                    future_pointer_cache_initialize(false) and wasn't
@@ -424,7 +424,7 @@ bool future_pointer_cache_liberate_local(future_pointer_cache_t* local_cache,
 /// future_pointer_cache_obtain_empty() on the global cache and
 /// future_pointer_cache_insert_empty() on the thread-local cache.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param cache must point to a cache that was set up with
 ///              future_pointer_cache_initialize() and wasn't destroyed by
@@ -441,7 +441,7 @@ future_pointer_cache_extract_futures(future_pointer_cache_t* cache);
 /// Get a page of `NULL` future pointers, taking it from a cache if possible and
 /// allocating a new one otherwise
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param cache must point to a cache that was set up with
 ///              future_pointer_cache_initialize() and wasn't destroyed by
@@ -458,7 +458,7 @@ future_pointer_cache_obtain_empty(future_pointer_cache_t* cache);
 /// Insert a page of futures that was previously extracted via
 /// future_pointer_cache_extract_futures() into its destination cache
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param cache must point to a cache that was set up with
 ///              future_pointer_cache_initialize() and wasn't destroyed by
@@ -476,7 +476,7 @@ void future_pointer_cache_insert_futures(future_pointer_cache_t* cache,
 /// Insert a page of `NULL` future pointers that was previously extracted via
 /// future_pointer_cache_obtain_empty() into its destination cache
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param cache must point to a cache that was set up with
 ///              future_pointer_cache_initialize() and wasn't destroyed by
@@ -497,7 +497,7 @@ void future_pointer_cache_insert_empty(future_pointer_cache_t* cache,
 /// a new future. It fills back the empty local cache with a new batch of
 /// freshly allocated futures from the global cache.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param local_cache must point to a thread-local cache that was set up with
 ///                    future_pointer_cache_initialize(false), wasn't destroyed
@@ -544,7 +544,7 @@ void future_pointer_cache_spill(future_pointer_cache_t* local,
 /// cache, it should instead spill its local cache to the global cache with
 /// future_pointer_cache_spill().
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param cache must point to a pointer cache that was set up with
 ///              future_pointer_cache_initialize() and wasn't destroyed by

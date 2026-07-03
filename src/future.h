@@ -140,6 +140,6 @@ static_assert(
     /// Unit tests
     ///
     /// This function runs all the unit tests for this module. It must be called
-    /// within the scope of with_logger().
+    /// within a logging scope.
     void future_unit_tests();
 #endif

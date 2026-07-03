@@ -43,7 +43,7 @@
 /// receive notifications from `wake_by_address` methods, and cause the switch
 /// to the waiting state to be aborted. This ensures absence of lost wakeup.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param atom is the atomic variable used to synchronize threads
 /// \param expected is the value that this variable is initially expected to
@@ -196,6 +196,6 @@ void wake_by_address_single(_Atomic uint32_t* atom);
     /// Unit tests
     ///
     /// This function runs all the unit tests for this module. It must be called
-    /// within the scope of with_logger().
+    /// within a logging scope.
     void address_wait_unit_tests();
 #endif

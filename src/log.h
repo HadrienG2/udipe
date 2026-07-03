@@ -10,6 +10,8 @@
 #include <udipe/nodiscard.h>
 #include <udipe/pointer.h>
 
+#include "scope.h"
+
 #include <assert.h>
 #include <stdbool.h>
 #include <threads.h>
@@ -37,7 +39,7 @@ typedef udipe_log_config_t logger_t;
 /// \param config should be valid per \link #udipe_log_config_t the type
 ///        definition. \endlink
 ///
-/// \return A logger that can be passed to with_logger() as long as the
+/// \return A logger that can be passed to LOGGER_START() as long as the
 ///         surrounding \ref udipe_context_t has not been finalized.
 UDIPE_NODISCARD
 logger_t logger_initialize(udipe_log_config_t config);
@@ -62,7 +64,7 @@ void logger_finalize(logger_t* logger);
 
 /// Decide if a user log should be emitted
 ///
-/// This function can only be called within the scope of with_logger().
+/// This function can only be called within a logging scope.
 ///
 /// This function is implicitly called by the logging macros, but you may want
 /// to use it manually in situations where the logging message is not a static
@@ -78,9 +80,9 @@ static inline bool log_enabled(udipe_log_level_t level);
 
 /// Log a message if `level` is above configured logging threshold
 ///
-/// This macro can only be used within the scope of with_logger(). It takes as
-/// input a \link #udipe_log_level_t log level \endlink and the message to be
-/// logged at this log level (as a standard `NULL`-terminated `const char[]`).
+/// This macro can only be used within a logging scope. It takes as input a
+/// \link #udipe_log_level_t log level \endlink and the message to be logged at
+/// this log level (as a standard `NULL`-terminated `const char[]`).
 ///
 /// You should prefer using the log level specific macros error(), warn(),
 /// info(), debug() and trace() over this one, outside of special circumstances
@@ -108,32 +110,27 @@ static inline bool log_enabled(udipe_log_level_t level);
 
 /// Log a \link #UDIPE_TRACE `TRACE` \endlink message
 ///
-/// Can only be used within the scope of with_logger(). See udipe_log() for more
-/// info.
+/// Must be called within a logging scope. See udipe_log() for more info.
 #define trace(message)  udipe_log(UDIPE_TRACE, (message))
 
 /// Log a \link #UDIPE_DEBUG `DEBUG` \endlink message
 ///
-/// Can only be used within the scope of with_logger(). See udipe_log() for more
-/// info.
+/// Must be called within a logging scope. See udipe_log() for more info.
 #define debug(message)  udipe_log(UDIPE_DEBUG, (message))
 
 /// Log an \link #UDIPE_INFO `INFO` \endlink message
 ///
-/// Can only be used within the scope of with_logger(). See udipe_log() for more
-/// info.
+/// Must be called within a logging scope. See udipe_log() for more info.
 #define info(message)  udipe_log(UDIPE_INFO, (message))
 
 /// Log a \link #UDIPE_WARN `WARN` \endlink message
 ///
-/// Can only be used within the scope of with_logger(). See udipe_log() for more
-/// info.
+/// Must be called within a logging scope. See udipe_log() for more info.
 #define warn(message)  udipe_log(UDIPE_WARN, (message))
 
 /// Log an \link #UDIPE_ERROR `ERROR` \endlink message
 ///
-/// Can only be used within the scope of with_logger(). See udipe_log() for more
-/// info.
+/// Must be called within a logging scope. See udipe_log() for more info.
 #define error(message)  udipe_log(UDIPE_ERROR, (message))
 
 /// \}
@@ -153,8 +150,8 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// static string.
 ///
 /// All other comments from udipe_log() remain valid, including the need to call
-/// it inside the scope of with_logger(). See also errorf(), warnf(), infof(),
-/// debugf() and tracef() for level-specific formatted logging macros.
+/// it within a logging scope. See also errorf(), warnf(), infof(), debugf() and
+/// tracef() for level-specific formatted logging macros.
 #define udipe_logf(level, format, ...)  \
     do {  \
         const udipe_log_level_t udipe_level = thread_log_level(level);  \
@@ -168,32 +165,27 @@ static inline bool log_enabled(udipe_log_level_t level);
 
 /// Log a \link #UDIPE_TRACE `TRACE` \endlink formatted message
 ///
-/// Can only be used within the scope of with_logger(). See udipe_logf() for
-/// more info.
+/// Must be called within a logging scope. See udipe_logf() for more info.
 #define tracef(format, ...)  udipe_logf(UDIPE_TRACE, (format), __VA_ARGS__)
 
 /// Log a \link #UDIPE_DEBUG `DEBUG` \endlink formatted message
 ///
-/// Can only be used within the scope of with_logger(). See udipe_logf() for
-/// more info.
+/// Must be called within a logging scope. See udipe_logf() for more info.
 #define debugf(format, ...)  udipe_logf(UDIPE_DEBUG, (format), __VA_ARGS__)
 
 /// Log an \link #UDIPE_INFO `INFO` \endlink formatted message
 ///
-/// Can only be used within the scope of with_logger(). See udipe_logf() for
-/// more info.
+/// Must be called within a logging scope. See udipe_logf() for more info.
 #define infof(format, ...)  udipe_logf(UDIPE_INFO, (format), __VA_ARGS__)
 
 /// Log a \link #UDIPE_WARN `WARN` \endlink formatted message
 ///
-/// Can only be used within the scope of with_logger(). See udipe_logf() for
-/// more info.
+/// Must be called within a logging scope. See udipe_logf() for more info.
 #define warnf(format, ...)  udipe_logf(UDIPE_WARN, (format), __VA_ARGS__)
 
 /// Log an \link #UDIPE_ERROR `ERROR` \endlink formatted message
 ///
-/// Can only be used within the scope of with_logger(). See udipe_logf() for
-/// more info.
+/// Must be called within a logging scope. See udipe_logf() for more info.
 #define errorf(format, ...)  udipe_logf(UDIPE_ERROR, (format), __VA_ARGS__)
 
 /// \}
@@ -208,7 +200,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// This macro is only meant for debugging purpose and should not appear
 /// anywhere in production code.
 ///
-/// It must be called within the scope of with_logger().
+/// It must be called within a logging scope.
 ///
 /// \internal
 ///
@@ -245,44 +237,40 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// \name Thread-local logger
 /// \{
 
-/// Set up logging within a certain code scope
+/// Start a scope where logging can be performed
 ///
-/// Call as `with_logger(&logger, { ... })` to be able to use udipe_log() and
-/// related macros inside of the `{ ... }` inner code scope.
+/// This macro must be used together with \ref LOGGER_END in the same fashion as
+/// \ref SCOPE_START and \ref SCOPE_END. Indeed, it is based on the same
+/// udipe-tracked scope infrastructure and starts a scope along the way.
 ///
-/// This macro must be called at the start of every public `libudipe` API entry
-/// point, and early on inside the main function of every worker thread.
+/// A logging scope must be started at the start of every public `libudipe` API
+/// entry point, and early on inside the main function of every worker thread,
+/// as a prerequisite before udipe_log(), related macros, and functions that
+/// make logging calls can be used.
 ///
 /// \param logger_ptr must point to a `logger_t` that was previously initialized
 ///        by logger_initialize(), hasn't been finalized yet and that is valid
-///        to use until the end of the code scope delimited by the with_logger()
-///        macro.
-#ifdef __GNUC__
-    #define with_logger(logger_ptr, ...)  \
-        do {  \
-            logger_t* const udipe_prev_logger  \
-                            __attribute__((__cleanup__(restore_thread_logger)))  \
-                            = udipe_thread_logger;  \
-            udipe_thread_logger = (logger_ptr);  \
-            trace("Start of a with_logger() scope.");  \
-            do __VA_ARGS__ while(false);  \
-        } while(false)
-#elif defined(_MSC_VER)
-    #define with_logger(logger_ptr, ...)  \
-        do {  \
-            logger_t* const udipe_prev_logger = udipe_thread_logger;  \
-            __try {  \
-                udipe_thread_logger = (logger_ptr);  \
-                trace("Start of a with_logger() scope.");  \
-                do __VA_ARGS__ while(false);  \
-            }  \
-            __finally {  \
-                restore_thread_logger(&udipe_prev_logger);  \
-            }  \
-        } while(false)
-#else
-    #error "Sorry, we don't support your compiler yet. Please file a bug report about it!"
-#endif
+///        to use until the LOGGER_END scope-ending macro.
+#define LOGGER_START(logger_ptr)  \
+    do {  \
+        logger_t* const udipe_prev_logger = udipe_thread_logger;  \
+        udipe_thread_logger = (logger_ptr);  \
+        trace("Start of a logging scope.");  \
+        SCOPE_START_WITH_DESTRUCTOR(restore_thread_logger,  \
+                                    (void*)udipe_prev_logger)
+
+/// End a scope where logging can be performed
+///
+/// This macro must be used with \ref LOGGER_START in the same fashion as \ref
+/// SCOPE_START and \ref SCOPE_END. It marks the point where the previously
+/// enabled logger will be disabled and the former logger (if any) will be
+/// restored.
+///
+/// See \ref LOGGER_START for more information about how logging scopes work and
+/// where they should be used.
+#define LOGGER_END  \
+        SCOPE_END  \
+    } while(false);
 
 /// Set up the thread-local relative log level
 ///
@@ -355,7 +343,8 @@ typedef struct logger_state_s {
 /// Bear in mind that the resulting \ref logger_state_t may only be used as long
 /// as the underlying \ref logger_t is valid. The simplest way to enforce this
 /// is to join the child threads to which the logger configuration has been
-/// propagated before the end of the main thread's with_logger() block.
+/// propagated before the end of the main thread's LOGGER_START/LOGGER_END
+/// block.
 ///
 /// \returns a backup of the thread-local logger state
 UDIPE_NODISCARD
@@ -369,7 +358,8 @@ logger_state_t logger_backup();
 /// Bear in mind that the resulting state may only be used as long as the
 /// underlying logger object is valid. The simplest way to enforce this
 /// is to join the child threads to which the logger configuration has been
-/// propagated before the end of the main thread's with_logger() block.
+/// propagated before the end of the main thread's LOGGER_START/LOGGER_END
+/// block.
 ///
 /// \param state is a previously saved backup of the thread-local logger state
 void logger_restore(const logger_state_t* state);
@@ -419,10 +409,10 @@ void logf_impl(udipe_log_level_t level,
 /// override the log level of some logging statements.
 extern thread_local udipe_log_level_t udipe_thread_log_level;
 
-/// Thread-local logger (implementation detail of with_logger())
+/// Thread-local logger (implementation detail of LOGGER_START)
 ///
-/// This thread-local variable is used by with_logger() in order to locally
-/// enable a lightweight log syntax.
+/// This thread-local variable is used by LOGGER_START in order to locally
+/// enable a lightweight log syntax without explicit logger passing.
 extern thread_local logger_t* udipe_thread_logger;
 
 /// Reinterprete the specified log level according to surrounding
@@ -463,11 +453,14 @@ static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_le
 
 /// Restore `udipe_thread_logger`
 ///
-/// This helper function enables with_logger() to clean up after itself through
-/// the GNU `__cleanup__` attribute.
-static inline void restore_thread_logger(logger_t* const * prev_logger) {
-    trace("End of a with_logger() scope.");
-    udipe_thread_logger = *prev_logger;
+/// This helper function lets LOGGER_START/LOGGER_END restore the former logger.
+///
+/// \param context must be a pointer to the former \ref logger_t, casted to
+///                `void*` for interface compatibility with \ref
+///                SCOPE_START_WITH_DESTRUCTOR.
+static inline void restore_thread_logger(void* context) {
+    trace("End of a logging scope.");
+    udipe_thread_logger = (logger_t*)context;
 }
 
 /// Implementation of trace_expr()

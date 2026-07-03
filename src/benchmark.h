@@ -101,7 +101,7 @@
     ///
     /// \internal
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param compute_duration extracts the `run`-th duration from the clock's
     ///                         internal buffers using information (e.g. a
@@ -253,7 +253,7 @@
 
     /// Set up the system clock
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param distribution_pool must have been initialized with
     ///                          distribution_pool_initialize() and not have
@@ -370,7 +370,7 @@
     /// - Execution time, which grows roughly linearly with `num_runs`,
     ///   remains reasonable.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param oclock is the benchmark clock that is going to be used. This
     ///               routine can be used before said clock is fully
@@ -411,7 +411,7 @@
 
     /// Destroy the system clock
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param oclock is a system clock that has been previously set up
     ///               via os_clock_initialize() and hasn't been destroyed via
@@ -483,7 +483,7 @@
         /// date (e.g. CPU clock frequency did not have any time to drift to a
         /// different value).
         ///
-        /// This function must be called within the scope of with_logger().
+        /// This function must be called within a logging scope.
         ///
         /// \param distribution_pool must have been initialized with
         ///                          distribution_pool_initialize() and not have
@@ -525,7 +525,7 @@
         ///   interval based on the associated TSC frequency uncertainty. The
         ///   x86_duration() function can be used to perform this conversion.
         ///
-        /// This function must be called within the scope of with_logger().
+        /// This function must be called within a logging scope.
         ///
         /// \param xclock mostly works like `oclock` in os_clock_measure(),
         ///               except it wants a TSC clock context not an OS clock
@@ -582,7 +582,7 @@
 
         /// Destroy the TSC clock
         ///
-        /// This function must be called within the scope of with_logger().
+        /// This function must be called within a logging scope.
         ///
         /// \param xclock is a TSC clock context that has been previously set up
         ///               via x86_clock_initialize() and hasn't been destroyed
@@ -650,7 +650,7 @@
     /// benchmark_clock_recalibrate() between two sets of measurements, so that
     /// the benchmark clock gets automatically recalibrated whenever necessary.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \returns a benchmark clock configuration that is meant to be integrated
     ///          into \ref udipe_benchmark_t, and eventually destroyed with
@@ -669,7 +669,7 @@
     /// workload to another, as performing statistics over measurements which
     /// were using different clock calibrations is fraught with peril.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param bclock must be a benchmark clock configuration that was
     ///               initialized with benchmark_clock_initialize() and hasn't
@@ -681,7 +681,7 @@
     ///
     /// After this is done, the benchmark clock must not be used again.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param ,clock must be a benchmark clock configuration that was
     ///               initialized with benchmark_clock_initialize() and hasn't

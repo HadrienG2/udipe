@@ -24,10 +24,11 @@ struct udipe_context_s {
     /// Message logger
     ///
     /// Any public `libudipe` function or network thread should begin by using
-    /// the with_logger() macro to set up a logging scope with this logger. This
-    /// allows logging functions to subsequently be used in order to report
-    /// normal and suspicious events throughout the application lifecycle for
-    /// the sake of easier application and `libudipe` debugging.
+    /// the \ref LOGGER_START macro to set up a logging scope with this logger,
+    /// which will later end with \ref LOGGER_END. This allows logging functions
+    /// to subsequently be used in order to report normal and suspicious events
+    /// throughout the application lifecycle for the sake of easier application
+    /// and `libudipe` debugging.
     logger_t logger;
 
     /// Handle to the thread-local future resource cache

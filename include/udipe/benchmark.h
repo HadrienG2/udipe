@@ -67,8 +67,8 @@
     ///
     /// \internal
     ///
-    /// The benchmark function will be called in the scope of with_logger(), and
-    /// can thus freely use internal logging primitives.
+    /// The benchmark function will be called in a logging scope, and can thus
+    /// freely use internal logging primitives.
     ///
     /// \param benchmark must be a benchmark harness that has been initialized
     ///                  with benchmark_initialize() and hasn't been destroyed

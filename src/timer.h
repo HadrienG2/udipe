@@ -156,7 +156,7 @@
 /// time points. Once you are done with it, the timer object must be destroyed
 /// with timer_finalize().
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \returns an initialized timer object that must later be destroyed with
 ///          timer_finalize().
@@ -215,7 +215,7 @@ udipe_timer_t timer_initialize() {
 /// `deadline`, resetting it to an unsignaled state if it was previously
 /// signaled.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param timer must point to a timer object that was initialized with
 ///              timer_initialize() and hasn't been destroyed with
@@ -267,7 +267,7 @@ void timer_set_once(udipe_timer_t timer, struct timespec deadline) {
     /// `initial` instant, then again every `interval` nanoseconds, resetting it
     /// to an unsignaled state if it was previously signaled.
     ///
-    /// This function must be called within the scope of with_logger().
+    /// This function must be called within a logging scope.
     ///
     /// \param timer must point to a timer object that was initialized with
     ///              timer_initialize() and hasn't been destroyed with
@@ -315,7 +315,7 @@ void timer_set_once(udipe_timer_t timer, struct timespec deadline) {
 /// better left to repeating timer objects and 2/there is no known valid use
 /// case for creating and deleting lots of repeating timer objects per second.
 ///
-/// This function must be called within the scope of with_logger().
+/// This function must be called within a logging scope.
 ///
 /// \param timer must point to a timer object that was initialized with
 ///              timer_initialize() and hasn't been destroyed with
