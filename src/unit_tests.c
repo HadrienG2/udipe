@@ -15,6 +15,7 @@
     #include "log.h"
     #include "memory.h"
     #include "name_filter.h"
+    #include "scope.h"
     #include "thread_name.h"
     #include "visibility.h"
 
@@ -54,6 +55,7 @@
             // Tests are ordered such that a piece of code is tested before
             // other pieces of code that may depend on it
             NAME_FILTERED_CALL(filter, thread_name_unit_tests);
+            NAME_FILTERED_CALL(filter, scope_unit_tests);
             NAME_FILTERED_CALL(filter, name_filter_unit_tests);
             NAME_FILTERED_CALL(filter, address_wait_unit_tests);
             NAME_FILTERED_CALL(filter, memory_unit_tests);

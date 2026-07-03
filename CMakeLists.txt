@@ -194,6 +194,8 @@ target_sources(udipe
                        src/name_filter.h
                        src/refcounted_tss.c
                        src/refcounted_tss.h
+                       src/scope.c
+                       src/scope.h
                        src/stopwatch.h
                        src/thread_name.c
                        src/thread_name.h
@@ -237,7 +239,8 @@ if (UDIPE_BUILD_DOXYGEN)
     set(DOXYGEN_OPTIMIZE_OUTPUT_FOR_C YES)
     set(DOXYGEN_PREDEFINED __linux__
                            __unix__
-                           __x86_64__)
+                           __x86_64__
+                           __GNUC__)
     set(DOXYGEN_REPEAT_BRIEF NO)
     set(DOXYGEN_WARN_IF_UNDOC_ENUM_VAL YES)
     if (UDIPE_WERROR)
