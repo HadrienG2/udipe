@@ -59,7 +59,7 @@
 
         // Add tv_nsec part
         uint64_t prev_ticks = ticks;
-        ticks += ts.tv_nsec / 100
+        ticks += ts.tv_nsec / 100;
         assert(ticks >= prev_ticks);
         if (round_up && ts.tv_nsec % 100 != 0) {
             prev_ticks = ticks;
@@ -243,7 +243,7 @@ void timer_set_once(udipe_timer_t timer, struct timespec deadline) {
         );
     #elif defined(_WIN32)
         debugf("Setting a deadline for timer object with handle %p...", timer);
-        const LARGE_INTEGER due = win32_filetime_from_timespec(due, false);
+        const LARGE_INTEGER due = win32_filetime_from_timespec(deadline, false);
         win32_exit_on_zero(
             SetWaitableTimer(
                 timer,
