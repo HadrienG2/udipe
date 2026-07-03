@@ -330,6 +330,7 @@ void future_status_debug_check(future_status_t status,
             result.outcome = outcomes[rand() % outcomes_len];
             break;
         case NUM_STATES:
+        default:
             exit_with_error("Should never happen");
         }
         trace_expr((size_t)result.outcome);
@@ -351,6 +352,8 @@ void future_status_debug_check(future_status_t status,
                 result.notify_event_or_lazy_lock = false;
             }
             break;
+        default:
+            exit_with_error("Should never happen");
         }
         trace_expr((size_t)result.notify_address);
         trace_expr((bool)result.notify_event_or_lazy_lock);

@@ -130,6 +130,7 @@ static once_flag thread_name_key_ready = ONCE_FLAG_INIT;
 
 UDIPE_NODISCARD
 UDIPE_NON_NULL_RESULT
+static inline
 refcounted_tss_t* thread_name_key() {
     call_once(&thread_name_key_ready, &thread_name_key_initialize);
     return &thread_name_key_impl;

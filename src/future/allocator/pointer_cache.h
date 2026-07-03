@@ -104,7 +104,7 @@ future_pointer_page_t* future_pointer_page_initialize();
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static inline
-size_t future_pointer_page_occupancy(future_pointer_page_t* page) {
+size_t future_pointer_page_occupancy(const future_pointer_page_t* page) {
     if (page->futures[0] == NULL) return 0;
     const size_t capacity = future_pointer_page_capacity();
     if (page->futures[capacity - 1]) return capacity;

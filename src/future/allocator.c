@@ -269,6 +269,7 @@ void future_sync_initialize(udipe_future_t* future,
     #endif
     case TYPE_INVALID:
     case NUM_TYPES:
+    default:
         exit_with_error("These cases should not be encountered.");
     }
 }
@@ -303,6 +304,7 @@ void future_upstream_detach(udipe_future_t* future) {
         break;
     case TYPE_INVALID:
     case NUM_TYPES:
+    default:
         exit_with_error("These cases should not be encountered.");
     }
 
@@ -434,6 +436,7 @@ void future_sync_finalize(udipe_future_t* future,
     #endif
     case TYPE_INVALID:
     case NUM_TYPES:
+    default:
         exit_with_error("These cases should not be encountered.");
     }
 }
