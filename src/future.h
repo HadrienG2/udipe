@@ -14,9 +14,12 @@
 #include <udipe/future.h>
 
 #include <udipe/context.h>
+#include <udipe/nodiscard.h>
+#include <udipe/pointer.h>
 #include <udipe/result.h>
 
 #include "future/join_state.h"
+#include "future/status.h"
 #include "future/status_sync.h"
 #include "future/timer_repeat_state.h"
 #include "future/unordered_state.h"
@@ -61,7 +64,7 @@ struct udipe_future_s {
         ///
         /// Aside from the fact that it is set by a user thread, rather than by
         /// the udipe implementation, it works just like the `network` variant.
-        udipe_custom_payload_t custom;
+        udipe_custom_payload_t custom_payload;
 
         /// Joined future state
         ///
@@ -134,6 +137,32 @@ static_assert(
     sizeof(udipe_result_t) <= CACHE_LINE_SIZE,
     "Should be true if above is because future is largely a superset of result"
 );
+
+/// Notify other threads that an eager future has reached a final status
+///
+/// Eager futures are those that are directly signaled by a udipe or user
+/// thread, like network and custom futures. They stand in contrast with lazy
+/// futures, which are signaled by internal OS mechanisms, like TIMER_ONCE
+/// futures on all OSes and collective futures based on inpoll on Linux.
+///
+/// This function must be called within a logging scope.
+///
+/// \param future must be a future of an eager type.
+/// \param status must be the status of this future at the time where the final
+///               outcome was signaled.
+UDIPE_NON_NULL_ARGS
+void future_notify_eager_outcome(udipe_future_t* future,
+                                 future_status_t status);
+
+/// Check the status of a custom future which should not have completed, and
+/// report whether it was canceled
+///
+/// This function must be called within a logging scope.
+///
+/// \param status is the status of the custom future of interest
+/// \returns whether the future was canceled (true) or not (false)
+UDIPE_NODISCARD
+bool future_custom_check_canceled(future_status_t status);
 
 
 #ifdef UDIPE_BUILD_TESTS

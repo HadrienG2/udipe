@@ -27,7 +27,9 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
     /// Futures keep this outcome until their \ref future_state_t reaches \ref
     /// STATE_CANCELING or \ref STATE_RESULT, which is the state where the
     /// outcome of the associated asynchronous operation is actually known.
-    /// After being liberated, futures go back to this dummy state.
+    /// After being liberated, futures go back to this dummy outcome.
+    ///
+    /// If the future has a payload, it is not initialized yet.
     OUTCOME_UNKNOWN = 0,
 
     /// Successful outcome
@@ -40,6 +42,9 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
     /// UDP) should supplement such a "successful" outcome with warning
     /// information, reported via logging and/or supplementary status fields in
     /// the result payload that is specific to this future type.
+    ///
+    /// If the future has a payload, it is initialized, but may indicate a
+    /// non-fatal error as outlined above.
     OUTCOME_SUCCESS,
 
     /// Dependency-induced failure
@@ -50,6 +55,8 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
     /// other failure outcomes described below.
     ///
     /// It cannot be reached for future types that have no dependency.
+    ///
+    /// If the future has a payload, it is not and will not be initialized.
     OUTCOME_FAILURE_DEPENDENCY,
 
     /// Internal failure
@@ -62,6 +69,9 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
     ///
     /// Individual future types will provide more specific error reporting via
     /// logging and/or operation-specific metadata in their result payload.
+    ///
+    /// If the future has a payload, it is initialized, but indicates a fatal
+    /// error rather than a successful result.
     OUTCOME_FAILURE_INTERNAL,
 
     /// Cancelation-induced failure
@@ -74,6 +84,8 @@ typedef enum future_outcome_e /* : _BitInt(3) */ {
     /// indirect cancelation through cancelation of an upstream future which
     /// this future depends on in constant time, the latter is reported via \ref
     /// OUTCOME_FAILURE_DEPENDENCY.
+    ///
+    /// If the future has a payload, it is not and will not be initialized.
     OUTCOME_FAILURE_CANCELED,
 
     /// Not a true outcome, only needed to count how many outcomes there are

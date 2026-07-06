@@ -816,8 +816,6 @@ udipe_future_t* udipe_start_timer_repeat(udipe_context_t* context,
 /// \returns a future that will terminate at a moment of your choosing and with
 ///          a result of your choosing, via a call to
 ///          udipe_custom_try_set_result().
-//
-// TODO: Implement.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
@@ -843,16 +841,14 @@ udipe_future_t* udipe_start_custom(udipe_context_t* context);
 ///               udipe_custom_try_set_result() yet. By exception to the normal
 ///               udipe future lifetime rules, it is valid to pass in a future
 ///               that has already been passed to udipe_finish().
-//
-// TODO: Implement.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
-bool udipe_custom_cancelled(udipe_future_t* custom);
+bool udipe_custom_canceled(udipe_future_t* custom);
 
 /// Acknowledge the cancelation of a custom future
 ///
-/// After receiving the udipe_custom_cancelled() signal, a custom task should
+/// After receiving the udipe_custom_canceled() signal, a custom task should
 /// interrupt its work as quickly as possible, then call this function to
 /// acknowledge that it is done canceling itself and will not perform any
 /// further processing related to its initially scheduled task.
@@ -868,15 +864,13 @@ bool udipe_custom_cancelled(udipe_future_t* custom);
 /// udipe_custom_canceled().
 ///
 /// \param custom must be a custom future that was created with
-///               udipe_start_custom() and cancelled via udipe_cancel(), but
+///               udipe_start_custom() and canceled via udipe_cancel(), but
 ///               hasn't been passed to udipe_custom_acknowledge_cancel() or
 ///               udipe_custom_try_set_result() yet. By exception to the normal
 ///               udipe future lifetime rules, it is valid to pass in a future
 ///               that has already been passed to udipe_finish(). But after
 ///               being passed to this function, the future must never be passed
 ///               to any other `udipe_custom_` function again.
-//
-// TODO: Implement.
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
 void udipe_custom_acknowledge_cancel(udipe_future_t* custom);
@@ -888,7 +882,8 @@ void udipe_custom_acknowledge_cancel(udipe_future_t* custom);
 /// report this failure by returning `false`.
 ///
 /// When this happens, the future will still be marked as completed, but without
-/// a result. Instead it will be in a canceled state.
+/// a result. Instead it will be in a fully canceled state as if
+/// udipe_custom_acknowledge_cancel() had been called.
 ///
 /// \param custom must be a custom future that was created with
 ///               udipe_start_custom() and hasn't been passed to
@@ -913,8 +908,6 @@ void udipe_custom_acknowledge_cancel(udipe_future_t* custom);
 /// \returns the truth that a result was successfully set. Setting a result can
 ///          fail if the target future was canceled by its client. In this case
 ///          `false` will be returned, otherwise `true` will be returned.
-//
-// TODO: Implement.
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
 bool udipe_custom_try_set_result(udipe_future_t* custom,
