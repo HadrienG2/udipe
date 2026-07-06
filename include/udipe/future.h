@@ -203,15 +203,15 @@
 ///   they are done running to completion. In this case, upon receiving the
 ///   udipe_custom_canceled() signal, you can just stop doing what you are
 ///   currently doing as quickly as possible, then acknowledge that you are done
-///   cleaning up with udipe_custom_finish_cancel().
+///   cleaning up with udipe_custom_acknowledge_cancel().
 ///
 /// By exception to the normal udipe future lifetime rules, custom futures can
 /// be acted upon via `udipe_custom_` functions after they are passed to
 /// udipe_finish(), but before they are passed to either
-/// udipe_custom_try_set_result() or udipe_custom_finish_cancel(). However, in
-/// the interest of interface consistency with other future types, it remains an
-/// error to pass them to any other future-based function after they have been
-/// passed to udipe_finish().
+/// udipe_custom_try_set_result() or udipe_custom_acknowledge_cancel(). However,
+/// in the interest of interface consistency with other future types, it remains
+/// an error to pass them to any other future-based function after they have
+/// been passed to udipe_finish().
 ///
 /// While custom futures may seem convenient on paper, prospective users should
 /// be warned that their API is heavily constrained by limitations of the C
@@ -828,8 +828,8 @@ udipe_future_t* udipe_start_custom(udipe_context_t* context);
 ///
 /// Custom tasks that support being interrupted should periodically check this
 /// function. If it starts returning `true`, they should stop doing what they
-/// are doing as early as possible, then call udipe_custom_finish_cancel() to
-/// acknowledge the cancelation signal.
+/// are doing as early as possible, then call udipe_custom_acknowledge_cancel()
+/// to acknowledge the cancelation signal.
 ///
 /// Custom tasks that do not support being interrupted do not need to bother
 /// with this periodical checking and can simply run to completion then call
@@ -839,10 +839,10 @@ udipe_future_t* udipe_start_custom(udipe_context_t* context);
 ///
 /// \param custom must be a custom future that was created with
 ///               udipe_start_custom() and hasn't been passed to
-///               udipe_custom_finish_cancel() or udipe_custom_try_set_result()
-///               yet. By exception to the normal udipe future lifetime rules,
-///               it is valid to pass in a future that has already been passed
-///               to udipe_finish().
+///               udipe_custom_acknowledge_cancel() or
+///               udipe_custom_try_set_result() yet. By exception to the normal
+///               udipe future lifetime rules, it is valid to pass in a future
+///               that has already been passed to udipe_finish().
 //
 // TODO: Implement.
 UDIPE_NODISCARD
@@ -869,7 +869,7 @@ bool udipe_custom_cancelled(udipe_future_t* custom);
 ///
 /// \param custom must be a custom future that was created with
 ///               udipe_start_custom() and cancelled via udipe_cancel(), but
-///               hasn't been passed to udipe_custom_finish_cancel() or
+///               hasn't been passed to udipe_custom_acknowledge_cancel() or
 ///               udipe_custom_try_set_result() yet. By exception to the normal
 ///               udipe future lifetime rules, it is valid to pass in a future
 ///               that has already been passed to udipe_finish(). But after
@@ -879,7 +879,7 @@ bool udipe_custom_cancelled(udipe_future_t* custom);
 // TODO: Implement.
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
-void udipe_custom_finish_cancel(udipe_future_t* custom);
+void udipe_custom_acknowledge_cancel(udipe_future_t* custom);
 
 /// Attempt to set the end result of a custom operation
 ///
@@ -892,12 +892,12 @@ void udipe_custom_finish_cancel(udipe_future_t* custom);
 ///
 /// \param custom must be a custom future that was created with
 ///               udipe_start_custom() and hasn't been passed to
-///               udipe_custom_finish_cancel() or udipe_custom_try_set_result()
-///               yet. By exception to the normal udipe future lifetime rules,
-///               it is valid to pass in a future that has already been passed
-///               to udipe_finish(). But after being passed to this function,
-///               the future must never be passed to any other `udipe_custom_`
-///               function again.
+///               udipe_custom_acknowledge_cancel() or
+///               udipe_custom_try_set_result() yet. By exception to the normal
+///               udipe future lifetime rules, it is valid to pass in a future
+///               that has already been passed to udipe_finish(). But after
+///               being passed to this function, the future must never be passed
+///               to any other `udipe_custom_` function again.
 /// \param successful indicates whether the custom operation should be
 ///                   considered successful, in the sense that other futures
 ///                   scheduled after this one should be allowed to start
