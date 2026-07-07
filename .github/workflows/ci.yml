@@ -95,8 +95,7 @@ jobs:
     # Don't run CI twice when a PR is created from a branch internal to the repo
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     name: Build for Windows
-    # TODO: Go back to windows-latest after VS2026 reaches GA in early May
-    runs-on: windows-2025-vs2026
+    runs-on: windows-latest
     # TODO: Remove this after getting the job to work
     continue-on-error: true
     steps:
