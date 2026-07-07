@@ -70,9 +70,11 @@ future_status_t future_wait(udipe_future_t* future,
     assert(timeout != UDIPE_DURATION_DEFAULT);
 
     tracef("Checking initial readiness of future %p...", future);
-    // Synchronize-with the initial future state
-    const future_status_t status =
-        future_status_load(future, memory_order_acquire);
+    const future_status_t status = future_status_load(
+        future,
+        // Synchronize-with the initial future state
+        memory_order_acquire
+    );
     future_status_debug_check(status, true);
     switch (status.state) {
     case STATE_RESULT:
@@ -102,10 +104,10 @@ future_status_t future_wait(udipe_future_t* future,
         // status updates by said worker threads...
         if (timeout == UDIPE_DURATION_MIN) {
             trace("Status is guaranteed to be up to date for eager futures, "
-                  "so with a min timeout we fail instantly.");
+                  "so with a min timeout we can fail instantly.");
             return status;
         } else {
-            // ...and a waiting logic that does not depend on the exact type.
+            // ...and a waiting logic that does not depend on the future type.
             return future_wait_eager(future, status, timeout, count_policy);
         }
     case TYPE_JOIN:
