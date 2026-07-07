@@ -12,6 +12,9 @@
 #include "future/status_ops.h"
 #include "future/type.h"
 #include "future/wait.h"
+#ifdef __linux__
+    #include "future/inpoll_latch_event.h"
+#endif
 
 #include "address_wait.h"
 #include "context.h"
@@ -23,138 +26,23 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <time.h>
 
 
-// === Awaiting future results ===
+// === Implementation of the public udipe API ===
 
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
 udipe_result_t udipe_finish(udipe_future_t* future) {
     LOGGER_START(&future->context->logger)
-        tracef("Marking future %p as liberated...", future);
-        // Synchronize-with the initial future state
-        future_status_t latest_status =
-            future_status_load(future, memory_order_acquire);
-        do {
-            future_status_debug_check(latest_status, true);
-            assert(("Should not call udipe_finish() on a future that's still used",
-                    (size_t)latest_status.downstream_count == (size_t)0));
-            assert(("Should only call udipe_finish() once per future",
-                    latest_status.available));
-
-            future_status_t desired_status = latest_status;
-            desired_status.available = false;
-            future_status_debug_check(desired_status, true);
-            const bool success = future_status_compare_exchange_weak(
-                future,
-                &latest_status,
-                desired_status,
-                // - Need an acquire barrier so that no post-liberation actions
-                //   are taken before liberation is signaled to other threads.
-                // - Need a release barrier so that all previous changes
-                //   (especially other operations on the same future) become
-                //   visible to other threads before future liberation starts
-                //   from their perspective.
-                // - No need for sequential consistency as we're not
-                //   synchronizing across multiple futures/other objects.
-                memory_order_acq_rel,
-                // Synchronize-with concurrent future state changes.
-                memory_order_acquire
-            );
-
-            if (success) {
-                trace("Done updating the future status.");
-                latest_status = desired_status;
-                break;
-            }
-            future_status_debug_check(latest_status, true);
-            trace("Failed because another thread updated the status word or "
-                  "weak compare_exchange failed spuriously. Let's try again.");
-        } while(true);
-
-        if (latest_status.state == STATE_RESULT) {
-            trace("Result was available from the start!");
-        } else {
-            trace("Waiting for the result to become available...");
-            latest_status = future_wait(future,
-                                        UDIPE_DURATION_MAX,
-                                        DOWNSTREAM_COUNT_KEEP);
-            future_status_debug_check(latest_status, true);
-            assert(latest_status.state == STATE_RESULT);
-        }
-
-        trace("Collecting the end result...");
-        udipe_result_t result = (udipe_result_t){ 0 };
-        switch (latest_status.outcome) {
-        case OUTCOME_SUCCESS:
-        case OUTCOME_FAILURE_INTERNAL:
-            trace("Future went far enough to produce a typed result");
-            bool is_network = false;
-            switch (latest_status.type) {
-            case TYPE_NETWORK_CONNECT:
-                result.type = UDIPE_CONNECT;
-                is_network = true;
-                break;
-            case TYPE_NETWORK_DISCONNECT:
-                result.type = UDIPE_DISCONNECT;
-                is_network = true;
-                break;
-            case TYPE_NETWORK_SEND:
-                result.type = UDIPE_SEND;
-                is_network = true;
-                break;
-            case TYPE_NETWORK_RECV:
-                result.type = UDIPE_RECV;
-                is_network = true;
-                break;
-            case TYPE_CUSTOM:
-                result.type = UDIPE_CUSTOM;
-                result.payload.custom = future->specific.custom_payload;
-                break;
-            case TYPE_JOIN:
-                result.type = UDIPE_JOIN;
-                // No payload for this result type, which cannot fail internally
-                assert(latest_status.outcome != OUTCOME_FAILURE_INTERNAL);
-                break;
-            case TYPE_UNORDERED:
-                result.type = UDIPE_UNORDERED;
-                result.payload.unordered = future->specific.unordered.payload;
-                break;
-            case TYPE_TIMER_ONCE:
-                result.type = UDIPE_TIMER_ONCE;
-                // No payload for this result type, which cannot fail internally
-                assert(latest_status.outcome != OUTCOME_FAILURE_INTERNAL);
-                break;
-            case TYPE_TIMER_REPEAT:
-                result.type = UDIPE_TIMER_REPEAT;
-                result.payload.timer_repeat = future->specific.timer_repeat.payload;
-                break;
-            case TYPE_INVALID:
-            case NUM_TYPES:
-            default:
-                exit_with_error("Should never happen.");
-            }
-            if (is_network) {
-                result.payload.network = future->specific.network;
-            }
-            break;
-        case OUTCOME_FAILURE_DEPENDENCY:
-            trace("Future failed because one of its dependencies has failed.");
-            result.type = UDIPE_FAILURE_DEPENDENCY;
-            break;
-        case OUTCOME_FAILURE_CANCELED:
-            trace("Future failed because it was canceled.");
-            result.type = UDIPE_FAILURE_CANCELED;
-            break;
-        case OUTCOME_UNKNOWN:
-        case NUM_OUTCOMES:
-        default:
-            exit_with_error("Should never happen");
-        }
-
-        trace("Liberating the future...");
-        future_liberate(future);
+        future_status_t status = future_status_load(
+            future,
+            // Synchronize-with the initial future state
+            memory_order_acquire
+        );
+        udipe_result_t result = { 0 };
+        future_finish(future, status, &result);
         return result;
     LOGGER_END
 }
@@ -171,8 +59,185 @@ bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout) {
     LOGGER_END
 }
 
+UDIPE_NODISCARD
+UDIPE_NON_NULL_ARGS
+UDIPE_PUBLIC
+bool udipe_cancel(udipe_future_t* future, bool finish) {
+    LOGGER_START(&future->context->logger)
+        debugf("Trying to cancel future %p...", future);
+        future_status_t status = future_status_load(
+            future,
+            // No need to synchronize with any state other than the status word
+            memory_order_relaxed
+        );
+        const future_type_t type = status.type;  // Should not change
+        bool use_state_canceling = future_type_uses_worker_thread(type);
 
-// === Custom futures ===
+        bool canceled;
+        do {
+            debug("Checking the current future status...");
+            future_status_debug_check(status, true);
+
+            const char* failure_cause;
+            switch (status.outcome) {
+            case OUTCOME_UNKNOWN:
+                failure_cause = NULL;
+                break;
+            case OUTCOME_SUCCESS:
+                failure_cause = "has already completed";
+                break;
+            case OUTCOME_FAILURE_DEPENDENCY:
+            case OUTCOME_FAILURE_INTERNAL:
+                failure_cause = "has already failed from other causes";
+                break;
+            case OUTCOME_FAILURE_CANCELED:
+                failure_cause = "was already canceled";
+                break;
+            case NUM_OUTCOMES:
+            default:
+                exit_with_error("Should never happen!");
+            }
+            if (failure_cause) {
+                debugf("Cannot cancel future because the operation %s!",
+                       failure_cause);
+                canceled = false;
+                goto finish;
+            }
+
+            #ifndef NDEBUG
+                switch (status.state) {
+                case STATE_WAITING:
+                case STATE_PROCESSING:
+                    break;
+                case STATE_CANCELING:
+                case STATE_RESULT:
+                    exit_with_error("Mutually exclusive with OUTCOME_UNKNOWN!");
+                case STATE_UNINITIALIZED:
+                case NUM_STATES:
+                default:
+                    exit_with_error("Active future shouldn't have this state!");
+                }
+            #endif
+
+            debug("Trying to mark the future as fully canceled...");
+            future_status_t desired = status;
+            desired.state = use_state_canceling ? STATE_CANCELING
+                                                : STATE_RESULT;
+            const bool success = future_status_compare_exchange_weak(
+                future,
+                &status,
+                desired,
+                // Publish our changes with release ordering so that the thread
+                // that observes the canceled state also observes anything we
+                // did before notifying the cancelation.
+                memory_order_release,
+                // No need to synchronize with any state other than the status
+                memory_order_relaxed
+            );
+            if (success) {
+                debug("Success, will now notify other threads as needed!");
+                status = desired;
+                canceled = true;
+                break;
+            } else {
+                debug("Raced with another thread or spurious failure occured, "
+                      "must try again...");
+                assert(status.type == type);
+                continue;
+            }
+        } while(true);
+
+        if (status.downstream_count == 0) {
+            debug("No one could be waiting for a status change, "
+                  "so there is no need for a change notification.");
+            goto finish;
+        }
+        // Ensure these notifications are not sent before the new future
+        // status word has been published.
+        atomic_thread_fence(memory_order_acquire);
+
+
+        debug("Sending appropriate cancelation notifications...");
+        #ifdef __linux__
+            inpoll_latch_event_t inpoll_latch = EVENT_INVALID;
+        #endif
+        switch (type) {
+        case TYPE_NETWORK_CONNECT:  // Aliases TYPE_NETWORK_START
+        case TYPE_NETWORK_DISCONNECT:
+        case TYPE_NETWORK_SEND:
+        case TYPE_NETWORK_RECV:
+            // TODO: Implement once we have a control block, most likely using
+            //       an event object in the control block which the network
+            //       thread includes in its wait-list.
+            exit_with_error("Not implemented yet!");
+        case TYPE_CUSTOM:  // Aliases TYPE_NETWORK_END
+            debug("No notification needed for polling-based CUSTOM futures.");
+            break;
+        #ifdef __linux__
+            case TYPE_JOIN:
+                inpoll_latch = future->specific.join.inpoll_latch;
+                break;
+            case TYPE_UNORDERED:
+                inpoll_latch = future->specific.unordered.inpoll_latch;
+                break;
+            case TYPE_TIMER_REPEAT:
+                inpoll_latch = future->specific.timer_repeat.inpoll_latch;
+                break;
+        #else
+            // TODO: Add windows versions
+            #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
+        #endif
+        case TYPE_TIMER_ONCE:
+            debug("Turning back the clock to notify TIMER_ONCE waiters early.");
+            struct timespec ts = { 0 };
+            ensure_eq(timespec_get(&ts, TIME_UTC), TIME_UTC);
+            assert(ts.tv_sec > 0);
+            --ts.tv_sec;
+            timer_set_once(future->status_sync.timer_once, ts);
+            break;
+        case TYPE_INVALID:
+        case NUM_TYPES:
+        default:
+            exit_with_error("Should never happen!");
+        }
+
+        #ifdef __linux__
+            if (inpoll_latch != FD_INVALID) {
+                debug("Signaling the inpoll latch event...");
+                event_signal(inpoll_latch);
+
+                if (status.notify_address) {
+                    debug("Signaling sleeping waiters...");
+                    wake_by_address_all(&future->status_word);
+                }
+            }
+        #endif
+
+    finish:
+        if (finish) future_finish(future, status, NULL);
+        return canceled;
+    LOGGER_END
+}
+
+// TODO: udipe_start_join
+
+/*DEFINE_PUBLIC
+UDIPE_NON_NULL_ARGS
+void udipe_join(udipe_context_t* context,
+                udipe_future_t* const futures[],
+                size_t num_futures) {
+    // TODO: Benchmark on various platforms, use e.g. a udipe_wait() loop if it
+    //       is faster on selected platforms. On Windows, consider using a
+    //       WaitForMultipleObjects loop... you get the idea.
+    udipe_future_t* future = udipe_start_join(context, futures, num_futures);
+    assert(future);
+    udipe_result_t result = udipe_finish(future);
+    assert(result.type == UDIPE_JOIN);
+}*/
+
+// TODO: udipe_start_unordered
+// TODO: udipe_start_timer_once
+// TODO: udipe_start_timer_repeat
 
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
@@ -331,56 +396,141 @@ bool udipe_custom_try_set_result(udipe_future_t* custom,
 }
 
 
-// === Other public methods ===
+// === Implementation details ===
 
-/*DEFINE_PUBLIC
-UDIPE_NON_NULL_ARGS
-void udipe_join(udipe_context_t* context,
-                udipe_future_t* const futures[],
-                size_t num_futures) {
-    // TODO: Benchmark on various platforms, use e.g. a udipe_wait() loop if it
-    //       is faster on selected platforms. On Windows, consider using
-    //       WaitForMultipleObjects loop... you get the idea.
-    udipe_future_t* future = udipe_start_join(context, futures, num_futures);
-    assert(future);
-    udipe_result_t result = udipe_finish(future);
-    assert(result.type == UDIPE_JOIN);
-}*/
+UDIPE_NON_NULL_SPECIFIC_ARGS(1)
+void future_finish(udipe_future_t* future,
+                   future_status_t latest_status,
+                   udipe_result_t* result) {
+    tracef("Marking future %p as liberated...", future);
+    do {
+        future_status_debug_check(latest_status, true);
+        assert(("Should not call udipe_finish() on a future that's still used",
+                (size_t)latest_status.downstream_count == (size_t)0));
+        assert(("Should only call udipe_finish() once per future",
+                latest_status.available));
 
+        future_status_t desired_status = latest_status;
+        desired_status.available = false;
+        future_status_debug_check(desired_status, true);
+        const bool success = future_status_compare_exchange_weak(
+            future,
+            &latest_status,
+            desired_status,
+            // - Need an acquire barrier so that no post-liberation actions
+            //   are taken before liberation is signaled to other threads.
+            // - Need a release barrier so that all previous changes
+            //   (especially other operations on the same future) become
+            //   visible to other threads before future liberation starts
+            //   from their perspective.
+            // - No need for sequential consistency as we're not
+            //   synchronizing across multiple futures/other objects.
+            memory_order_acq_rel,
+            // Synchronize-with concurrent future state changes.
+            memory_order_acquire
+        );
 
-// === Private methods ===
+        if (success) {
+            trace("Done updating the future status.");
+            latest_status = desired_status;
+            break;
+        }
+        future_status_debug_check(latest_status, true);
+        trace("Failed because another thread updated the status word or "
+              "weak compare_exchange failed spuriously. Let's try again.");
+    } while(true);
+
+    if (latest_status.state == STATE_RESULT) {
+        trace("Result was available from the start!");
+    } else {
+        trace("Waiting for the result to become available...");
+        latest_status = future_wait(future,
+                                    UDIPE_DURATION_MAX,
+                                    DOWNSTREAM_COUNT_KEEP);
+        future_status_debug_check(latest_status, true);
+        assert(latest_status.state == STATE_RESULT);
+    }
+
+    if (result) {
+        trace("Collecting the end result...");
+        *result = (udipe_result_t){ 0 };
+        switch (latest_status.outcome) {
+        case OUTCOME_SUCCESS:
+        case OUTCOME_FAILURE_INTERNAL:
+            trace("Future went far enough to produce a typed result");
+            bool is_network = false;
+            switch (latest_status.type) {
+            case TYPE_NETWORK_CONNECT:
+                result->type = UDIPE_CONNECT;
+                is_network = true;
+                break;
+            case TYPE_NETWORK_DISCONNECT:
+                result->type = UDIPE_DISCONNECT;
+                is_network = true;
+                break;
+            case TYPE_NETWORK_SEND:
+                result->type = UDIPE_SEND;
+                is_network = true;
+                break;
+            case TYPE_NETWORK_RECV:
+                result->type = UDIPE_RECV;
+                is_network = true;
+                break;
+            case TYPE_CUSTOM:
+                result->type = UDIPE_CUSTOM;
+                result->payload.custom = future->specific.custom_payload;
+                break;
+            case TYPE_JOIN:
+                result->type = UDIPE_JOIN;
+                // No payload for this result type, which cannot fail internally
+                assert(latest_status.outcome != OUTCOME_FAILURE_INTERNAL);
+                break;
+            case TYPE_UNORDERED:
+                result->type = UDIPE_UNORDERED;
+                result->payload.unordered = future->specific.unordered.payload;
+                break;
+            case TYPE_TIMER_ONCE:
+                result->type = UDIPE_TIMER_ONCE;
+                // No payload for this result type, which cannot fail internally
+                assert(latest_status.outcome != OUTCOME_FAILURE_INTERNAL);
+                break;
+            case TYPE_TIMER_REPEAT:
+                result->type = UDIPE_TIMER_REPEAT;
+                result->payload.timer_repeat =
+                    future->specific.timer_repeat.payload;
+                break;
+            case TYPE_INVALID:
+            case NUM_TYPES:
+            default:
+                exit_with_error("Should never happen.");
+            }
+            if (is_network) {
+                result->payload.network = future->specific.network;
+            }
+            break;
+        case OUTCOME_FAILURE_DEPENDENCY:
+            trace("Future failed because one of its dependencies has failed.");
+            result->type = UDIPE_FAILURE_DEPENDENCY;
+            break;
+        case OUTCOME_FAILURE_CANCELED:
+            trace("Future failed because it was canceled.");
+            result->type = UDIPE_FAILURE_CANCELED;
+            break;
+        case OUTCOME_UNKNOWN:
+        case NUM_OUTCOMES:
+        default:
+            exit_with_error("Should never happen");
+        }
+    }
+
+    trace("Liberating the future...");
+    future_liberate(future);
+}
 
 UDIPE_NON_NULL_ARGS
 void future_notify_eager_outcome(udipe_future_t* future,
                                  future_status_t status) {
-    #ifndef NDEBUG
-        switch (status.type) {
-        case TYPE_NETWORK_CONNECT:  // Aliases TYPE_NETWORK_START
-        case TYPE_NETWORK_DISCONNECT:
-        case TYPE_NETWORK_SEND:
-        case TYPE_NETWORK_RECV:
-        case TYPE_CUSTOM:  // Aliases TYPE_NETWORK_END
-            break;
-        case TYPE_TIMER_ONCE:
-            exit_with_error("TIMER_ONCE futures are not eagerly signaled.");
-        #ifdef __linux__
-            case TYPE_JOIN:
-            case TYPE_UNORDERED:
-            case TYPE_TIMER_REPEAT:
-                exit_with_error(
-                    "This future type is not eagerly signaled on Linux."
-                );
-        #else
-            // TODO: Add windows versions
-            #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
-        #endif
-        case TYPE_INVALID:  // Never valid
-        case NUM_TYPES:  // Never valid
-        default:
-            exit_with_error("Not a valid future type.");
-        }
-    #endif
-
+    assert(future_type_uses_worker_thread(status.type));
     if (status.downstream_count) {
         // Ensure these notifications are not sent before the new future
         // status word has been published.

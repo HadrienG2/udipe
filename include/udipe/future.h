@@ -352,10 +352,9 @@ udipe_result_t udipe_finish(udipe_future_t* future);
 
 /// Wait up to a certain duration for the end of an asynchronous operation
 ///
-/// In contrast with udipe_finish(), which also waits for asynchronous
-/// operations to terminate, this function **only** waits for a result to be
-/// available, it does not fetch that result and liberates resources. In other
-/// words, `udipe_wait()`...
+/// In contrast with udipe_finish(), this function **only** waits for a result
+/// to be available, it does not fetch that result and liberates resources. In
+/// other words, `udipe_wait()`...
 ///
 /// - Does not fetch the future's result if the operation does complete. It only
 ///   tells you when the result is ready to fetch via udipe_finish(), which
@@ -474,8 +473,6 @@ bool udipe_wait(udipe_future_t* future, udipe_duration_ns_t timeout);
 ///          function returns false and there were other asynchronous operations
 ///          scheduled after this operation, then you will need to cancel these
 ///          downstream operations too.
-//
-// TODO: Implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
@@ -524,8 +521,6 @@ bool udipe_cancel(udipe_future_t* future, bool finish);
 ///          futures have terminated. When this happens, results of `futures`
 ///          can then be fetched in a non-blocking manner by simply calling
 ///          udipe_finish() on each of them in a sequence.
-//
-// TODO: Implement.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
@@ -627,8 +622,6 @@ void udipe_join(udipe_context_t* context,
 ///          fetch its result with udipe_finish(). Along with that index, you
 ///          will also get another future, which lets you wait for the next
 ///          operation to complete, until all operations have completed.
-//
-// TODO: Implement.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
@@ -666,8 +659,6 @@ udipe_future_t* udipe_start_unordered(udipe_context_t* context,
 ///
 /// \returns a future that will terminate with an empty result once the
 ///          specified absolute time point has been reached.
-//
-// TODO: Implement.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
@@ -705,9 +696,9 @@ udipe_future_t* udipe_start_timer_once(udipe_context_t* context,
 ///
 /// - You should think twice about using an `interval` that is not a multiple
 ///   of \ref UDIPE_MILLISECOND, as the lowest common denominator of OS timing
-///   APIs only support periods in milliseconds and any smaller period must be
-///   emulated by udipe at the expense of reduced timing resolution and/or
-///   increased CPU usage.
+///   APIs only support periods in milliseconds and any other period must be
+///   emulated by udipe on some operating systems at the expense of reduced
+///   timing resolution and/or increased CPU usage.
 /// - The smaller your `interval` the more likely it is that the OS will shift
 ///   your timer deadlines by a bit, possibly to the point where you will always
 ///   see multiple missed deadlines because you are woken up for the equivalent
@@ -729,8 +720,6 @@ udipe_future_t* udipe_start_timer_once(udipe_context_t* context,
 ///          `initial` time point has been reached, yielding a number of missed
 ///          timer ticks and a chain of other futures that complete following a
 ///          regular cadence given by `interval`.
-//
-// TODO: Implement.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT

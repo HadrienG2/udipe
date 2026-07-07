@@ -132,8 +132,10 @@ typedef struct future_status_s {
     /// first time where a thread starts waiting for state changes via
     /// wait_on_address(), and cannot be unset afterwards until the future is
     /// liberated. From the point where this flag is set, all status word
-    /// changes must be notified via a variant of `wake_by_address`. Typically
-    /// wake_by_address_all() is used, but lazy futures also use
+    /// changes must be notified via a variant of `wake_by_address` unless
+    /// `downstream_count` is 0.
+    ///
+    /// Typically wake_by_address_all() is used, but lazy futures also use
     /// wake_by_address_single() to avoid thundering herds when they transfer
     /// the lazy update lock from one waiter to another.
     ///

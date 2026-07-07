@@ -88,3 +88,151 @@ typedef enum future_type_e /* : _BitInt(4) */ {
     //       future_status_word_t then adjust the _BitInt comment above for
     //       future C23 migration accordingly.
 } future_type_t;
+
+/// Truth that a future type can be scheduled after other futures
+///
+/// This implies that the future can end up in \ref STATE_WAITING or have \ref
+/// OUTCOME_FAILURE_DEPENDENCY, which is impossible otherwise.
+///
+/// This function must be called within a logging scope.
+static inline
+bool future_type_has_dependencies(future_type_t type) {
+    switch (type) {
+    case TYPE_INVALID:
+    case TYPE_CUSTOM:
+    case TYPE_TIMER_ONCE:
+    case TYPE_TIMER_REPEAT:
+        return false;
+    case TYPE_NETWORK_CONNECT:
+    case TYPE_NETWORK_DISCONNECT:
+    case TYPE_NETWORK_SEND:
+    case TYPE_NETWORK_RECV:
+    case TYPE_JOIN:
+    case TYPE_UNORDERED:
+        return true;
+    case NUM_TYPES:
+    default:
+        exit_with_error("Unexpected future type!");
+    }
+}
+
+/// Truth that a future type involves processing other than awaiting other
+/// futures
+///
+/// This implies that the future can end up in \ref STATE_PROCESSING or have
+/// \ref OUTCOME_FAILURE_INTERNAL, which is impossible otherwise.
+///
+/// This function must be called within a logging scope.
+static inline
+bool future_type_has_processing(future_type_t type) {
+    switch (type) {
+    case TYPE_NETWORK_CONNECT:
+    case TYPE_NETWORK_DISCONNECT:
+    case TYPE_NETWORK_SEND:
+    case TYPE_NETWORK_RECV:
+    case TYPE_CUSTOM:
+    case TYPE_TIMER_ONCE:
+    case TYPE_TIMER_REPEAT:
+        return true;
+    case TYPE_INVALID:
+    case TYPE_JOIN:
+    case TYPE_UNORDERED:
+        return false;
+    case NUM_TYPES:
+    default:
+        exit_with_error("Unexpected future type!");
+    }
+}
+
+/// Truth that a future type is awaited under the protection of `lazy_lock`
+///
+/// One example is the Linux implementation of JOIN/UNORDERED/TIMER_REPEAT,
+/// where various thread-unsafe operations are performed upon successful wait
+/// including inpoll_detach(), setting the payload field of the future... These
+/// operations are only safe for a single thread to perform, which is why they
+/// are guarded by a lock.
+///
+/// This function must be called within a logging scope.
+static inline
+bool future_type_uses_lazy_lock(future_type_t type) {
+    switch (type) {
+    case TYPE_INVALID:
+    case TYPE_NETWORK_CONNECT:  // Aliases TYPE_NETWORK_START
+    case TYPE_NETWORK_DISCONNECT:
+    case TYPE_NETWORK_SEND:
+    case TYPE_NETWORK_RECV:
+    case TYPE_CUSTOM:  // Aliases TYPE_NETWORK_END
+    case TYPE_TIMER_ONCE:
+        return false;
+    #ifdef __linux__
+        case TYPE_JOIN:
+        case TYPE_UNORDERED:
+        case TYPE_TIMER_REPEAT:
+            return true;
+    #else
+        // TODO: Add windows versions
+        #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
+    #endif
+    case NUM_TYPES:
+    default:
+        exit_with_error("Unexpected future type!");
+    }
+}
+
+/// Truth that a future type is meant to be asynchronously signaled by a worker
+/// thread upon operation completion
+///
+/// This affects many things including the future cancelation procedure.
+///
+/// Future types for which this is false are directly signaled by the operating
+/// system or never exposed in an unsignaled state and can therefore be canceled
+/// by simply switching them to \ref OUTCOME_FAILURE_CANCELED and \ref
+/// STATE_RESULT directly, without any risk of udipe_finish() racing with said
+/// worker thread.
+///
+/// Future types for which this is true must instead go through a more elaborate
+/// process where at first they get \ref OUTCOME_FAILURE_CANCELED and \ref
+/// STATE_CANCELING, then later the worker thread acknowledges the cancelation
+/// by setting them to \ref STATE_RESULT once it is guaranteed that it will
+/// never access the future or any associated state again. This will have the
+/// effect of unblocking udipe_finish() and letting it liberate the future.
+///
+/// Other implications of this property include...
+///
+/// - `status_sync.event` is used if and only if this property is true.
+/// - future_type_uses_lazy_lock() is mutually exclusive with this property as
+///   if there is the worker thread, it is responsible for setting the future
+///   status and therefore no synchronization between clients is necessary.
+/// - `status_sync.event` is always opted-in via `notify_event_or_lazy_lock`.
+///
+/// This function must be called within a logging scope.
+static inline
+bool future_type_uses_worker_thread(future_type_t type) {
+    switch (type) {
+    case TYPE_NETWORK_CONNECT:  // Aliases TYPE_NETWORK_START
+    case TYPE_NETWORK_DISCONNECT:
+    case TYPE_NETWORK_SEND:
+    case TYPE_NETWORK_RECV:
+        // TODO: Answer is backend-specific as inline backend performs
+        //       operations directly on udipe_start_. Use backend
+        //       infrastructure, once available, to answer this.
+        exit_with_error("Not implemented yet!");
+    case TYPE_CUSTOM:  // Aliases TYPE_NETWORK_END
+        return true;
+    #ifdef __linux__
+        case TYPE_JOIN:
+        case TYPE_UNORDERED:
+        case TYPE_TIMER_REPEAT:
+            return false;
+    #else
+        // TODO: Add windows versions
+        #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
+    #endif
+    case TYPE_INVALID:
+    case TYPE_TIMER_ONCE:
+        return false;
+    case NUM_TYPES:
+    default:
+        exit_with_error("Unexpected future type!");
+    }
+}

@@ -17,6 +17,12 @@
 
 void future_status_debug_check(future_status_t status,
                                bool is_allocated) {
+    #ifdef NDEBUG
+        // Don't do anything in Release builds. This allows us to use eager
+        // checks in utility functions that this function calls.
+        return;
+    #endif
+
     assert(is_allocated || !status.available);
 
     assert(("65k dependents ought to be enough for anybody",
@@ -26,73 +32,11 @@ void future_status_debug_check(future_status_t status,
     assert(("Should be true unless MAX_DOWNSTREAM_COUNT define needs updating",
             status.downstream_count <= MAX_DOWNSTREAM_COUNT));
 
-    bool has_dependencies;
-    bool has_processing;
-    bool has_dedicated_thread;
-    bool is_lazy;
-    bool requires_locking;
-    switch (status.type) {
-    case TYPE_INVALID:
-        assert(!is_allocated);
-        has_dependencies = false;
-        has_processing = false;
-        has_dedicated_thread = false;
-        is_lazy = false;
-        requires_locking = false;
-        break;
-    case TYPE_NETWORK_CONNECT:
-    case TYPE_NETWORK_DISCONNECT:
-    case TYPE_NETWORK_SEND:
-    case TYPE_NETWORK_RECV:
-        assert(is_allocated);
-        has_dependencies = true;
-        has_processing = true;
-        has_dedicated_thread = true;
-        is_lazy = false;
-        requires_locking = false;
-        break;
-    case TYPE_CUSTOM:
-        assert(is_allocated);
-        has_dependencies = false;
-        has_processing = true;
-        has_dedicated_thread = true;
-        is_lazy = false;
-        requires_locking = false;
-        break;
-    case TYPE_JOIN:
-    case TYPE_UNORDERED:
-        assert(is_allocated);
-        has_dependencies = true;
-        has_processing = false;
-        has_dedicated_thread = false;
-        is_lazy = true;
-        requires_locking = true;
-        break;
-    case TYPE_TIMER_ONCE:
-        assert(is_allocated);
-        has_dependencies = false;
-        has_processing = true;
-        has_dedicated_thread = false;
-        is_lazy = true;
-        requires_locking = false;
-        break;
-    case TYPE_TIMER_REPEAT:
-        assert(is_allocated);
-        has_dependencies = false;
-        has_processing = true;
-        has_dedicated_thread = false;
-        is_lazy = true;
-        requires_locking = true;
-        break;
-    case NUM_TYPES:
-    default:
-        assert(("Never valid", false));
-        has_dependencies = false;
-        has_processing = false;
-        has_dedicated_thread = false;
-        is_lazy = false;
-        requires_locking = false;
-    }
+    assert(is_allocated ^ (status.type == TYPE_INVALID));
+    const bool has_dependencies = future_type_has_dependencies(status.type);
+    const bool has_processing = future_type_has_processing(status.type);
+    const bool uses_lazy_lock = future_type_uses_lazy_lock(status.type);
+    const bool uses_worker = future_type_uses_worker_thread(status.type);
 
     bool has_outcome;
     bool could_be_locked;
@@ -106,17 +50,17 @@ void future_status_debug_check(future_status_t status,
         assert(is_allocated);
         assert(has_dependencies);
         has_outcome = false;
-        could_be_locked = requires_locking;
+        could_be_locked = uses_lazy_lock;
         break;
     case STATE_PROCESSING:
         assert(is_allocated);
         assert(has_processing);
         has_outcome = false;
-        could_be_locked = requires_locking;
+        could_be_locked = uses_lazy_lock;
         break;
     case STATE_CANCELING:
         assert(is_allocated);
-        assert(has_dedicated_thread);
+        assert(uses_worker);
         has_outcome = true;
         could_be_locked = false;
         break;
@@ -125,7 +69,7 @@ void future_status_debug_check(future_status_t status,
         has_outcome = true;
         // Can be locked in the RESULT state if a lazy future gets canceled
         // while a thread acquired the lock to call inpoll_wait().
-        could_be_locked = requires_locking;
+        could_be_locked = uses_lazy_lock;
         break;
     case NUM_STATES:
     default:
@@ -159,7 +103,7 @@ void future_status_debug_check(future_status_t status,
     }
 
     if (is_allocated) {
-        if (is_lazy) {
+        if (uses_lazy_lock) {
             // notify_address can be switched on from the fist state onwards,
             // and remains on after being turned on. Or it may never be switched
             // on. So we can't tell anything about its value. On the other hand,
@@ -168,8 +112,10 @@ void future_status_debug_check(future_status_t status,
         } else {
             // notify_address and notify_event can be switched on from the
             // WAITING state, and remain on after being turned on. They may also
-            // never be switched on. So we can't tell anything about their
-            // values.
+            // never be switched on. So we can only tell something about their
+            // values for future types that don't use events i.e. are not
+            // implemented using asynchronous worker threads.
+            if (!uses_worker) assert(!status.notify_event_or_lazy_lock);
         }
     } else {
         assert(!status.notify_address);
@@ -227,7 +173,11 @@ void future_status_debug_check(future_status_t status,
             break;
         case STATUS_KIND_AVAILABLE:
         case STATUS_KIND_FINISHING:
-            result.type = (rand() % (NUM_TYPES - 1)) + 1;
+            // TODO: Re-enable network types once fully implemented
+            do {
+                result.type = (rand() % (NUM_TYPES - 1)) + 1;
+            } while (result.type >= TYPE_NETWORK_START
+                     && result.type < TYPE_NETWORK_END);
             break;
         case STATUS_KIND_ANY:
         case STATUS_KIND_ALLOCATED:
@@ -239,16 +189,12 @@ void future_status_debug_check(future_status_t status,
         result.available = (kind == STATUS_KIND_AVAILABLE);
         trace_expr((bool)result.available);
 
-        int wait_style;  // 0 = unallocated, 1 = eager, 2 = lazy
-        bool has_dependencies;
-        bool has_processing;
+        const bool has_dependencies = future_type_has_dependencies(result.type);
+        const bool has_processing = future_type_has_processing(result.type);
         bool could_be_locked;
         switch (result.type) {
         case TYPE_INVALID:
             result.state = STATE_UNINITIALIZED;
-            wait_style = 0;
-            has_dependencies = false;
-            has_processing = false;
             could_be_locked = false;
             break;
         case TYPE_NETWORK_CONNECT:
@@ -258,18 +204,12 @@ void future_status_debug_check(future_status_t status,
             // Network futures can be in all possible states: WAITING,
             // PROCESSING, CANCELING and RESULT
             result.state = (rand() % (NUM_STATES - 1)) + 1;
-            wait_style = 1;
-            has_dependencies = true;
-            has_processing = true;
             could_be_locked = false;
             break;
         case TYPE_CUSTOM:
             // Custom futures can be in states PROCESSING, CANCELING and RESULT,
             // but not in the WAITING state as they have no dependencies.
             result.state = (rand() % (NUM_STATES - 2)) + 2;
-            wait_style = 1;
-            has_dependencies = false;
-            has_processing = true;
             could_be_locked = false;
             break;
         case TYPE_JOIN:
@@ -284,9 +224,6 @@ void future_status_debug_check(future_status_t status,
             } else {
                 result.state = STATE_RESULT;
             }
-            wait_style = 2;
-            has_dependencies = true;
-            has_processing = false;
             could_be_locked = true;
             break;
         case TYPE_TIMER_ONCE:
@@ -300,9 +237,6 @@ void future_status_debug_check(future_status_t status,
             } else {
                 result.state = STATE_RESULT;
             }
-            wait_style = 2;
-            has_dependencies = false;
-            has_processing = false;
             could_be_locked = (result.type != TYPE_TIMER_ONCE);
             break;
         case NUM_TYPES:
@@ -335,25 +269,15 @@ void future_status_debug_check(future_status_t status,
         }
         trace_expr((size_t)result.outcome);
 
-        switch (wait_style) {
-        case 0:  // Unallocated
-            result.notify_address = false;
-            result.notify_event_or_lazy_lock = false;
-            break;
-        case 1:  // Eager
-            result.notify_address = rand() % 2;
-            result.notify_event_or_lazy_lock = rand() % 2;
-            break;
-        case 2:  // Lazy
-            result.notify_address = rand() % 2;
-            if (could_be_locked) {
-                result.notify_event_or_lazy_lock = rand() % 2;
-            } else {
-                result.notify_event_or_lazy_lock = false;
-            }
-            break;
-        default:
-            exit_with_error("Should never happen");
+        result.notify_address = (result.type == TYPE_INVALID) ? false
+                                                              : rand() % 2;
+        if (future_type_uses_lazy_lock(result.type)) {
+            result.notify_event_or_lazy_lock = could_be_locked ? rand() % 2
+                                                               : false;
+        } else {
+            const bool uses_worker = future_type_uses_worker_thread(result.type);
+            result.notify_event_or_lazy_lock = uses_worker ? rand() % 2
+                                                           : false;
         }
         trace_expr((size_t)result.notify_address);
         trace_expr((bool)result.notify_event_or_lazy_lock);

@@ -685,29 +685,13 @@ address_wait_outcome_t future_wait_by_adress(
     assert(latest_status->state != STATE_RESULT);
     assert(timeout != UDIPE_DURATION_DEFAULT);
 
-    trace("Checking if future type is lazy / awaited via inpoll_wait()...");
-    bool lazy;
-    switch (latest_status->type) {
-    case TYPE_NETWORK_CONNECT:
-    case TYPE_NETWORK_DISCONNECT:
-    case TYPE_NETWORK_SEND:
-    case TYPE_NETWORK_RECV:
-    case TYPE_CUSTOM:
-        lazy = false;
-        break;
-    case TYPE_JOIN:
-    case TYPE_UNORDERED:
-    case TYPE_TIMER_REPEAT:
-        lazy = true;
-        // This function should only be called if waiting for the inpoll
-        // directly is not possible because another thread is polling it.
+    trace("Checking if future type is awaited under lazy_lock protection...");
+    const bool lazy = future_type_uses_lazy_lock(latest_status->type);
+    if (lazy) {
+        // This function should only be called if waiting the output
+        // synchronization object is not possible because another thread is
+        // already in the process of monitoring it.
         assert(latest_status->notify_event_or_lazy_lock);
-        break;
-    case TYPE_INVALID:
-    case TYPE_TIMER_ONCE:
-    case NUM_TYPES:
-    default:
-        exit_with_error("future_wait_by_adress() should not have been called");
     }
     // This function should only be called after directing the threads updating
     // the status word that they needs to send a futex notification.

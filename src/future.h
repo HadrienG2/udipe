@@ -138,6 +138,35 @@ static_assert(
     "Should be true if above is because future is largely a superset of result"
 );
 
+
+/// \name Misc implementation details without a better home in future/
+/// \{
+
+/// Backend of udipe_finish()
+///
+/// This function behaves like the user-facing udipe_finish() function, but...
+///
+/// - It assumes the initial future status word has already been read and
+///   expects it as an input.
+/// - It makes result extraction optional for the benefit of udipe_cancel(),
+///   which finishes asynchronous operations without awaiting their results.
+/// - It must be called within a logging scope.
+///
+/// \param future must be a future that was returned by an asynchronous function
+///               (those whose name begins with `udipe_start_`) and has not been
+///               liberated by udipe_finish() or udipe_cancel() since. It will
+///               be destroyed by this function and must not be used afterwards.
+/// \param latest_status must contain the latest value of the future's status word that
+///                      is known to the caller.
+/// \param result may point to a caller-allocated \ref udipe_result_t to which
+///               the asynchronous operation's result will be extracted, or it
+///               may be NULL to indicate lack of interest in the asynchronous
+///               operation's result.
+UDIPE_NON_NULL_SPECIFIC_ARGS(1)
+void future_finish(udipe_future_t* future,
+                   future_status_t latest_status,
+                   udipe_result_t* result);
+
 /// Notify other threads that an eager future has reached a final status
 ///
 /// Eager futures are those that are directly signaled by a udipe or user
@@ -163,6 +192,8 @@ void future_notify_eager_outcome(udipe_future_t* future,
 /// \returns whether the future was canceled (true) or not (false)
 UDIPE_NODISCARD
 bool future_custom_check_canceled(future_status_t status);
+
+/// \}
 
 
 #ifdef UDIPE_BUILD_TESTS
