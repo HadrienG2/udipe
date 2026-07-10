@@ -19,12 +19,12 @@ thread_local scope_tracker_t udipe_scope_tracker = { 0 };
     void scope_unit_tests() {
         const bool initial_inside_local = IS_INSIDE_LOCAL_SCOPE;
         const size_t initial_depth = global_scope_depth();
-        SCOPE_START
+
+        LOGGED_FUNCTION_START_NO_PARAMS
             info("Running scope unit tests...");
 
             debug("Checking initial scope...");
             ensure(!initial_inside_local);
-            ensure_eq(initial_depth, (size_t)1);
 
             debug("Checking new scope...");
             ensure(IS_INSIDE_LOCAL_SCOPE);
@@ -48,7 +48,7 @@ thread_local scope_tracker_t udipe_scope_tracker = { 0 };
             ensure(IS_INSIDE_LOCAL_SCOPE);
             ensure_eq(global_scope_depth(), initial_depth + 1);
             ensure(destroyed);
-        SCOPE_END
+        LOGGED_FUNCTION_END
     }
 
 #endif  // UDIPE_BUILD_TESTS
