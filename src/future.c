@@ -121,8 +121,10 @@ bool udipe_cancel(udipe_future_t* future, bool finish) {
 
             debug("Trying to mark the future as fully canceled...");
             future_status_t desired = status;
+            desired.outcome = OUTCOME_FAILURE_CANCELED;
             desired.state = use_state_canceling ? STATE_CANCELING
                                                 : STATE_RESULT;
+            future_status_debug_check(desired, true);
             const bool success = future_status_compare_exchange_weak(
                 future,
                 &status,
