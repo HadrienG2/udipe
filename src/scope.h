@@ -225,7 +225,8 @@ void scope_guard_finalize(const scope_guard_t* guard) {
 /// expected even if said function is declared `static inline`.
 ///
 /// One use of this utility is to let logging macros check that they are being
-/// used inside of a \ref SCOPE_START / \ref SCOPE_END block.
+/// used inside of a \ref LOGGED_FUNCTION_START / \ref LOGGED_FUNCTION_END
+/// block.
 ///
 /// \internal
 ///
