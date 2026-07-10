@@ -21,11 +21,13 @@
 #include "error.h"
 #include "event.h"
 #include "log.h"
+#include "unit_tests.h"
 #include "visibility.h"
 
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <time.h>
 
 
@@ -601,10 +603,181 @@ bool future_custom_check_canceled(future_status_t status) {
 
 #ifdef UDIPE_BUILD_TESTS
 
+    static udipe_custom_payload_t generate_custom_payload() {
+        udipe_custom_payload_t payload;
+        size_t remaining_bytes = sizeof(payload.bytes);
+        size_t entropy = 0;
+        size_t randomness;
+        for (size_t i = 0; i < sizeof(payload.bytes); ++i) {
+            if (entropy < 255) {
+                randomness = rand();
+                entropy = RAND_MAX;
+            }
+            payload.bytes[i] = entropy % 256;
+            entropy /= 256;
+        }
+        return payload;
+    }
+
+    static void custom_test_seq_success(udipe_context_t* context) {
+        info("Allocating a custom future...");
+        udipe_future_t* const custom = udipe_start_custom(context);
+
+        info("Making sure it's not initially canceled...");
+        ensure(!udipe_custom_canceled(custom));
+
+        info("Marking it as finished with some dummy payload...");
+        const udipe_custom_payload_t payload = generate_custom_payload();
+        const bool success = udipe_custom_try_set_result(custom,
+                                                         true,
+                                                         payload);
+        ensure(success);
+
+        info("Finishing execution...");
+        const udipe_result_t result = udipe_finish(custom);
+
+        info("Checking output...");
+        ensure_eq(result.type, UDIPE_CUSTOM);
+        ensure_eq(memcmp(result.payload.custom.bytes,
+                         payload.bytes,
+                         sizeof(payload.bytes)),
+                  0);
+    }
+
+    static void custom_test_seq_failure(udipe_context_t* context) {
+        info("Allocating a custom future...");
+        udipe_future_t* const custom = udipe_start_custom(context);
+
+        info("Making sure it's not initially canceled...");
+        ensure(!udipe_custom_canceled(custom));
+
+        info("Marking it as failed with some dummy payload...");
+        const udipe_custom_payload_t payload = generate_custom_payload();
+        const bool success = udipe_custom_try_set_result(custom,
+                                                         false,
+                                                         payload);
+        ensure(success);
+
+        info("Finishing execution...");
+        const udipe_result_t result = udipe_finish(custom);
+
+        info("Checking output...");
+        ensure_eq(result.type, UDIPE_CUSTOM);
+        ensure_eq(memcmp(result.payload.custom.bytes,
+                         payload.bytes,
+                         sizeof(payload.bytes)),
+                  0);
+    }
+
+    static void custom_test_seq_canceled_success(udipe_context_t* context) {
+        info("Allocating a custom future...");
+        udipe_future_t* const custom = udipe_start_custom(context);
+
+        info("Making sure it's not initially canceled...");
+        ensure(!udipe_custom_canceled(custom));
+
+        info("Canceling it without finishing execution "
+             "(would deadlock in this sequential run)...");
+        const bool canceled = udipe_cancel(custom, false);
+        ensure(canceled);
+
+        info("Confirming that it's marked as canceled");
+        ensure(udipe_custom_canceled(custom));
+
+        info("Marking it as successful with some dummy payload...");
+        const udipe_custom_payload_t payload = generate_custom_payload();
+        const bool success = udipe_custom_try_set_result(custom,
+                                                         true,
+                                                         payload);
+        ensure(!success);
+
+        info("Finishing execution...");
+        const udipe_result_t result = udipe_finish(custom);
+
+        info("Checking output...");
+        ensure_eq(result.type, UDIPE_FAILURE_CANCELED);
+    }
+
+    static void custom_test_seq_canceled_failure(udipe_context_t* context) {
+        info("Allocating a custom future...");
+        udipe_future_t* const custom = udipe_start_custom(context);
+
+        info("Making sure it's not initially canceled...");
+        ensure(!udipe_custom_canceled(custom));
+
+        info("Canceling it without finishing execution "
+             "(would deadlock in this sequential run)...");
+        const bool canceled = udipe_cancel(custom, false);
+        ensure(canceled);
+
+        info("Marking it as failed with some dummy payload...");
+        const udipe_custom_payload_t payload = generate_custom_payload();
+        const bool success = udipe_custom_try_set_result(custom,
+                                                         false,
+                                                         payload);
+        ensure(!success);
+
+        info("Finishing execution...");
+        const udipe_result_t result = udipe_finish(custom);
+
+        info("Checking output...");
+        ensure_eq(result.type, UDIPE_FAILURE_CANCELED);
+    }
+
+    static void custom_test_seq_canceled_ack(udipe_context_t* context) {
+        info("Allocating a custom future...");
+        udipe_future_t* const custom = udipe_start_custom(context);
+
+        info("Making sure it's not initially canceled...");
+        ensure(!udipe_custom_canceled(custom));
+
+        info("Canceling it without finishing execution "
+             "(would deadlock in this sequential run)...");
+        const bool canceled = udipe_cancel(custom, false);
+        ensure(canceled);
+
+        info("Observing that it's canceled...");
+        ensure(udipe_custom_canceled(custom));
+
+        info("Acknowledging the cancelation...");
+        udipe_custom_acknowledge_cancel(custom);
+
+        info("Finishing execution...");
+        const udipe_result_t result = udipe_finish(custom);
+
+        info("Checking output...");
+        ensure_eq(result.type, UDIPE_FAILURE_CANCELED);
+    }
+
+    /// Unit tests for custom futures
+    ///
+    static void custom_unit_tests() {
+        // TODO: Restore log level to trace or fix the logging logic
+
+        info("Setting up a context...");
+        udipe_context_t* context = udipe_initialize((udipe_config_t){ 0 });
+
+        info("Testing basic custom future lifecycle...");
+        custom_test_seq_success(context);
+        custom_test_seq_failure(context);
+        custom_test_seq_canceled_success(context);
+        custom_test_seq_canceled_failure(context);
+        custom_test_seq_canceled_ack(context);
+        // TODO: Multi-threaded test
+
+        info("Tearing down the context...");
+        udipe_finalize(context);
+    }
+
     void future_unit_tests() {
         info("Running future unit tests...");
+        configure_rand();
 
-        future_status_unit_tests();
+        debug("Testing status word manipulations...");
+        // TODO restore future_status_unit_tests();
+
+        debug("Testing custom future manipulations...");
+        custom_unit_tests();
 
         // TODO: Add more future tests as they come up. In particular, need to
         //       test all future_wait() variants + new status word
