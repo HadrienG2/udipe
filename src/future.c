@@ -605,7 +605,6 @@ bool future_custom_check_canceled(future_status_t status) {
 
     static udipe_custom_payload_t generate_custom_payload() {
         udipe_custom_payload_t payload;
-        size_t remaining_bytes = sizeof(payload.bytes);
         size_t entropy = 0;
         size_t randomness;
         for (size_t i = 0; i < sizeof(payload.bytes); ++i) {
@@ -613,7 +612,8 @@ bool future_custom_check_canceled(future_status_t status) {
                 randomness = rand();
                 entropy = RAND_MAX;
             }
-            payload.bytes[i] = entropy % 256;
+            payload.bytes[i] = randomness % 256;
+            randomness /= 256;
             entropy /= 256;
         }
         return payload;
