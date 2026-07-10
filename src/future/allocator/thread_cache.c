@@ -25,9 +25,6 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 future_thread_cache_t* future_thread_cache_initialize(udipe_context_t* context) {
-    debugf("Setting up a new thread-local future cache in context %p...",
-           (void*)context);
-
     debug("- Allocating the shared struct...");
     future_thread_cache_t* const cache = (future_thread_cache_t*)malloc(
         sizeof(future_thread_cache_t)
@@ -50,7 +47,10 @@ future_thread_cache_t* future_thread_cache_initialize(udipe_context_t* context) 
     debug("- Setting up flags...");
     atomic_init(&cache->flags, 0);
 
+    debugf("- Registering cache with context %p...", context);
     cache->context = context;
+    future_context_cache_register_thread(&context->future_global_cache,
+                                         cache);
     return cache;
 }
 
