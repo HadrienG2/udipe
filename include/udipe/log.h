@@ -26,14 +26,28 @@
 typedef enum udipe_log_level_e {
     /// Detailed debugging logs
     ///
-    /// This is used for very verbose logs that are only useful when debugging
-    /// complicated problems, and should only be enabled on very simplified
-    /// error reproducers as they will spill out an unmanageable flow of
-    /// information on unmodified production applications.
+    /// At this maximal log level, udipe logs enough details about the execution
+    /// of each function that a debugger should not be necessary to understand
+    /// the control flow path taken through each function or extract quantities
+    /// that are only known at runtime like fd numbers or allocation addresses.
     ///
-    /// Examples include decomposition of complex user requests into simpler
-    /// operations, e.g. logs about every single packet that is successfully
-    /// processed by a particular input/output data stream.
+    /// This also means that even with filtering, this level of log detail will
+    /// often be overwhelming outside of specially crafted small code samples,
+    /// and will also have a huge impact on performance, as it allows even a
+    /// single function call to emit thousands of logs per second.
+    ///
+    /// This is why the `DEBUG` log level exists as a less verbose alternative,
+    /// and `TRACE` logs are not displayed by default even in debug builds. They
+    /// can, however, be easily displayed by tuning the log level in the udipe
+    /// configuration.
+    ///
+    /// In contrast, release builds filter out `TRACE` and `DEBUG` logs **at
+    /// compile time** by default due to their performance impact which is major
+    /// even when they are not displayed. If you need these logs to investigate
+    /// an problem that only occurs in release builds, you will therefore need
+    /// to explicitly enable them using the `ENABLE_EXPENSIVE_LOGS` CMake option
+    /// (TODO implement), before you will be able to configure udipe to display
+    /// them.
     ///
     /// \internal
     ///
@@ -41,37 +55,51 @@ typedef enum udipe_log_level_e {
     /// level or not logged at all, ask yourself whether this log is needed to
     /// understand the control flow path that was taken within `libudipe`. A
     /// core goal of `TRACE` logs is to reduce the amount of debugging scenarios
-    /// for which a dedicated debugger is needed.
+    /// for which the use of a debugger is needed.
     UDIPE_TRACE = 1,
 
     /// Basic debugging logs
     ///
-    /// This is used for rather verbose logs that are only useful when debugging
-    /// udipe's internal operation, best applied to simplified error reproducers
-    /// (as they are very chatty on realistic use cases), and may have an
-    /// unacceptable performance impact in production applications.
+    /// Like `TRACE` logs, `DEBUG` logs are primarily intended as a debugging
+    /// aid and feature detailed technical information that will only make sense
+    /// to someone who is familiar with the udipe implementation. They also have
+    /// a significant performance impact even when not displayed, which is why
+    /// release builds filter them out at compile time by default (see above).
     ///
-    /// Examples include lifecycle tracing of individual one-shot send/receive
-    /// requests as they pass through the various components of udipe, or
-    /// detailed info about each and every lost packet (note that the
-    /// performance impact of such logging will make packet loss worse).
+    /// But in contrast with `TRACE` logs, `DEBUG` logs should never be
+    /// overwhelming when studied in isolation (e.g. calling a function once
+    /// while disabling logging from downstream functions via depth filtering
+    /// (TODO implement)). Which is why they can be displayed by default in
+    /// debug builds.
+    ///
+    /// To achieve this reduction in cognitive load, `DEBUG` logs refrain from
+    /// reporting on individual iterations of loops whose iteration count is
+    /// known to be large or unbounded, and whose iteration duration is known or
+    /// expected to be short. These are covered by `TRACE` logs instead.
+    ///
+    /// Examples of logs that are emitted at `DEBUG` level include lifecycle
+    /// tracing of individual one-shot send/receive requests as they pass
+    /// through the various components of udipe, or detailed info about each and
+    /// every lost packet (note that the performance impact of such logging will
+    /// make packet loss worse).
     UDIPE_DEBUG,
 
     /// "For your information" logs
     ///
-    /// This is used for application lifecycle events that are normal and
-    /// infrequent in production applications.
+    /// This level is used to report basic application lifecycle events that are
+    /// normal, relatively infrequent in production, and should make basic sense
+    /// to people who do not work on the udipe implementation.
     ///
-    /// Examples include explaining the final udipe configuration after merging
-    /// defaults and automatic system configuration detection with manual user
-    /// configuration, or beginning to listen for incoming packets on some
-    /// network port/address.
+    /// Examples include spelling out the final udipe configuration (after
+    /// merging defaults, system autodetection and user configuration),
+    /// reporting the startup a worker thread, or beginning to listen for
+    /// incoming packets on some network port/address.
     UDIPE_INFO,
 
     /// Warning logs
     ///
-    /// This is used for events that are suspicious and may indicate a problem,
-    /// but are fine in certain circumstances, and do not prevent the
+    /// This level is used for logs that are suspicious and may indicate a
+    /// problem, but are fine in certain circumstances, and do not prevent the
     /// application to operate in a possibly degraded manner.
     ///
     /// Examples include detecting a system configuration that is suboptimal
@@ -86,9 +114,9 @@ typedef enum udipe_log_level_e {
 
     /// Error logs
     ///
-    /// This is used for logs that indicate a clear-cut problem from which the
-    /// application may not manage to recover, and even if it does it will do so
-    /// at the expense of failing to correctly honor a direct user request.
+    /// This level is used for logs that indicate a clear-cut problem from which
+    /// the application may not manage to recover, and even if it does it will
+    /// do so at the expense of failing to correctly honor a user request.
     ///
     /// Basically, anytime a function that should not fail fails, an error log
     /// is emitted to explain why exactly it failed.
