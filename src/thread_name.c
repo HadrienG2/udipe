@@ -248,56 +248,58 @@ static thread_name_t* ensure_thread_name_capacity(size_t capacity) {
 
 UDIPE_NON_NULL_ARGS
 void set_thread_name(const char* name) {
-    debugf("Asked to rename current thread to %s.", name);
+    LOGGED_FUNCTION_START("\"%s\"", name)
+        debugf("Asked to rename current thread to %s.", name);
 
-    trace("Validating that name is printable ASCII and under maximum length...");
-    size_t name_len = strlen(name);
-    ensure_gt(name_len, (size_t)0);
-    ensure_le(name_len, MAX_THREAD_NAME_LEN);
-    for (size_t i = 0; i < name_len; ++i) {
-        ensure_ge((uint8_t)name[i], (uint8_t)FIRST_PRINTABLE_ASCII);
-        ensure_le((uint8_t)name[i], (uint8_t)LAST_PRINTABLE_ASCII);
-    }
+        trace("Validating that name is printable ASCII and under maximum length...");
+        size_t name_len = strlen(name);
+        ensure_gt(name_len, (size_t)0);
+        ensure_le(name_len, MAX_THREAD_NAME_LEN);
+        for (size_t i = 0; i < name_len; ++i) {
+            ensure_ge((uint8_t)name[i], (uint8_t)FIRST_PRINTABLE_ASCII);
+            ensure_le((uint8_t)name[i], (uint8_t)LAST_PRINTABLE_ASCII);
+        }
 
-    trace("Setting the thread name...");
-    #ifdef __linux__
-        exit_on_negative(prctl(PR_SET_NAME, name),
-                         "Failed to set thread name!");
-    #elif defined(_WIN32)
-        // This is large enough because...
-        //
-        // - We have checked that name is ASCII, which contains 1 code point per
-        //   byte + the trailing NUL.
-        // - Every ASCII code point has a matching UTF-16 code point without any
-        //   need for surrogate pairs.
-        wchar_t name_utf16[MAX_THREAD_NAME_SIZE];
-        trace("- Converting thread name to UTF-16");
-        const int result = MultiByteToWideChar(CP_UTF8,
-                                               MB_ERR_INVALID_CHARS,
-                                               name,
-                                               name_len + 1,
-                                               name_utf16,
-                                               MAX_THREAD_NAME_SIZE);
-        win32_exit_on_zero(result, "Failed to convert thread name to UTF-16!");
+        trace("Setting the thread name...");
+        #ifdef __linux__
+            exit_on_negative(prctl(PR_SET_NAME, name),
+                             "Failed to set thread name!");
+        #elif defined(_WIN32)
+            // This is large enough because...
+            //
+            // - We have checked that name is ASCII, which contains 1 code point per
+            //   byte + the trailing NUL.
+            // - Every ASCII code point has a matching UTF-16 code point without any
+            //   need for surrogate pairs.
+            wchar_t name_utf16[MAX_THREAD_NAME_SIZE];
+            trace("- Converting thread name to UTF-16");
+            const int result = MultiByteToWideChar(CP_UTF8,
+                                                   MB_ERR_INVALID_CHARS,
+                                                   name,
+                                                   name_len + 1,
+                                                   name_utf16,
+                                                   MAX_THREAD_NAME_SIZE);
+            win32_exit_on_zero(result, "Failed to convert thread name to UTF-16!");
 
-        trace("- Setting the thread description to this UTF-16 string");
-        const HRESULT hr = SetThreadDescription(GetCurrentThread(), name_utf16);
-        win32_exit_on_failed_hresult(hr, "Failed to set thread description!");
-    #else
-        #warning "Sorry, we don't fully support your operating system yet. Please file a bug report about it!"
+            trace("- Setting the thread description to this UTF-16 string");
+            const HRESULT hr = SetThreadDescription(GetCurrentThread(), name_utf16);
+            win32_exit_on_failed_hresult(hr, "Failed to set thread description!");
+        #else
+            #warning "Sorry, we don't fully support your operating system yet. Please file a bug report about it!"
 
-        trace("- Allocating or reusing thread name buffer...");
-        thread_name_t* thread_name =
-            ensure_thread_name_capacity(MAX_THREAD_NAME_SIZE);
-        assert(thread_name);
-        assert(thread_name->capacity >= MAX_THREAD_NAME_SIZE);
+            trace("- Allocating or reusing thread name buffer...");
+            thread_name_t* thread_name =
+                ensure_thread_name_capacity(MAX_THREAD_NAME_SIZE);
+            assert(thread_name);
+            assert(thread_name->capacity >= MAX_THREAD_NAME_SIZE);
 
-        trace("- Copying the new name into the thread name buffer...");
-        assert(("Guaranteed to be true because thread_name is allocated to be "
-                "at least MAX_THREAD_NAME_LEN bytes long",
-                thread_name->capacity >= name_len + 1));
-        strncpy(&thread_name->bytes, name, name_len + 1);
-    #endif
+            trace("- Copying the new name into the thread name buffer...");
+            assert(("Guaranteed to be true because thread_name is allocated to be "
+                    "at least MAX_THREAD_NAME_LEN bytes long",
+                    thread_name->capacity >= name_len + 1));
+            strncpy(&thread_name->bytes, name, name_len + 1);
+        #endif
+    LOGGED_FUNCTION_END
 }
 
 #if !defined(__linux__) && !defined(_WIN32)
@@ -432,49 +434,51 @@ const char* get_thread_name() {
 #ifdef UDIPE_BUILD_TESTS
 
     void thread_name_unit_tests() {
-        info("Running thread name unit tests...");
-        configure_rand();
+        LOGGED_FUNCTION_START_NO_PARAMS
+            info("Running thread name unit tests...");
+            configure_rand();
 
-        debug("Checking the initial thread name...");
-        const char* actual_thread_name;
-        with_log_level(UDIPE_TRACE, {
-            actual_thread_name = get_thread_name();
-            ensure(actual_thread_name);
-            ensure_gt(strlen(actual_thread_name), (size_t)0);
-        });
-        char* initial_thread_name = strdup(actual_thread_name);
-
-        debug("Manipulating the thread name...");
-        with_log_level(UDIPE_TRACE, {
-            char expected_thread_name[MAX_THREAD_NAME_SIZE];
-            for (size_t len = 1; len <= MAX_THREAD_NAME_LEN; ++len) {
-                for (size_t i = 0; i < len; ++i) {
-                    int printable_range = (int)(LAST_PRINTABLE_ASCII - FIRST_PRINTABLE_ASCII) + 1;
-                    int printable_start = (int)FIRST_PRINTABLE_ASCII;
-                    expected_thread_name[i] =
-                        (char)(rand() % printable_range + printable_start);
-                }
-                expected_thread_name[len] = '\0';
-                debugf("- Testing name of length %zu: %s", len, expected_thread_name);
-
-                trace("Setting thread name...");
-                set_thread_name(expected_thread_name);
-
-                trace("Checking thread name...");
+            debug("Checking the initial thread name...");
+            const char* actual_thread_name;
+            with_log_level(UDIPE_TRACE, {
                 actual_thread_name = get_thread_name();
                 ensure(actual_thread_name);
+                ensure_gt(strlen(actual_thread_name), (size_t)0);
+            });
+            char* initial_thread_name = strdup(actual_thread_name);
 
-                tracef("Got name %s", actual_thread_name);
-                ensure_eq(strcmp(expected_thread_name, actual_thread_name), 0);
-            }
-        });
+            debug("Manipulating the thread name...");
+            with_log_level(UDIPE_TRACE, {
+                char expected_thread_name[MAX_THREAD_NAME_SIZE];
+                for (size_t len = 1; len <= MAX_THREAD_NAME_LEN; ++len) {
+                    for (size_t i = 0; i < len; ++i) {
+                        int printable_range = (int)(LAST_PRINTABLE_ASCII - FIRST_PRINTABLE_ASCII) + 1;
+                        int printable_start = (int)FIRST_PRINTABLE_ASCII;
+                        expected_thread_name[i] =
+                            (char)(rand() % printable_range + printable_start);
+                    }
+                    expected_thread_name[len] = '\0';
+                    debugf("- Testing name of length %zu: %s", len, expected_thread_name);
 
-        tracef("Resetting thread name to %s", initial_thread_name);
-        with_log_level(UDIPE_TRACE, {
-            set_thread_name(initial_thread_name);
-            free(initial_thread_name);
-            initial_thread_name = NULL;
-        });
+                    trace("Setting thread name...");
+                    set_thread_name(expected_thread_name);
+
+                    trace("Checking thread name...");
+                    actual_thread_name = get_thread_name();
+                    ensure(actual_thread_name);
+
+                    tracef("Got name %s", actual_thread_name);
+                    ensure_eq(strcmp(expected_thread_name, actual_thread_name), 0);
+                }
+            });
+
+            tracef("Resetting thread name to %s", initial_thread_name);
+            with_log_level(UDIPE_TRACE, {
+                set_thread_name(initial_thread_name);
+                free(initial_thread_name);
+                initial_thread_name = NULL;
+            });
+        LOGGED_FUNCTION_END
     }
 
 #endif  // UDIPE_BUILD_TESTS
