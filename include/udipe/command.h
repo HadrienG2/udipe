@@ -47,6 +47,15 @@
 //
 // TODO: Explain somewhere that a udipe connection is mostly like a POSIX socket
 //       but may be implemented using multiple sockets under the hood.
+// TODO: Explain somewhere that it is important to arrange for sockets to be
+//       closed in the event where the process is stopped via a signal like
+//       Ctrl+C, otherwise...
+//       - The port will remain busy and can only be taken back via REUSEPORT
+//         until a rather long timeout elapses.
+//       - This zombie port counts into the tight system file descriptor budget.
+//       - Inbound UDP packets will get replied an ICMP error that quotes a few
+//         hundred bytes from them, which may kill the ICMP IP used by some DAQ
+//         FPGAs as it doesn't expect such large ICMP packets and just hangs.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
@@ -54,7 +63,7 @@ UDIPE_PUBLIC
 udipe_future_t* udipe_start_connect(udipe_context_t* context,
                                     udipe_connect_options_t options);
 
-// TODO: document
+// TODO: document and implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
@@ -69,7 +78,7 @@ UDIPE_PUBLIC
 udipe_future_t* udipe_start_disconnect(udipe_context_t* context,
                                        udipe_disconnect_options_t options);
 
-// TODO: document
+// TODO: document and implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
@@ -89,7 +98,7 @@ UDIPE_PUBLIC
 udipe_future_t* udipe_start_send(udipe_context_t* context,
                                  udipe_send_options_t options);
 
-// TODO: document
+// TODO: document and implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
@@ -104,7 +113,7 @@ UDIPE_PUBLIC
 udipe_future_t* udipe_start_recv(udipe_context_t* context,
                                  udipe_recv_options_t options);
 
-// TODO: document
+// TODO: document and implement
 //
 // TODO: Should have GRO-like semantics, i.e. if you give a large enough buffer
 //       then multiple datagrams may be received, and there will be anciliary
