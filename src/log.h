@@ -256,7 +256,7 @@ static inline bool log_enabled(udipe_log_level_t level);
     do {  \
         logger_t* const udipe_prev_logger = udipe_thread_logger;  \
         udipe_thread_logger = (logger_ptr);  \
-        tracef("Enabling logger %p.", logger_ptr);  \
+        tracef("Set up logger %p.", logger_ptr);  \
         SCOPE_START_WITH_DESTRUCTOR(restore_thread_logger,  \
                                     (void*)udipe_prev_logger)
 
@@ -300,7 +300,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 ///                    LOGGED_FUNCTION_START_NO_PARAMS.
 #define LOGGED_FUNCTION_START(args_format, ...)  \
     do {  \
-        SCOPE_START  \
+        SCOPE_START_WITH_DESTRUCTOR(trace_function_return, (void*)__func__)  \
             tracef("Called %s(" args_format ")",  \
                    __func__,  \
                    __VA_ARGS__);
@@ -499,6 +499,20 @@ static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_le
     udipe_thread_log_level = *prev_log_level;
 }
 
+/// Record return from a logged function
+///
+/// This helper function lets LOGGED_FUNCTION_START/LOGGED_FUNCTION_END trace
+/// when a logged function is exited, much like it already traces when a logged
+/// function is entered.
+///
+/// \param context must be a pointer to the function's `__func__`, casted to
+///                `void*` for interface compatibility with \ref
+///                SCOPE_START_WITH_DESTRUCTOR.
+static inline void trace_function_return(void* context) {
+    const char* const func = (const char*)context;
+    tracef("Returning from %s()", func);
+}
+
 /// Restore `udipe_thread_logger`
 ///
 /// This helper function lets LOGGER_START/LOGGER_END restore the former logger.
@@ -507,7 +521,9 @@ static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_le
 ///                `void*` for interface compatibility with \ref
 ///                SCOPE_START_WITH_DESTRUCTOR.
 static inline void restore_thread_logger(void* context) {
-    trace("End of a logging scope.");
+    tracef("Disabled logger %p, back to %p.",
+           udipe_thread_logger,
+           context);
     udipe_thread_logger = (logger_t*)context;
 }
 
