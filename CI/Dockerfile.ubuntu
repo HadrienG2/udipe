@@ -1,8 +1,8 @@
 # The Ubuntu image is the main CI image that is used for most jobs
 
 FROM docker.io/ubuntu:24.04
-ARG MDBOOK_VERSION=0.5.3
-ARG LYCHEE_VERSION=0.23.0
+ARG MDBOOK_VERSION=0.5.4
+ARG LYCHEE_VERSION=0.24.2
 
 RUN export DEBIAN_FRONTEND=noninteractive  \
     && apt update  \
