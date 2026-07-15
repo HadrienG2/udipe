@@ -23,18 +23,20 @@
 
 
     void configure_rand() {
-        const char* seed_str = getenv("UDIPE_SEED");
-        if (seed_str) {
-            int seed = atoi(seed_str);
-            ensure_gt(seed, 0);
-            debugf("Reproducing execution enforced via UDIPE_SEED=%u.",
-                   seed);
-            srand(seed);
-        } else {
-            unsigned seed = time(NULL);
-            debugf("To reproduce this execution, set UDIPE_SEED=%u.", seed);
-            srand(seed);
-        }
+        LOGGED_FUNCTION_START_NO_PARAMS
+            const char* seed_str = getenv("UDIPE_SEED");
+            if (seed_str) {
+                int seed = atoi(seed_str);
+                ensure_gt(seed, 0);
+                debugf("Reproducing execution enforced via UDIPE_SEED=%u.",
+                       seed);
+                srand(seed);
+            } else {
+                unsigned seed = time(NULL);
+                debugf("To reproduce this execution, set UDIPE_SEED=%u.", seed);
+                srand(seed);
+            }
+        LOGGED_FUNCTION_END
     }
 
     DEFINE_PUBLIC void udipe_unit_tests(int argc, char *argv[]) {

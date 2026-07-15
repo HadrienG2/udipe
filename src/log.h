@@ -301,7 +301,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 #define LOGGED_FUNCTION_START(args_format, ...)  \
     do {  \
         SCOPE_START_WITH_DESTRUCTOR(trace_function_return, (void*)__func__)  \
-            tracef("Called %s(" args_format ")",  \
+            tracef("Called function %s(" args_format ")",  \
                    __func__,  \
                    __VA_ARGS__);
 

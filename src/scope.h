@@ -197,9 +197,8 @@ void scope_guard_finalize(const scope_guard_t* guard) {
 ///   one \ref SCOPE_START / \ref SCOPE_END pair, the outermost of which should
 ///   be located at the first and last line of this function.
 /// - Use this to determine how deeply nested the call stack is at the point
-///   where the logger is called, and adjust the log verbosity level accordingly
-///   such that e.g. the debug() of a utility function is treated as the trace()
-///   of the higher-level function that called into it.
+///   where the logger is called, and cut off overly nested logs unless the user
+///   enables them.
 #define SCOPE_START  SCOPE_START_WITH_DESTRUCTOR(NULL, NULL)
 
 /// End a udipe-tracked scope

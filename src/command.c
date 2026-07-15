@@ -66,9 +66,11 @@ udipe_recv_result_t udipe_recv(udipe_context_t* context,
 
 #ifdef UDIPE_BUILD_TESTS
     void command_unit_tests() {
-        info("Running command unit tests...");
+        LOGGED_FUNCTION_START_NO_PARAMS
+            info("Running command unit tests...");
 
-        // TODO: Write the tests
-        warn("All tests have been turned into static assertions, for now.");
+            // TODO: Write the tests
+            warn("All tests have been turned into static assertions, for now.");
+        LOGGED_FUNCTION_END
     }
 #endif

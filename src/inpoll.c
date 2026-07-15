@@ -19,108 +19,120 @@
 
     UDIPE_NODISCARD
     inpoll_t inpoll_initialize() {
-        const int result = epoll_create1(EPOLL_CLOEXEC);
-        if (result >= 0) return result;
-        assert(result == -1);
-        switch (result) {
-        case EMFILE:  // Reached process fd limit
-            exit_after_c_error(
-                "The number of fds in current process reached the limit. "
-                "Consider increasing the limit if possible."
-            );
-        case ENFILE:  // Reached system fd limit
-            exit_after_c_error(
-                "The number of fds in the system reached the limit. "
-                "Consider increasing the limit if possible."
-            );
-        case EINVAL:  // Invalid value specified in flags.
-        case ENOMEM:  // There was insufficient memory to create the kernel object.
-        default:
-            exit_after_c_error("This error is not expected to happen");
-        }
+        LOGGED_FUNCTION_START_NO_PARAMS
+            const int result = epoll_create1(EPOLL_CLOEXEC);
+            if (result >= 0) {
+                debugf("Set up an inpoll with fd %d", result);
+                return result;
+            }
+
+            assert(result == -1);
+            switch (result) {
+            case EMFILE:  // Reached process fd limit
+                exit_after_c_error(
+                    "The number of fds in current process reached the limit. "
+                    "Consider increasing the limit if possible."
+                );
+            case ENFILE:  // Reached system fd limit
+                exit_after_c_error(
+                    "The number of fds in the system reached the limit. "
+                    "Consider increasing the limit if possible."
+                );
+            case EINVAL:  // Invalid value specified in flags.
+            case ENOMEM:  // Not enough memory to create the kernel object.
+            default:
+                exit_after_c_error("This error is not expected to happen");
+            }
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NODISCARD
     inpoll_attach_result_t inpoll_attach(inpoll_t poll,
                                          fd_t upstream_fd,
                                          uint64_t identifier) {
-        struct epoll_event event = (struct epoll_event){
-            // Review of input flags as of June 2026:
-            // - EPOLLET is not appropriate because we don't want to read from
-            //   signaling-oriented fds like eventfds, only to know when the
-            //   event of interest has occured. So behavior that stops signaling
-            //   until the next read is undesirable.
-            // - EPOLLONESHOT is not appropriate because some futures may need
-            //   to be polled multiple times before they reach completion,
-            //   specifically join futures.
-            // - EPOLLWAKEUP is not appropriate because we don't intend to put
-            //   the DAQ machine to sleep.
-            // - EPOLLEXCLUSIVE is not appropriate because we do want a future
-            //   readiness notification to propagate to all waiting threads,
-            //   whether they are waiting via epoll or another mechanism.
-            .events = EPOLLIN,
-            .data = (union epoll_data){ .u64 = identifier },
-        };
-        const int result = epoll_ctl(poll,
-                                     EPOLL_CTL_ADD,
-                                     upstream_fd,
-                                     &event);
-        if (result == 0) return INPOLL_ATTACH_SUCCESS;
-        assert(result == -1);
-        switch (errno) {
-        case ELOOP:  // fd is an epollfd and this attachment would result in an
-                     // epoll loop or in an epoll nesting depth greater than 5
-            warn("Encountered an epoll loop or excessive epoll nesting, "
-                 "will assume it is excessive nesting...");
-            return INPOLL_ATTACH_TOO_NESTED;
-        case ENOSPC: // Reached max_user_watches kernel limit
-            exit_after_c_error(
-                "The number of epoll attachments in the system reached the limit. "
-                "Consider increasing the limit if possible."
-            );
-        case EEXIST:  // (op is EPOLL_CTL_ADD) fd is already registered.
-            trace("Attempted to attach the same fd to the same epollfd twice. "
-                  "This error will be reported upstream as appropriate.");
-            return INPOLL_ATTACH_REDUNDANT;
-        case EBADF:  // epfd or fd is not a valid file descriptor.
-        case EINVAL:  // - epfd is not an epoll file descriptor.
-                      // - fd is the same as epfd.
-                      // - requested operation (ADD) is not supported.
-                      // - (other errors can only happen with EPOLLEXCLUSIVE)
-        case ENOENT:  // (can only happen when op is MOD or DEL)
-        case ENOMEM:  // Not enough memory to perform this operation.
-        case EPERM:  // The target file fd does not support epoll.
-        default:
-            exit_after_c_error("This error is not expected to happen!");
-        }
+        LOGGED_FUNCTION_START("%d, %d, %zu", poll, upstream_fd, identifier)
+            struct epoll_event event = (struct epoll_event){
+                // Review of input flags as of June 2026:
+                // - EPOLLET is not appropriate because we don't want to read from
+                //   signaling-oriented fds like eventfds, only to know when the
+                //   event of interest has occured. So behavior that stops signaling
+                //   until the next read is undesirable.
+                // - EPOLLONESHOT is not appropriate because some futures may need
+                //   to be polled multiple times before they reach completion,
+                //   specifically join futures.
+                // - EPOLLWAKEUP is not appropriate because we don't intend to put
+                //   the DAQ machine to sleep.
+                // - EPOLLEXCLUSIVE is not appropriate because we do want a future
+                //   readiness notification to propagate to all waiting threads,
+                //   whether they are waiting via epoll or another mechanism.
+                .events = EPOLLIN,
+                .data = (union epoll_data){ .u64 = identifier },
+            };
+            const int result = epoll_ctl(poll,
+                                         EPOLL_CTL_ADD,
+                                         upstream_fd,
+                                         &event);
+            if (result == 0) return INPOLL_ATTACH_SUCCESS;
+            assert(result == -1);
+            switch (errno) {
+            case ELOOP:  // fd is an epollfd and this attachment would result in an
+                         // epoll loop or in an epoll nesting depth greater than 5
+                warn("Encountered an epoll loop or excessive epoll nesting, "
+                     "will assume it is excessive nesting...");
+                return INPOLL_ATTACH_TOO_NESTED;
+            case ENOSPC: // Reached max_user_watches kernel limit
+                exit_after_c_error(
+                    "The number of epoll attachments the system limit. "
+                    "Consider increasing the limit if possible."
+                );
+            case EEXIST:  // (op is EPOLL_CTL_ADD) fd is already registered.
+                debugf("Attempted to attach upstream %d to inpoll %d twice. "
+                       "This error will be reported upstream as appropriate.",
+                       upstream_fd, poll);
+                return INPOLL_ATTACH_REDUNDANT;
+            case EBADF:  // epfd or fd is not a valid file descriptor.
+            case EINVAL:  // - epfd is not an epoll file descriptor.
+                          // - fd is the same as epfd.
+                          // - requested operation (ADD) is not supported.
+                          // - (other errors can only happen with EPOLLEXCLUSIVE)
+            case ENOENT:  // (can only happen when op is MOD or DEL)
+            case ENOMEM:  // Not enough memory to perform this operation.
+            case EPERM:  // The target file fd does not support epoll.
+            default:
+                exit_after_c_error("This error is not expected to happen!");
+            }
+        LOGGED_FUNCTION_END
     }
 
     inpoll_detach_result_t inpoll_detach(inpoll_t poll, fd_t upstream_fd) {
-        const int result = epoll_ctl(poll,
-                                     EPOLL_CTL_DEL,
-                                     upstream_fd,
-                                     NULL);
-        if (result == 0) return INPOLL_DETACH_SUCCESS;
-        assert(result == -1);
-        switch (errno) {
-        case ENOENT:  // (op is DEL) fd is not registered with this epollfd.
-            debug("Attempted to detach a nonexistent upstream fd from an "
-                  "inpoll, this can happen normally on collective future "
-                  "cancelation or it can be suspicious.");
-            return INPOLL_DETACH_NONEXISTENT;
-        case EBADF:  // epfd or fd is not a valid file descriptor.
-        case EEXIST:  // (can only happen when op is ADD).
-        case EINVAL:  // - epfd is not an epoll file descriptor.
-                      // - fd is the same as epfd.
-                      // - requested operation (DEL) is not supported.
-                      // - (other errors can only happen with EPOLLEXCLUSIVE)
-        case ELOOP:  // (can only happen when op is ADD)
-        case ENOMEM:  // Not enough memory to perform this operation.
-        case ENOSPC:  // (can only happen when op is ADD)
-        case EPERM:  // The target file fd does not support epoll.
-        default:
-            exit_after_c_error("This error is not expected to happen!");
-        }
+        LOGGED_FUNCTION_START("%d, %d", poll, upstream_fd)
+            const int result = epoll_ctl(poll,
+                                         EPOLL_CTL_DEL,
+                                         upstream_fd,
+                                         NULL);
+            if (result == 0) return INPOLL_DETACH_SUCCESS;
+            assert(result == -1);
+            switch (errno) {
+            case ENOENT:  // (op is DEL) fd is not registered with this epollfd.
+                debugf("Attempted to detach upstream %d from inpoll %d, but no "
+                       "such attachment exits. This can happen on collective "
+                       "future cancelation, otherwise it's suspicious.",
+                       upstream_fd, poll);
+                return INPOLL_DETACH_NONEXISTENT;
+            case EBADF:  // epfd or fd is not a valid file descriptor.
+            case EEXIST:  // (can only happen when op is ADD).
+            case EINVAL:  // - epfd is not an epoll file descriptor.
+                          // - fd is the same as epfd.
+                          // - requested operation (DEL) is not supported.
+                          // - (other errors can only happen with EPOLLEXCLUSIVE)
+            case ELOOP:  // (can only happen when op is ADD)
+            case ENOMEM:  // Not enough memory to perform this operation.
+            case ENOSPC:  // (can only happen when op is ADD)
+            case EPERM:  // The target file fd does not support epoll.
+            default:
+                exit_after_c_error("This error is not expected to happen!");
+            }
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NODISCARD
@@ -128,69 +140,78 @@
                        uint64_t identifiers[],
                        size_t num_identifiers,
                        udipe_duration_ns_t timeout) {
-        stopwatch_t stopwatch = stopwatch_initialize();
-        ensure_ge(num_identifiers, (size_t)0);
-        ensure_le(num_identifiers, (size_t)INT_MAX);
+        LOGGED_FUNCTION_START("%d, %p, %zu, %zu",
+                              poll,
+                              identifiers,
+                              num_identifiers,
+                              timeout)
+            stopwatch_t stopwatch = stopwatch_initialize();
+            ensure_ge(num_identifiers, (size_t)0);
+            ensure_le(num_identifiers, (size_t)INT_MAX);
 
-        trace("Setting up events storage...");
-        struct epoll_event* events = (struct epoll_event*)alloca(
-            num_identifiers * sizeof(struct epoll_event)
-        );
-        assert(events);
+            debug("Setting up events storage...");
+            struct epoll_event* events = (struct epoll_event*)alloca(
+                num_identifiers * sizeof(struct epoll_event)
+            );
+            assert(events);
 
-        size_t num_valid_identifiers;
-        do {
-            struct timespec delay;
-            struct timespec* pdelay = make_unix_timeout(&delay, timeout);
+            size_t num_valid_identifiers;
+            do {
+                struct timespec delay;
+                struct timespec* pdelay = make_unix_timeout(&delay, timeout);
 
-            trace("Waiting for upstream fds to become readable...");
-            int result = epoll_pwait2(poll,
-                                      events,
-                                      num_identifiers,
-                                      pdelay,
-                                      NULL);
+                debugf("Waiting for upstreams of inpoll %d to be readable...",
+                       poll);
+                int result = epoll_pwait2(poll,
+                                          events,
+                                          num_identifiers,
+                                          pdelay,
+                                          NULL);
 
-            if (result > 0) {
-                const size_t num_valid_identifiers = (size_t)result;
-                tracef("epoll_pwait2() reported %zu readability events on "
-                       "attached upstream fds. Will now translate them into a "
-                       "simplified identifier list...",
-                       num_valid_identifiers);
-                ensure_le(num_valid_identifiers, num_identifiers);
-                for (size_t i = 0; i < num_valid_identifiers; ++i) {
-                    // We only subscribe to EPOLLIN and don't expect EPOLLERR or
-                    // EPOLLHUP for the kind of fds that we are monitoring.
-                    ensure_eq(events[i].events, EPOLLIN);
-                    identifiers[i] = events[i].data.u64;
+                if (result > 0) {
+                    const size_t num_valid_identifiers = (size_t)result;
+                    debugf("epoll_pwait2() reported %zu readability events on "
+                           "attached upstream fds. Will now translate them "
+                           "into a simplified identifier list...",
+                           num_valid_identifiers);
+                    ensure_le(num_valid_identifiers, num_identifiers);
+                    for (size_t i = 0; i < num_valid_identifiers; ++i) {
+                        // We only subscribe to EPOLLIN and don't expect EPOLLERR or
+                        // EPOLLHUP for the kind of fds that we are monitoring.
+                        ensure_eq(events[i].events, EPOLLIN);
+                        identifiers[i] = events[i].data.u64;
+                    }
+                    return num_valid_identifiers;
                 }
-                return num_valid_identifiers;
-            }
-            assert(result == -1);
+                assert(result == -1);
 
-            switch(errno) {
-            case EINTR:  // The call was interrupted by a signal
-                trace("Interrupted by a signal, updating timeout...");
-                const udipe_duration_ns_t elapsed_time =
-                    stopwatch_measure(&stopwatch);
-                if (elapsed_time >= timeout) {
-                    trace("Reached timeout before the epollfd became readable!");
-                    return (size_t)0;
-                } else {
-                    timeout -= elapsed_time;
-                    continue;
+                switch(errno) {
+                case EINTR:  // The call was interrupted by a signal
+                    debug("Got interrupted by a signal, updating timeout...");
+                    const udipe_duration_ns_t elapsed_time =
+                        stopwatch_measure(&stopwatch);
+                    if (elapsed_time >= timeout) {
+                        debug("Reached timeout before inpoll became readable!");
+                        return (size_t)0;
+                    } else {
+                        timeout -= elapsed_time;
+                        continue;
+                    }
+                case EBADF:  // epfd is not a valid file descriptor.
+                case EFAULT:  // events is not writable.
+                case EINVAL:  // epfd is not an epollfd or n <= 0.
+                default:
+                    exit_after_c_error("This error is not expected to happen!");
                 }
-            case EBADF:  // epfd is not a valid file descriptor.
-            case EFAULT:  // events is not writable.
-            case EINVAL:  // epfd is not an epollfd or n <= 0.
-            default:
-                exit_after_c_error("This error is not expected to happen!");
-            }
-        } while (true);
+            } while (true);
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NON_NULL_ARGS
     void inpoll_finalize(inpoll_t* poll) {
-        close_virtual_fd(poll);
+        LOGGED_FUNCTION_START("&%d", *poll)
+            close_virtual_fd(poll);
+        LOGGED_FUNCTION_END
     }
 
 #endif  // __linux__

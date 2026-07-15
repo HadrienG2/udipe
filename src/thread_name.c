@@ -249,9 +249,9 @@ static thread_name_t* ensure_thread_name_capacity(size_t capacity) {
 UDIPE_NON_NULL_ARGS
 void set_thread_name(const char* name) {
     LOGGED_FUNCTION_START("\"%s\"", name)
-        debugf("Asked to rename current thread to %s.", name);
-
-        trace("Validating that name is printable ASCII and under maximum length...");
+        debugf("Validating that requested name \"%s\" is printable ASCII and "
+               "under the implementation's length limit...",
+               name);
         size_t name_len = strlen(name);
         ensure_gt(name_len, (size_t)0);
         ensure_le(name_len, MAX_THREAD_NAME_LEN);
@@ -260,7 +260,7 @@ void set_thread_name(const char* name) {
             ensure_le((uint8_t)name[i], (uint8_t)LAST_PRINTABLE_ASCII);
         }
 
-        trace("Setting the thread name...");
+        debug("Setting the thread name...");
         #ifdef __linux__
             exit_on_negative(prctl(PR_SET_NAME, name),
                              "Failed to set thread name!");
@@ -272,7 +272,7 @@ void set_thread_name(const char* name) {
             // - Every ASCII code point has a matching UTF-16 code point without any
             //   need for surrogate pairs.
             wchar_t name_utf16[MAX_THREAD_NAME_SIZE];
-            trace("- Converting thread name to UTF-16");
+            debug("- Converting thread name to UTF-16");
             const int result = MultiByteToWideChar(CP_UTF8,
                                                    MB_ERR_INVALID_CHARS,
                                                    name,
@@ -281,19 +281,19 @@ void set_thread_name(const char* name) {
                                                    MAX_THREAD_NAME_SIZE);
             win32_exit_on_zero(result, "Failed to convert thread name to UTF-16!");
 
-            trace("- Setting the thread description to this UTF-16 string");
+            debug("- Setting the thread description to this UTF-16 string");
             const HRESULT hr = SetThreadDescription(GetCurrentThread(), name_utf16);
             win32_exit_on_failed_hresult(hr, "Failed to set thread description!");
         #else
             #warning "Sorry, we don't fully support your operating system yet. Please file a bug report about it!"
 
-            trace("- Allocating or reusing thread name buffer...");
+            debug("- Allocating or reusing a thread name buffer...");
             thread_name_t* thread_name =
                 ensure_thread_name_capacity(MAX_THREAD_NAME_SIZE);
             assert(thread_name);
             assert(thread_name->capacity >= MAX_THREAD_NAME_SIZE);
 
-            trace("- Copying the new name into the thread name buffer...");
+            debug("- Copying the new name into the thread name buffer...");
             assert(("Guaranteed to be true because thread_name is allocated to be "
                     "at least MAX_THREAD_NAME_LEN bytes long",
                     thread_name->capacity >= name_len + 1));
@@ -458,7 +458,7 @@ const char* get_thread_name() {
                             (char)(rand() % printable_range + printable_start);
                     }
                     expected_thread_name[len] = '\0';
-                    debugf("- Testing name of length %zu: %s", len, expected_thread_name);
+                    tracef("- Testing name of length %zu: %s", len, expected_thread_name);
 
                     trace("Setting thread name...");
                     set_thread_name(expected_thread_name);
@@ -472,7 +472,7 @@ const char* get_thread_name() {
                 }
             });
 
-            tracef("Resetting thread name to %s", initial_thread_name);
+            debugf("Resetting thread name to %s", initial_thread_name);
             with_log_level(UDIPE_TRACE, {
                 set_thread_name(initial_thread_name);
                 free(initial_thread_name);

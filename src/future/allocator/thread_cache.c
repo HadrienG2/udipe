@@ -25,33 +25,35 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 future_thread_cache_t* future_thread_cache_initialize(udipe_context_t* context) {
-    debug("- Allocating the shared struct...");
-    future_thread_cache_t* const cache = (future_thread_cache_t*)malloc(
-        sizeof(future_thread_cache_t)
-    );
-    exit_on_null(cache, "Failed to allocate cache");
-    memset(cache, 0, sizeof(future_thread_cache_t));
-    debugf(" ...done, it will reside at address %p.", (void*)cache);
+    LOGGED_FUNCTION_START("%p", context)
+        debug("- Allocating the shared struct...");
+        future_thread_cache_t* const cache = (future_thread_cache_t*)malloc(
+            sizeof(future_thread_cache_t)
+        );
+        exit_on_null(cache, "Failed to allocate cache");
+        memset(cache, 0, sizeof(future_thread_cache_t));
+        debugf(" ...done, it will reside at address %p.", (void*)cache);
 
-    debug("- Setting up the future pointer cache...");
-    cache->futures = future_pointer_cache_initialize(false);
+        debug("- Setting up the future pointer cache...");
+        cache->futures = future_pointer_cache_initialize(false);
 
-    debug("- Setting up the event object cache...");
-    cache->events = event_cache_initialize();
+        debug("- Setting up the event object cache...");
+        cache->events = event_cache_initialize();
 
-    #ifdef __linux__
-        debug("- Setting up the inpoll+eventfd cache...");
-        cache->latched_inpolls = latched_inpoll_cache_initialize();
-    #endif
+        #ifdef __linux__
+            debug("- Setting up the inpoll+eventfd cache...");
+            cache->latched_inpolls = latched_inpoll_cache_initialize();
+        #endif
 
-    debug("- Setting up flags...");
-    atomic_init(&cache->flags, 0);
+        debug("- Setting up flags...");
+        atomic_init(&cache->flags, 0);
 
-    debugf("- Registering cache with context %p...", context);
-    cache->context = context;
-    future_context_cache_register_thread(&context->future_global_cache,
-                                         cache);
-    return cache;
+        debugf("- Registering cache with context %p...", context);
+        cache->context = context;
+        future_context_cache_register_thread(&context->future_global_cache,
+                                             cache);
+        return cache;
+    LOGGED_FUNCTION_END
 }
 
 UDIPE_NON_NULL_ARGS
@@ -95,8 +97,8 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** pcache) {
         // Here we can use the logger because if the context starts being
         // liberated it will notice that THREAD_DYING is set and wait for us.
         LOGGER_START(&cache->context->logger)
-            debugf("Spilling thread cache %p into global cache of context %p "
-                   "as the corresponding thread is exiting...",
+            debugf("Spilling thread cache %p into the global cache of "
+                   "context %p as the corresponding thread is exiting...",
                    (void*)cache, (void*)cache->context);
             exit_on_thread_error(
                 mtx_lock(&cache->context->future_global_cache.mutex),
@@ -186,116 +188,116 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** pcache) {
 
 UDIPE_NON_NULL_ARGS
 void future_thread_cache_finalize_from_context(future_thread_cache_t** pcache) {
-    future_thread_cache_t* cache = *pcache;
-    assert(cache);
+    LOGGED_FUNCTION_START("&%p", *pcache)
+        future_thread_cache_t* cache = *pcache;
+        assert(cache);
 
-    debugf("Liberating thread cache %p from the udipe_finalize() code path...",
-           cache);
-    uint32_t previous_flags = atomic_fetch_or_explicit(
-        &cache->flags,
-        THREAD_CACHE_CONTEXT_DYING,
-        // - Need an acquire barrier to ensure that the following code is not
-        //   reordered before the CONTEXT_DYING signal is sent.
-        // - No release barrier needed because the context destructor should not
-        //   write to the cache or any part of the context that the cache needs
-        //   _before_ calling this function.
-        // - Sequential consistency is not needed because we're only using a
-        //   single atomic variable to synchronize.
-        memory_order_acquire
-    );
-    assert((previous_flags & (THREAD_CACHE_CONTEXT_DYING | THREAD_CACHE_CONTEXT_DONE)) == 0);
-
-    // If we got there before the TSS destructor, liberate the thread cache's
-    // contents without going through the context cache as we're going to nuke
-    // that cache later on anyway.
-    if ((previous_flags & THREAD_CACHE_THREAD_DYING) == 0) {
-        debug("Liberating thread cache contents...");
-        future_pointer_cache_finalize(&cache->futures);
-
-        debug("Liberating event objects...");
-        event_cache_finalize(&cache->events);
-
-        #ifdef __linux__
-            debug("Liberating inpoll+eventfd pairs...");
-            latched_inpoll_cache_finalize(&cache->latched_inpolls);
-        #endif
-
-        debug("Notifying the TSS destructor that we are done...");
-        previous_flags = atomic_fetch_or_explicit(
+        uint32_t previous_flags = atomic_fetch_or_explicit(
             &cache->flags,
-            THREAD_CACHE_EMPTIED,
-            // - No acquire barrier needed because we are not accessing any
-            //   other data before the next operation on the flags.
-            // - No release barrier needed because the event that EMPTIED
-            //   signals is not of interest to the TSS destructor on the other
-            //   side, we are only signaling it in the interest of keeping the
-            //   synchronization protocol simple.
+            THREAD_CACHE_CONTEXT_DYING,
+            // - Need an acquire barrier to ensure that the following code is not
+            //   reordered before the CONTEXT_DYING signal is sent.
+            // - No release barrier needed because the context destructor should not
+            //   write to the cache or any part of the context that the cache needs
+            //   _before_ calling this function.
             // - Sequential consistency is not needed because we're only using a
             //   single atomic variable to synchronize.
-            memory_order_relaxed
+            memory_order_acquire
         );
-        assert((previous_flags & (THREAD_CACHE_EMPTIED | THREAD_CACHE_CONTEXT_DONE)) == 0);
-    } else {
-        debug("Waiting for the TSS destructor to finish spilling "
-              "the thread cache's contents...");
-        while ((previous_flags & THREAD_CACHE_EMPTIED) == 0) {
-            if (wait_on_address(&cache->flags,
-                                previous_flags,
-                                UDIPE_DURATION_MAX)) {
+        assert((previous_flags & (THREAD_CACHE_CONTEXT_DYING | THREAD_CACHE_CONTEXT_DONE)) == 0);
+
+        // If we got there before the TSS destructor, liberate the thread cache's
+        // contents without going through the context cache as we're going to nuke
+        // that cache later on anyway.
+        if ((previous_flags & THREAD_CACHE_THREAD_DYING) == 0) {
+            debug("Liberating thread cache contents...");
+            future_pointer_cache_finalize(&cache->futures);
+
+            debug("Liberating event objects...");
+            event_cache_finalize(&cache->events);
+
+            #ifdef __linux__
+                debug("Liberating inpoll+eventfd pairs...");
+                latched_inpoll_cache_finalize(&cache->latched_inpolls);
+            #endif
+
+            debug("Notifying the TSS destructor that we are done...");
+            previous_flags = atomic_fetch_or_explicit(
+                &cache->flags,
+                THREAD_CACHE_EMPTIED,
+                // - No acquire barrier needed because we are not accessing any
+                //   other data before the next operation on the flags.
+                // - No release barrier needed because the event that EMPTIED
+                //   signals is not of interest to the TSS destructor on the other
+                //   side, we are only signaling it in the interest of keeping the
+                //   synchronization protocol simple.
+                // - Sequential consistency is not needed because we're only using a
+                //   single atomic variable to synchronize.
+                memory_order_relaxed
+            );
+            assert((previous_flags & (THREAD_CACHE_EMPTIED | THREAD_CACHE_CONTEXT_DONE)) == 0);
+        } else {
+            debug("Waiting for the TSS destructor to finish spilling "
+                  "the thread cache's contents...");
+            while ((previous_flags & THREAD_CACHE_EMPTIED) == 0) {
+                if (wait_on_address(&cache->flags,
+                                    previous_flags,
+                                    UDIPE_DURATION_MAX)) {
+                    previous_flags = atomic_load_explicit(
+                        &cache->flags,
+                        // - Neither an acquire barrier nor sequential consistency
+                        //   are needed because we're not accessing any other data
+                        //   until the end of the loop and the next operation after
+                        //   the loop is an atomic operation on the same variable.
+                        // - Memory loads cannot have release ordering.
+                        memory_order_relaxed
+                    );
+                }
+            }
+
+            // This wait could actually happen later on if this is useful to
+            // performance, but at the time of writing we do not expect the
+            // performance of this function to be an important concern.
+            debug("Busy-waiting for the TSS destructor to finish accessing "
+                  "the underlying udipe_context_t so we can destroy it...");
+            while ((previous_flags & THREAD_CACHE_THREAD_DONE) == 0) {
+                thrd_yield();
                 previous_flags = atomic_load_explicit(
                     &cache->flags,
-                    // - Neither an acquire barrier nor sequential consistency
-                    //   are needed because we're not accessing any other data
-                    //   until the end of the loop and the next operation after
-                    //   the loop is an atomic operation on the same variable.
+                    // - Neither an acquire barrier nor sequential consistency are
+                    //   needed because we're not accessing any other data until the
+                    //   end of the loop and the next operation after the loop is an
+                    //   atomic operation on the same variable.
                     // - Memory loads cannot have release ordering.
                     memory_order_relaxed
                 );
             }
         }
 
-        // This wait could actually happen later on if this is useful to
-        // performance, but at the time of writing we do not expect the
-        // performance of this function to be an important concern.
-        debug("Busy-waiting for the TSS destructor to finish accessing "
-              "the underlying udipe_context_t so we can destroy it...");
-        while ((previous_flags & THREAD_CACHE_THREAD_DONE) == 0) {
-            thrd_yield();
-            previous_flags = atomic_load_explicit(
-                &cache->flags,
-                // - Neither an acquire barrier nor sequential consistency are
-                //   needed because we're not accessing any other data until the
-                //   end of the loop and the next operation after the loop is an
-                //   atomic operation on the same variable.
-                // - Memory loads cannot have release ordering.
-                memory_order_relaxed
-            );
+        debug("Notifying the TSS destructor that we are done with this cache...");
+        previous_flags = atomic_fetch_or_explicit(
+            &cache->flags,
+            THREAD_CACHE_CONTEXT_DONE,
+            // - An acquire barrier is only needed on the liberation path below,
+            //   otherwise the thread cache won't be accessed again so we don't need
+            //   an up to date view of its contents.
+            // - Need a release barrier because the CONTEXT_DONE signal should not
+            //   be sent until we are done interacting with the cache, as the cache
+            //   can be liberated by the TSS destructor at any point after it
+            //   receives that signal.
+            // - Sequential consistency is not needed because we're only using a
+            //   single atomic variable to synchronize.
+            memory_order_release
+        );
+        assert((previous_flags & THREAD_CACHE_CONTEXT_DONE) == 0);
+        if (previous_flags & THREAD_CACHE_THREAD_DONE) {
+            debug("Liberating the thread cache as everyone is done with it...");
+            assert(previous_flags & THREAD_CACHE_THREAD_DYING);
+            assert(previous_flags & THREAD_CACHE_EMPTIED);
+            atomic_thread_fence(memory_order_acquire);
+            free(cache);
         }
-    }
 
-    debug("Notifying the TSS destructor that we are done with this cache...");
-    previous_flags = atomic_fetch_or_explicit(
-        &cache->flags,
-        THREAD_CACHE_CONTEXT_DONE,
-        // - An acquire barrier is only needed on the liberation path below,
-        //   otherwise the thread cache won't be accessed again so we don't need
-        //   an up to date view of its contents.
-        // - Need a release barrier because the CONTEXT_DONE signal should not
-        //   be sent until we are done interacting with the cache, as the cache
-        //   can be liberated by the TSS destructor at any point after it
-        //   receives that signal.
-        // - Sequential consistency is not needed because we're only using a
-        //   single atomic variable to synchronize.
-        memory_order_release
-    );
-    assert((previous_flags & THREAD_CACHE_CONTEXT_DONE) == 0);
-    if (previous_flags & THREAD_CACHE_THREAD_DONE) {
-        debug("Liberating the thread cache as everyone is done with it...");
-        assert(previous_flags & THREAD_CACHE_THREAD_DYING);
-        assert(previous_flags & THREAD_CACHE_EMPTIED);
-        atomic_thread_fence(memory_order_acquire);
-        free(cache);
-    }
-
-    *pcache = NULL;
+        *pcache = NULL;
+    LOGGED_FUNCTION_END
 }

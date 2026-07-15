@@ -46,19 +46,21 @@ UDIPE_NON_NULL_ARGS
 static inline
 struct timespec* make_unix_timeout(struct timespec* timespec,
                                    udipe_duration_ns_t timeout) {
-    assert(timeout != UDIPE_DURATION_DEFAULT);
-    if (timeout == UDIPE_DURATION_MAX) {
-        trace("Setting up an infinite Unix timeout...");
-        return NULL;
-    } else if (timeout == UDIPE_DURATION_MIN) {
-        trace("Setting up an instantaneous Unix timeout...");
-        *timespec = (struct timespec){ 0 };
-    } else {
-        tracef("Setting up a Unix timeout of %zu.%06zu ms...",
-               (size_t)(timeout / UDIPE_MILLISECOND),
-               (size_t)(timeout % UDIPE_MILLISECOND));
-        *timespec = (struct timespec){ .tv_sec = timeout / UDIPE_SECOND,
-                                       .tv_nsec = timeout % UDIPE_SECOND };
-    }
-    return timespec;
+    LOGGED_FUNCTION_START("%p, %zu", timespec, timeout)
+        assert(timeout != UDIPE_DURATION_DEFAULT);
+        if (timeout == UDIPE_DURATION_MAX) {
+            debug("Setting up an infinite Unix timeout...");
+            return NULL;
+        } else if (timeout == UDIPE_DURATION_MIN) {
+            debug("Setting up an instantaneous Unix timeout...");
+            *timespec = (struct timespec){ 0 };
+        } else {
+            debugf("Setting up a Unix timeout of %zu.%06zu ms...",
+                   (size_t)(timeout / UDIPE_MILLISECOND),
+                   (size_t)(timeout % UDIPE_MILLISECOND));
+            *timespec = (struct timespec){ .tv_sec = timeout / UDIPE_SECOND,
+                                           .tv_nsec = timeout % UDIPE_SECOND };
+        }
+        return timespec;
+    LOGGED_FUNCTION_END
 }

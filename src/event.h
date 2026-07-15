@@ -83,40 +83,42 @@
 UDIPE_NODISCARD
 static inline
 event_t event_initialize(bool signaled) {
-    #ifdef __linux__
-        int maybe_eventfd = eventfd((unsigned)signaled,
-                                    EFD_CLOEXEC | EFD_NONBLOCK);
-        if (maybe_eventfd == -1) switch(errno) {
-        case EMFILE:  // Reached process fd limit
-            exit_after_c_error(
-                "The number of fds in current process reached the limit. "
-                "Consider increasing the limit if possible."
-            );
-        case ENFILE:  // Reached system fd limit
-            exit_after_c_error(
-                "The number of fds in the system reached the limit. "
-                "Consider increasing the limit if possible."
-            );
-        case EINVAL:  // An unsupported value was specified in flags.
-        case ENODEV:  // Could not mount (internal) anonymous inode device.
-        case ENOMEM:  // Not enough memory to create a new eventfd.
-            exit_after_c_error("This error is not expected to happen");
-        }
-        ensure_ge(maybe_eventfd, 0);
-        debugf("Set up an event object with fd %d.", maybe_eventfd);
-        return maybe_eventfd;
-    #elif defined(_WIN32)
-        HANDLE handle = CreateEventA(NULL,
-                                     true,
-                                     signaled,
-                                     NULL);
-        win32_exit_on_null(handle,
-                           "Failed to create an anonymous event object");
-        debugf("Set up an event object with handle %p.", handle);
-        return handle;
-    #else
-        #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
-    #endif
+    LOGGED_FUNCTION_START("%u", signaled)
+        #ifdef __linux__
+            int maybe_eventfd = eventfd((unsigned)signaled,
+                                        EFD_CLOEXEC | EFD_NONBLOCK);
+            if (maybe_eventfd == -1) switch(errno) {
+            case EMFILE:  // Reached process fd limit
+                exit_after_c_error(
+                    "The number of fds in current process reached the limit. "
+                    "Consider increasing the limit if possible."
+                );
+            case ENFILE:  // Reached system fd limit
+                exit_after_c_error(
+                    "The number of fds in the system reached the limit. "
+                    "Consider increasing the limit if possible."
+                );
+            case EINVAL:  // An unsupported value was specified in flags.
+            case ENODEV:  // Could not mount (internal) anonymous inode device.
+            case ENOMEM:  // Not enough memory to create a new eventfd.
+                exit_after_c_error("This error is not expected to happen");
+            }
+            ensure_ge(maybe_eventfd, 0);
+            debugf("Set up an event object with fd %d.", maybe_eventfd);
+            return maybe_eventfd;
+        #elif defined(_WIN32)
+            HANDLE handle = CreateEventA(NULL,
+                                         true,
+                                         signaled,
+                                         NULL);
+            win32_exit_on_null(handle,
+                               "Failed to create an anonymous event object");
+            debugf("Set up an event object with handle %p.", handle);
+            return handle;
+        #else
+            #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
+        #endif
+    LOGGED_FUNCTION_END
 }
 
 /// Switch an event object to the signaled state
@@ -133,14 +135,16 @@ event_t event_initialize(bool signaled) {
 static inline
 void event_signal(event_t event) {
     #ifdef __linux__
-        debugf("Signaling the event object with fd %d...", event);
-        u64_chars_t addend = (u64_chars_t){ .u64 = 1 };
-        exit_on_negative(write(event, addend.chars, sizeof(addend.chars)),
-                         "Failed to signal eventfd");
+        LOGGED_FUNCTION_START("%d", event)
+            u64_chars_t addend = (u64_chars_t){ .u64 = 1 };
+            exit_on_negative(write(event, addend.chars, sizeof(addend.chars)),
+                             "Failed to signal eventfd");
+        LOGGED_FUNCTION_END
     #elif defined(_WIN32)
-        debugf("Signaling the event object with handle %p...", event);
-        win32_exit_on_zero(SetEvent(event),
-                           "Failed to signal event object!");
+        LOGGED_FUNCTION_START("%p", event)
+            win32_exit_on_zero(SetEvent(event),
+                               "Failed to signal event object!");
+        LOGGED_FUNCTION_END
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
@@ -159,24 +163,26 @@ void event_signal(event_t event) {
 static inline
 void event_reset(event_t event) {
     #ifdef __linux__
-        debugf("Resetting the event object with fd %d...", event);
-        u64_chars_t total;
-        const int result = read(event, total.chars, sizeof(total.chars));
-        if (result == -1) switch(errno) {
-        case EAGAIN:  // eventfd not signaled but is in nonblocking mode
-            warn("Reset event which was not in the signaled state.");
-            return;
-        case EINVAL:  // size of the supplied buffer is less than 8 bytes.
-        default:
-            exit_after_c_error("These error cases should not be encountered.");
-        }
-        ensure_eq(result, 8);
-        tracef("Reset event which was previously signaled %zu times.",
-               total.u64);
+        LOGGED_FUNCTION_START("%d", event)
+            u64_chars_t total;
+            const int result = read(event, total.chars, sizeof(total.chars));
+            if (result == -1) switch(errno) {
+            case EAGAIN:  // eventfd not signaled but is in nonblocking mode
+                warn("Reset event which was not in the signaled state.");
+                return;
+            case EINVAL:  // size of the supplied buffer is less than 8 bytes.
+            default:
+                exit_after_c_error("These error cases should not be encountered.");
+            }
+            ensure_eq(result, 8);
+            debugf("Reset event which was previously signaled %zu times.",
+                   total.u64);
+        LOGGED_FUNCTION_END
     #elif defined(_WIN32)
-        debugf("Resetting the event object with handle %p...", event);
-        win32_exit_on_zero(ResetEvent(event),
-                           "Failed to reset event object!");
+        LOGGED_FUNCTION_START("%p", event)
+            win32_exit_on_zero(ResetEvent(event),
+                               "Failed to reset event object!");
+        LOGGED_FUNCTION_END
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
@@ -200,12 +206,14 @@ UDIPE_NON_NULL_ARGS
 static inline
 void event_finalize(event_t* event) {
     #ifdef __linux__
-        debugf("Destroying the event object with fd %d...", *event);
-        close_virtual_fd(event);
+        LOGGED_FUNCTION_START("&%d", *event)
+            close_virtual_fd(event);
+        LOGGED_FUNCTION_END
     #elif defined(_WIN32)
-        debugf("Destroying the event object with handle %p...", *event);
-        win32_exit_on_zero(CloseHandle(*event),
-                           "Failed to destroy event object!");
+        LOGGED_FUNCTION_START("&%p", *event)
+            win32_exit_on_zero(CloseHandle(*event),
+                               "Failed to destroy event object!");
+        LOGGED_FUNCTION_END
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif

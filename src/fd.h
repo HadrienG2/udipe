@@ -46,27 +46,32 @@
     UDIPE_NON_NULL_ARGS
     static inline
     void close_virtual_fd(fd_t* fd) {
-        ensure_ge(*fd, 0);
-        debugf("Closing virtual file descriptor %d...", *fd);
-        const int result = close(*fd);
-        if (result == -1) switch(errno) {
-        case EINTR:  // Interrupted by a signal
-            // On Linux, man 2 close guarantees that fds will be closed even if
-            // a signal occurs, on other OSes behavior is unspecified.
-            #ifndef __linux__
-                warn("Interrupted by a signal, fd may not have been closed properly.");
-            #endif
-            break;
-        case EBADF:   // Invalid file descriptor.
-            exit_after_c_error("Called close_virtual_fd() on an invalid fd.");
-            break;
-        case EIO:     // I/O error occurred during file system access.
-        case ENOSPC:  // NFS quota blown by previous write
-        case EDQUOT:  // NFS quota blown by previous write
-        default:
-            exit_after_c_error("These error cases should not be encountered");
-        }
-        *fd = FD_INVALID;
+        LOGGED_FUNCTION_START("&%d", *fd)
+            ensure_ge(*fd, 0);
+
+            debugf("Closing virtual file descriptor %d...", *fd);
+            const int result = close(*fd);
+            if (result == -1) switch(errno) {
+            case EINTR:  // Interrupted by a signal
+                // On Linux, man 2 close guarantees that fds will be closed even if
+                // a signal occurs, on other OSes behavior is unspecified.
+                #ifndef __linux__
+                    warn("Interrupted by a signal, fd may not have been closed properly.");
+                #endif
+                break;
+            case EBADF:   // Invalid file descriptor.
+                exit_after_c_error("Called close_virtual_fd() on an invalid fd.");
+                break;
+            case EIO:     // I/O error occurred during file system access.
+            case ENOSPC:  // NFS quota blown by previous write
+            case EDQUOT:  // NFS quota blown by previous write
+            default:
+                exit_after_c_error("These error cases should not be encountered");
+            }
+
+            debug("Resetting the fd to ease use-after-close detection...");
+            *fd = FD_INVALID;
+        LOGGED_FUNCTION_END
     }
 
 #else
