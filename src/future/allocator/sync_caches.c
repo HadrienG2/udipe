@@ -66,21 +66,27 @@ void event_cache_finalize(event_cache_t* cache) {
             debugf("Determining if there's a cached inpoll+eventfd at "
                    "latest index #%zu of cache %p...",
                    (size_t)target, cache);
+
             const fd_t inpoll_candidate = cache->inpolls[target];
+            inpoll_with_latch_t result;
             if (inpoll_candidate == FD_INVALID) {
                 debug("Must allocate a new inpoll+eventfd pair, "
                       "cache is empty.");
-                return latched_inpoll_initialize();
+                result = latched_inpoll_initialize();
             } else {
                 debug("Grabbing an inpoll+eventfd pair from cache...");
                 assert(inpoll_candidate >= 0);
                 cache->inpolls[target] = FD_INVALID;
                 assert(cache->event_cache.events[target] != EVENT_INVALID);
-                return (inpoll_with_latch_t){
+                result = (inpoll_with_latch_t){
                     .inpoll = inpoll_candidate,
                     .latch = event_cache_allocate(&cache->event_cache)
                 };
             }
+
+            debugf("Will emit inpoll %d with latch eventfd %d.",
+                   result.inpoll, result.latch);
+            return result;
         LOGGED_FUNCTION_END
     }
 
@@ -92,7 +98,7 @@ void event_cache_finalize(event_cache_t* cache) {
                               latched.inpoll,
                               latched.latch)
             debugf(
-                "Offloading liberation of eventfd %d to inner event cache...",
+                "Offloading liberation of eventfd %d to the event cache...",
                 latched.latch
             );
             event_cache_liberate(&cache->event_cache, &latched.latch);
@@ -130,7 +136,7 @@ void event_cache_finalize(event_cache_t* cache) {
                 sync_cache_decrement_index(&target, EVENT_CACHE_CAPACITY);
             }
 
-            debug("Offloading event liberation to event cache destructor...");
+            debug("Offloading the rest to the event cache destructor...");
             event_cache_finalize(&cache->event_cache);
         LOGGED_FUNCTION_END
     }
