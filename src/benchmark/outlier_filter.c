@@ -104,7 +104,7 @@
         filter->bin_weights = NULL;
         filter->bin_capacity = 0;
 
-        trace("Liberating inner distributions...");
+        debug("Liberating inner distributions...");
         if (filter->last_scores.is_built) {
             distribution_finalize(&filter->last_scores.distribution);
         } else {
@@ -138,7 +138,7 @@
 
         ensure_ge(num_bins, (size_t)1);
         if (num_bins == 1) {
-            trace("Encountered 1-bin special case: "
+            debug("Encountered 1-bin special case: "
                   "Single value must have max relative weight 1.0.");
             ensure_ge(filter->bin_capacity, (size_t)1);
             filter->bin_weights[0] = 1.0;
@@ -148,18 +148,18 @@
         ensure_ge(num_bins, (size_t)2);
         const distribution_layout_t target_layout =
             distribution_layout(&target->inner);
-        trace("Calibrating score metric...");
+        debug("Calibrating score metric...");
         const uint64_t min_distance =
             distribution_min_difference(&target->inner);
         const size_t max_count = distribution_max_count(target);
         const double count_norm = 1.0 / max_count;
         const double distance_norm = 1.0 / min_distance;
-        tracef("Distribution has max count %zu (count norm %.3g) "
+        debugf("Distribution has max count %zu (count norm %.3g) "
                "and min distance %zu (distance norm %g)",
                max_count, count_norm,
                min_distance, distance_norm);
 
-        trace("Weighting distribution bins...");
+        debug("Weighting distribution bins...");
         const double neighbor_share = NEIGHBOR_CONTRIBUTION / 2;
         const double self_share = 1.0 - NEIGHBOR_CONTRIBUTION;
         int64_t current_value = target_layout.sorted_values[0];
@@ -223,7 +223,7 @@
         if (last_weight > max_weight) max_weight = last_weight;
 
         const double weight_norm = 1.0 / max_weight;
-        tracef("Maximum weight is %.3g: "
+        debugf("Maximum weight is %.3g: "
                "will now apply norm %.3g to get relative weight...",
                max_weight, weight_norm);
         for (size_t bin = 0; bin < num_bins; ++bin) {
@@ -235,7 +235,7 @@
     void compute_scores(outlier_filter_t* filter,
                         const distribution_builder_t* target) {
         if (filter->last_scores.is_built) {
-            trace("Resetting last scores distribution...");
+            debug("Resetting last scores distribution...");
             filter->last_scores.empty_builder =
                 distribution_reset(&filter->last_scores.distribution);
         }
@@ -271,7 +271,8 @@
         ensure_gt(OUTLIER_THRESHOLD, 0.0);
         ensure_lt(OUTLIER_THRESHOLD, 1.0);
         const int64_t outlier_score = rel_weight_to_score(OUTLIER_THRESHOLD);
-        tracef("Looking for outlier bins with rel weight <= %.2g (score <= %zd).",
+        debugf("Looking for outlier bins with rel weight <= %.2g "
+               "(score <= %zd).",
                OUTLIER_THRESHOLD, outlier_score);
 
         ensure(filter->last_scores.is_built);
@@ -280,7 +281,7 @@
         const ptrdiff_t last_outlier_pos =
             distribution_bin_by_value(scores, outlier_score, BIN_BELOW);
         if (last_outlier_pos == PTRDIFF_MIN) {
-            trace("All bins are above score threshold: "
+            debug("All bins are above score threshold: "
                   "will not cut any data point.");
             return 0.0;
         }
@@ -290,7 +291,7 @@
         const size_t num_outliers = scores_layout.end_ranks[last_outlier_bin];
         const size_t num_inputs = distribution_len(scores);
         const double outlier_fraction = num_outliers / (double)num_inputs;
-        tracef("That's %zu/%zu outlier values (%.3g%%), "
+        debugf("That's %zu/%zu outlier values (%.3g%%), "
                "corresponding to score bins up to #%zu.",
                num_outliers, num_inputs, outlier_fraction * 100.0,
                last_outlier_bin);
@@ -301,7 +302,7 @@
         if (num_outliers <= max_outliers) {
             const int64_t max_score = scores_layout.sorted_values[last_outlier_bin];
             const double max_rel_weight = score_to_rel_weight(max_score);
-            tracef("Those values have rel weight <= %.2g (score <= %zd).",
+            debugf("Those values have rel weight <= %.2g (score <= %zd).",
                    max_rel_weight, max_score);
             return OUTLIER_THRESHOLD;
         }
@@ -314,7 +315,7 @@
         size_t max_bin = distribution_bin_by_rank(scores, max_outliers);
         if (scores_layout.end_ranks[max_bin] > max_outliers) {
             if (max_bin == 0) {
-                trace("Even the first score has too many associated values: "
+                debug("Even the first score has too many associated values: "
                       "won't cut any data point.");
                 return 0.0;
             }
@@ -340,7 +341,7 @@
                      distribution_builder_t* target,
                      double threshold) {
         if (filter->last_rejections.is_built) {
-            trace("Resetting rejections distribution...");
+            debug("Resetting rejections distribution...");
             filter->last_rejections.empty_builder =
                 distribution_reset(&filter->last_rejections.distribution);
         }
@@ -349,7 +350,7 @@
 
         const size_t num_input_bins = target->inner.num_bins;
         ensure_le(num_input_bins, filter->bin_capacity);
-        tracef("Rejecting bins with relative weight <= %.3g "
+        debugf("Rejecting bins with relative weight <= %.3g "
                "from our %zu-bins dataset.",
                threshold,
                num_input_bins);
@@ -388,12 +389,12 @@
         target->inner.num_bins -= num_deleted_bins;
 
         if (num_deleted_bins > 0) {
-            trace("Finalizing rejected value distribution...");
+            debug("Finalizing rejected value distribution...");
             filter->last_rejections.distribution =
                 distribution_build(rejections_builder);
             filter->last_rejections.is_built = true;
         } else {
-            trace("No value was rejected: last_rejections will remain unbuilt.");
+            debug("No value was rejected: last_rejections will remain unbuilt.");
         }
     }
 

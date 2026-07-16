@@ -53,7 +53,7 @@
         assert(pool->capacity > 0);
         assert(pool->length <= pool->capacity);
         if (pool->length == pool->capacity) {
-            trace("Not enough pool capacity, reallocating...");
+            debug("Not enough pool capacity, reallocating...");
             const void* old_builders = pool->builders;
             const size_t new_capacity = 2 * pool->capacity;
             const size_t new_size =

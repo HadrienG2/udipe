@@ -55,25 +55,26 @@
         assert(count > (size_t)0);
 
         if (dist->num_bins < dist->capacity) {
-            trace("There's enough room in the allocation for this new bin.");
+            debug("There's enough room in the allocation for this new bin.");
             const size_t end_pos = dist->num_bins;
             if (pos == end_pos) {
-                trace("New bin is at the end of the histogram, can append it directly.");
+                debug("New bin is at the end of the histogram, "
+                      "can append it directly.");
                 layout.sorted_values[end_pos] = value;
                 layout.counts[end_pos] = count;
                 ++(dist->num_bins);
                 return;
             }
 
-            tracef("Backing up current bin at position %zu...", pos);
+            debugf("Backing up current bin at position %zu...", pos);
             int64_t next_value = layout.sorted_values[pos];
             size_t next_count = layout.counts[pos];
 
-            trace("Inserting new value...");
+            debug("Inserting new value...");
             layout.sorted_values[pos] = value;
             layout.counts[pos] = count;
 
-            trace("Shifting previous bins up...");
+            debug("Shifting previous bins up...");
             for (size_t dst = pos + 1; dst < dist->num_bins; ++dst) {
                 int64_t tmp_value = layout.sorted_values[dst];
                 size_t tmp_count = layout.counts[dst];
@@ -83,7 +84,7 @@
                 next_count = tmp_count;
             }
 
-            trace("Restoring last bin...");
+            debug("Restoring last bin...");
             layout.sorted_values[end_pos] = next_value;
             layout.counts[end_pos] = next_count;
             ++(dist->num_bins);
@@ -93,24 +94,24 @@
             distribution_t new_dist = distribution_allocate(2 * dist->capacity);
             distribution_layout_t new_layout = distribution_layout(&new_dist);
 
-            trace("Transferring old values smaller than the new one...");
+            debug("Transferring old values smaller than the new one...");
             for (size_t bin = 0; bin < pos; ++bin) {
                 new_layout.sorted_values[bin] = layout.sorted_values[bin];
                 new_layout.counts[bin] = layout.counts[bin];
             }
 
-            trace("Inserting new value...");
+            debug("Inserting new value...");
             new_layout.sorted_values[pos] = value;
             new_layout.counts[pos] = count;
 
-            trace("Transferring old values larger than the new one...");
+            debug("Transferring old values larger than the new one...");
             for (size_t src = pos; src < dist->num_bins; ++src) {
                 const size_t dst = src + 1;
                 new_layout.sorted_values[dst] = layout.sorted_values[src];
                 new_layout.counts[dst] = layout.counts[src];
             }
 
-            trace("Replacing former distribution...");
+            debug("Replacing former distribution...");
             new_dist.num_bins = dist->num_bins + 1;
             distribution_finalize(dist);
             builder->inner = new_dist;
@@ -131,14 +132,14 @@
     UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_build(distribution_builder_t* non_empty_builder) {
-        trace("Ensuring the distribution is not empty...");
+        debug("Ensuring the distribution is not empty...");
         ensure(!distribution_empty(non_empty_builder));
 
-        trace("Extracting the distribution from the builder...");
+        debug("Extracting the distribution from the builder...");
         distribution_t dist = non_empty_builder->inner;
         distribution_poison(&non_empty_builder->inner);
 
-        trace("Turning value counts into end ranks...");
+        debug("Turning value counts into end ranks...");
         distribution_layout_t layout = distribution_layout(&dist);
         size_t end_rank = 0;
         for (size_t bin = 0; bin < dist.num_bins; ++bin) {
@@ -183,7 +184,7 @@
         empty_builder = NULL;
 
         if (factor == 0) {
-            trace("Handling zero factor special case...");
+            debug("Handling zero factor special case...");
             ensure_ge(builder->inner.capacity, (size_t)1);
             distribution_layout_t builder_layout = distribution_layout(&builder->inner);
             builder_layout.sorted_values[0] = 0;
@@ -194,14 +195,14 @@
 
         const size_t num_bins = dist->num_bins;
         if (builder->inner.capacity < num_bins) {
-            tracef("Enlarging builder to match input capacity %zu...",
+            debugf("Enlarging builder to match input capacity %zu...",
                    dist->capacity);
             distribution_finalize(&builder->inner);
             builder->inner = distribution_allocate(dist->capacity);
         }
 
         ensure_ne(factor, (int64_t)0);
-        trace("Handling nonzero factor, flipping bin order if negative...");
+        debug("Handling nonzero factor, flipping bin order if negative...");
         const distribution_layout_t dist_layout = distribution_layout(dist);
         distribution_layout_t builder_layout = distribution_layout(&builder->inner);
         size_t prev_end_rank = 0;
@@ -243,12 +244,14 @@
         const distribution_t* longer;
         int64_t diff_sign;
         if (distribution_len(minuend) <= distribution_len(subtrahend)) {
-            trace("Minuend distribution is shorter, will iterate over minuend and sample from subtrahend.");
+            debug("Minuend distribution is shorter, will iterate over "
+                  "minuend and sample from subtrahend.");
             shorter = minuend;
             longer = subtrahend;
             diff_sign = +1;
         } else {
-            trace("Subtrahend distribution is shorter, will iterate over subtrahend and sample from minuend.");
+            debug("Subtrahend distribution is shorter, will iterate over "
+                  "subtrahend and sample from minuend.");
             shorter = subtrahend;
             longer = minuend;
             diff_sign = -1;
@@ -256,7 +259,7 @@
 
         const distribution_layout_t short_layout = distribution_layout(shorter);
         const size_t short_bins = shorter->num_bins;
-        tracef("Iterating over the %zu bins of the shorter distribution...",
+        debugf("Iterating over the %zu bins of the shorter distribution...",
                short_bins);
         size_t prev_short_end_rank = 0;
         for (size_t short_pos = 0; short_pos < short_bins; ++short_pos) {
@@ -290,10 +293,12 @@
         // To avoid "amplifying" outliers by using multiple copies, we iterate
         // over the shortest distribution and sample from the longest one
         if (distribution_len(num) <= distribution_len(num)) {
-            trace("Numerator distribution is shorter, will iterate over num and sample from denom.");
+            debug("Numerator distribution is shorter, will "
+                  "iterate over num and sample from denom.");
             const distribution_layout_t num_layout = distribution_layout(num);
             const size_t num_bins = num->num_bins;
-            tracef("Iterating over the %zu bins of the numerator distribution...",
+            debugf("Iterating over the %zu bins of the "
+                   "numerator distribution...",
                    num_bins);
             size_t prev_end_rank = 0;
             for (size_t num_pos = 0; num_pos < num_bins; ++num_pos) {
@@ -313,10 +318,11 @@
             }
             return distribution_build(builder);
         } else {
-            trace("Denominator distribution is shorter, will iterate over denom and sample from num.");
+            debug("Denominator distribution is shorter, will iterate over "
+                  "denom and sample from num.");
             const distribution_layout_t denom_layout = distribution_layout(denom);
             const size_t denom_bins = denom->num_bins;
-            tracef("Iterating over the %zu bins of the denominator distribution...",
+            debugf("Iterating over the %zu bins of the denominator distribution...",
                    denom_bins);
             size_t prev_end_rank = 0;
             for (size_t denom_pos = 0; denom_pos < denom_bins; ++denom_pos) {
@@ -352,7 +358,7 @@
             distributions[1]->num_bins
         };
         if (num_bins[0] == 0 || num_bins[1] == 0) {
-            trace("At least one distribution is empty, will return UINT64_MAX");
+            debug("At least one distribution is empty, will return UINT64_MAX");
             return UINT64_MAX;
         }
         typedef const int64_t* sorted_values_cptr_t;
@@ -420,7 +426,7 @@
     UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_t distribution_clone(distribution_t* dist) {
-        tracef("Cloning distribution at location %p...", dist->allocation);
+        debugf("Cloning distribution at location %p...", dist->allocation);
         distribution_t result = distribution_allocate(dist->capacity);
         ensure_eq(result.capacity, dist->capacity);
         memcpy(result.allocation,
@@ -433,7 +439,7 @@
     UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     distribution_builder_t distribution_reset(distribution_t* dist) {
-        tracef("Resetting storage at location %p...", dist->allocation);
+        debugf("Resetting storage at location %p...", dist->allocation);
         distribution_builder_t result = (distribution_builder_t){
             .inner = (distribution_t){
                 .allocation = dist->allocation,
@@ -442,7 +448,7 @@
             }
         };
 
-        trace("Poisoning distribution state to detect invalid usage...");
+        debug("Poisoning distribution state to detect invalid usage...");
         distribution_poison(dist);
         return result;
     }
@@ -452,7 +458,7 @@
         debugf("Liberating storage at location %p...", dist->allocation);
         free(dist->allocation);
 
-        trace("Poisoning distribution state to detect invalid usage...");
+        debug("Poisoning distribution state to detect invalid usage...");
         distribution_poison(dist);
     }
 
@@ -462,7 +468,7 @@
         /// Test distribution_builder_t and distribution_t
         ///
         static void test_distribution() {
-            trace("Setting up a distribution...");
+            debug("Setting up a distribution...");
             distribution_builder_t builder = distribution_initialize();
             const void* const initial_allocation = builder.inner.allocation;
             const size_t initial_capacity = builder.inner.capacity;
@@ -470,7 +476,7 @@
             ensure(distribution_empty(&builder));
             ensure_ge(initial_capacity, (size_t)5);
 
-            trace("Checking initial layout");
+            debug("Checking initial layout");
             const distribution_layout_t initial_layout =
                 distribution_layout(&builder.inner);
             ensure_ne((void*)initial_layout.sorted_values, NULL);
@@ -482,7 +488,7 @@
 
             ensure_le((uint64_t)RAND_MAX, (uint64_t)INT64_MAX);
             const int64_t value3 = rand() - RAND_MAX / 2;
-            tracef("Inserting value3 = %zd for the first time...", value3);
+            debugf("Inserting value3 = %zd for the first time...", value3);
             distribution_insert(&builder, value3);
             ensure(!distribution_empty(&builder));
             ensure_eq(builder.inner.allocation, initial_allocation);
@@ -495,7 +501,7 @@
             ensure_eq(layout.sorted_values[0], value3);
             ensure_eq(layout.counts[0], (size_t)1);
 
-            trace("Inserting value3 again...");
+            debug("Inserting value3 again...");
             distribution_insert(&builder, value3);
             ensure_eq(builder.inner.allocation, initial_allocation);
             ensure_eq(builder.inner.num_bins, (size_t)1);
@@ -508,7 +514,7 @@
             ensure_eq(layout.counts[0], (size_t)2);
 
             const int64_t value5 = value3 + 2 + rand() % (INT64_MAX - value3 - 1);
-            tracef("Inserting value5 = %zd for the first time...", value5);
+            debugf("Inserting value5 = %zd for the first time...", value5);
             distribution_insert(&builder, value5);
             ensure_eq(builder.inner.allocation, initial_allocation);
             ensure_eq(builder.inner.num_bins, (size_t)2);
@@ -522,7 +528,7 @@
             ensure_eq(layout.sorted_values[1], value5);
             ensure_eq(layout.counts[1], (size_t)1);
 
-            trace("Inserting value5 again two times...");
+            debug("Inserting value5 again two times...");
             distribution_insert(&builder, value5);
             ensure_eq(builder.inner.allocation, initial_allocation);
             ensure_eq(builder.inner.num_bins, (size_t)2);
@@ -550,7 +556,7 @@
             ensure_eq(layout.counts[1], (size_t)3);
 
             const int64_t value1 = value3 - 2 - rand() % (value3 - 1 - INT64_MIN);
-            tracef("Inserting value1 = %zd for the first time...", value1);
+            debugf("Inserting value1 = %zd for the first time...", value1);
             distribution_insert(&builder, value1);
             ensure_eq(builder.inner.allocation, initial_allocation);
             ensure_eq(builder.inner.num_bins, (size_t)3);
@@ -566,7 +572,7 @@
             ensure_eq(layout.sorted_values[2], value5);
             ensure_eq(layout.counts[2], (size_t)3);
 
-            trace("Inserting value1 again three times...");
+            debug("Inserting value1 again three times...");
             distribution_insert(&builder, value1);
             ensure_eq(builder.inner.allocation, initial_allocation);
             ensure_eq(builder.inner.num_bins, (size_t)3);
@@ -613,7 +619,7 @@
             ensure_eq(layout.counts[2], (size_t)3);
 
             const int64_t value2 = value1 + 1 + rand() % (value3 - value1 - 1);
-            tracef("Inserting value2 = %zd for the first time...", value2);
+            debugf("Inserting value2 = %zd for the first time...", value2);
             distribution_insert(&builder, value2);
             ensure_eq(builder.inner.allocation, initial_allocation);
             ensure_eq(builder.inner.num_bins, (size_t)4);
@@ -632,7 +638,7 @@
             ensure_eq(layout.sorted_values[3], value5);
             ensure_eq(layout.counts[3], (size_t)3);
 
-            trace("Inserting value2 again two times...");
+            debug("Inserting value2 again two times...");
             distribution_insert(&builder, value2);
             ensure_eq(builder.inner.allocation, initial_allocation);
             ensure_eq(builder.inner.num_bins, (size_t)4);
@@ -669,7 +675,7 @@
             ensure_eq(layout.counts[3], (size_t)3);
 
             const int64_t value4 = value3 + 1 + rand() % (value5 - value3 - 1);
-            tracef("Inserting value4 = %zd for the first time...", value4);
+            debugf("Inserting value4 = %zd for the first time...", value4);
             distribution_insert(&builder, value4);
             ensure_eq(builder.inner.allocation, initial_allocation);
             ensure_eq(builder.inner.num_bins, (size_t)5);
@@ -689,7 +695,7 @@
             ensure_eq(layout.sorted_values[4], value5);
             ensure_eq(layout.counts[4], (size_t)3);
 
-            trace("Inserting value4 again three times...");
+            debug("Inserting value4 again three times...");
             distribution_insert(&builder, value4);
             ensure_eq(builder.inner.allocation, initial_allocation);
             ensure_eq(builder.inner.num_bins, (size_t)5);
@@ -747,7 +753,7 @@
             ensure_eq(layout.sorted_values[4], value5);
             ensure_eq(layout.counts[4], (size_t)3);
 
-            trace("Setting up an allocation backup...");
+            debug("Setting up an allocation backup...");
             size_t allocation_size =
                 builder.inner.capacity * DISTRIBUTION_BIN_SIZE;
             void* prev_data = malloc(allocation_size);
@@ -756,7 +762,7 @@
                 (char*)prev_data + builder.inner.capacity * sizeof(int64_t)
             );
 
-            trace("Inserting new values until reallocation...");
+            debug("Inserting new values until reallocation...");
             while (builder.inner.num_bins < builder.inner.capacity) {
                 trace("- No reallocation expected here. Backing up state...");
                 memcpy(prev_data, builder.inner.allocation, allocation_size);
@@ -810,7 +816,7 @@
                 }
             }
 
-            trace("Testing reallocation...");
+            debug("Testing reallocation...");
             int64_t value;
             size_t insert_pos;
             bool rejected;
@@ -834,23 +840,23 @@
                 }
                 if (insert_pos == SIZE_MAX) insert_pos = builder.inner.num_bins;
             } while(rejected);
-            tracef("  * Value will be inserted as bin #%zu", insert_pos);
+            debugf("  * Value will be inserted as bin #%zu", insert_pos);
             //
-            trace("- Backing up state...");
+            debug("- Backing up state...");
             memcpy(prev_data, builder.inner.allocation, allocation_size);
             const void* const prev_allocation = builder.inner.allocation;
             const size_t prev_bins = builder.inner.num_bins;
             const size_t prev_capacity = builder.inner.capacity;
             //
-            trace("- Performing insertion which should reallocate...");
+            debug("- Performing insertion which should reallocate...");
             distribution_insert(&builder, value);
             //
-            trace("- Checking that reallocation occured...");
+            debug("- Checking that reallocation occured...");
             ensure_ne(builder.inner.allocation, prev_allocation);
             ensure_eq(builder.inner.num_bins, prev_bins + 1);
             ensure_gt(builder.inner.capacity, prev_capacity);
             //
-            trace("- Checking that reallocation changes the layout...");
+            debug("- Checking that reallocation changes the layout...");
             const distribution_layout_t new_layout =
                 distribution_layout(&builder.inner);
             ensure_ne((void*)new_layout.sorted_values,
@@ -858,7 +864,7 @@
             ensure_ne((void*)new_layout.counts, (void*)layout.counts);
             layout = new_layout;
             //
-            trace("- Checking bin contents...");
+            debug("- Checking bin contents...");
             ensure_eq(layout.sorted_values[insert_pos], value);
             ensure_eq(layout.counts[insert_pos], (size_t)1);
             for (size_t src_pos = 0; src_pos < prev_bins; ++src_pos) {
@@ -870,7 +876,7 @@
                           prev_counts[src_pos]);
             }
 
-            trace("Reallocating backup storage to match new capacity...");
+            debug("Reallocating backup storage to match new capacity...");
             free(prev_data);
             allocation_size = builder.inner.capacity * DISTRIBUTION_BIN_SIZE;
             prev_data = malloc(allocation_size);
@@ -879,10 +885,10 @@
                 (char*)prev_data + builder.inner.capacity * sizeof(int64_t)
             );
 
-            trace("Backing up the final distribution builder...");
+            debug("Backing up the final distribution builder...");
             memcpy(prev_data, builder.inner.allocation, allocation_size);
 
-            trace("Building the distribution...");
+            debug("Building the distribution...");
             distribution_t prev_dist = builder.inner;
             distribution_t dist = distribution_build(&builder);
             ensure_eq(builder.inner.allocation, NULL);
@@ -892,7 +898,7 @@
             ensure_eq(dist.num_bins, prev_dist.num_bins);
             ensure_eq(dist.capacity, prev_dist.capacity);
 
-            trace("Checking the final distribution's bins...");
+            debug("Checking the final distribution's bins...");
             size_t expected_end_idx = 0;
             size_t* prev_end_ranks = prev_counts;
             for (size_t bin = 0; bin < dist.num_bins; ++bin) {
@@ -904,7 +910,7 @@
             prev_counts = NULL;
             ensure_eq(distribution_len(&dist), expected_end_idx);
 
-            trace("Testing distribution sampling...");
+            debug("Testing distribution sampling...");
             const size_t num_samples = 10 * dist.num_bins;
             for (size_t i = 0; i < num_samples; ++i) {
                 trace("- Grabbing one sample...");
@@ -920,13 +926,13 @@
                 ensure_ne(sampled_bin, SIZE_MAX);
             }
 
-            trace("Deallocating backup storage...");
+            debug("Deallocating backup storage...");
             free(prev_data);
             prev_data = NULL;
             prev_values = NULL;
             prev_end_ranks = NULL;
 
-            trace("Resetting the distribution...");
+            debug("Resetting the distribution...");
             prev_dist = dist;
             builder = distribution_reset(&dist);
             ensure(distribution_empty(&builder));
@@ -937,7 +943,7 @@
             ensure_eq(builder.inner.num_bins, (size_t)0);
             ensure_eq(builder.inner.capacity, prev_dist.capacity);
 
-            trace("Destroying the distribution...");
+            debug("Destroying the distribution...");
             distribution_finalize(&builder.inner);
             ensure_eq(builder.inner.allocation, NULL);
             ensure_eq(builder.inner.num_bins, (size_t)0);

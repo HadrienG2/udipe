@@ -367,7 +367,7 @@ thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_INFO;
 #endif  // NDEBUG
 
 UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2)
-void trace_expr_impl(const char* format_template,
+void debug_expr_impl(const char* format_template,
                      const char* expr_format,
                      ...) {
     // As this is the implementation of a logging macro, we can't afford to do
@@ -393,22 +393,22 @@ void trace_expr_impl(const char* format_template,
         va_start(args1, expr_format);
         va_copy(args2, args1);
 
-        // Determine the trace message size
+        // Determine the debug message size
         result = vsnprintf(NULL, 0, format, args1);
         va_end(args1);
-        exit_on_negative(result, "Failed to evaluate trace message size!");
-        size_t trace_message_size = 1 + (size_t)result;
+        exit_on_negative(result, "Failed to evaluate debug message size!");
+        size_t debug_message_size = 1 + (size_t)result;
 
-        // Allocate the trace message buffer
-        char* trace_message = alloca(trace_message_size);
-        exit_on_null(trace_message, "Failed to allocate trace message buffer!");
+        // Allocate the debug message buffer
+        char* debug_message = alloca(debug_message_size);
+        exit_on_null(debug_message, "Failed to allocate debug message buffer!");
 
-        // Generate the trace message
-        result = vsnprintf(trace_message, trace_message_size, format, args2);
+        // Generate the debug message
+        result = vsnprintf(debug_message, debug_message_size, format, args2);
         va_end(args2);
-        exit_on_negative(result, "Failed to generate trace message!");
+        exit_on_negative(result, "Failed to generate debug message!");
 
-        // Finally log the trace message
-        trace(trace_message);
+        // Finally log the debug message
+        debug(debug_message);
     SCOPE_END
 }

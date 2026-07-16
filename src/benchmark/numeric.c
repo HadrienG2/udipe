@@ -45,7 +45,7 @@
         assert(minuend_low_idx < NUM_ACCUMULATOR_WORDS);
         const size_t minuend_highest_idx = minuend_low_idx + (minuend_words[1] != 0);
         assert(minuend_highest_idx >= acc->highest_word_idx);
-        tracef("Larger subtrahend treated as minuend with highest_idx %zu "
+        debugf("Larger subtrahend treated as minuend with highest_idx %zu "
                "and low_idx %zu...",
                minuend_highest_idx, minuend_low_idx);
 
@@ -76,7 +76,7 @@
         assert(!carry);
 
         // Finish updating accumulator state
-        trace("Updating accumulator highest_idx and sign...");
+        debug("Updating accumulator highest_idx and sign...");
         acc->highest_word_idx = highest_word_idx;
         acc->negative = !(acc->negative);
     }
@@ -91,21 +91,22 @@
         assert(zero_based_exponent < NUM_FINITE_EXPONENTS_F64);
 
         // Handle zero addend edge case
-        tracef("Addend has significand %#016zx, zero-based exponent %zu, sign %d.",
+        debugf("Addend has significand %#016zx, "
+               "zero-based exponent %zu, sign %d.",
                significand, zero_based_exponent, negative);
         if (significand == 0) return;
 
         // Translate the floating-point addend into a floating word addend
         const unsigned_addend_t magnitude =
             compute_unsigned_addend(significand, zero_based_exponent);
-        tracef("Addend has magnitude [%#018zx, %#018zx] with word shift %zu.",
+        debugf("Addend has magnitude [%#018zx, %#018zx] with word shift %zu.",
                magnitude.words[1], magnitude.words[0], magnitude.low_word_idx);
 
         // Handle the same-sign addition easy/common case
         if (negative == acc->negative) {
             // As the addend has the same sign, accumulator magnitude can only
             // increase and absence of underflow is guaranteed
-            trace("Addend has same sign as accumulator: will sum magnitudes.");
+            debug("Addend has same sign as accumulator: will sum magnitudes.");
             accumulate_without_underflow(acc,
                                          magnitude,
                                          add_inplace_return_carry,
@@ -116,7 +117,7 @@
             // this case the result's magnitude is given by subtracting the
             // accumulator's magnitude from the addend's magnitude, and the end
             // result will have the sign of the addend.
-            trace("Addend has opposite sign and larger magnitude: "
+            debug("Addend has opposite sign and larger magnitude: "
                   "will subtract accumulator from addend.");
             accumulator_subtract_with_underflow(acc,
                                                 magnitude);
@@ -124,7 +125,7 @@
             // The accumulator and addend have an opposite sign but the addend
             // has been checked to have a smaller magnitude, so we can subtract
             // the addend from the accumulator without underflow.
-            trace("Addend has opposite sign and lower magnitude: "
+            debug("Addend has opposite sign and lower magnitude: "
                   "will subtract addend from accumulator.");
             accumulate_without_underflow(acc,
                                          magnitude,
@@ -141,7 +142,7 @@
         // This is done by iteratively summing word contributions from the
         // lowest-magnitude word to the highest-magnitude word, which should
         // yield the same rounding as one IEEE-754 sum.
-        trace("Turning the accumulator into the nearest binary64 number...");
+        debug("Turning the accumulator into the nearest binary64 number...");
         double result = 0.0;
         int exponent = -(int)(FRACTION_BITS_F64 + SUBNORMAL_EXPONENT_BIAS_F64);
         const double sign = (acc->negative) ? -1.0 : 1.0;

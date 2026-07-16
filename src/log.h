@@ -194,7 +194,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// \name Expression logging
 /// \{
 
-/// Log an expression and its value at \link #UDIPE_TRACE `TRACE` \endlink
+/// Log an expression and its value at \link #UDIPE_DEBUG `DEBUG` \endlink
 /// level, along with the associated code location.
 ///
 /// This macro is only meant for debugging purpose and should not appear
@@ -217,13 +217,13 @@ static inline bool log_enabled(udipe_log_level_t level);
 ///     with a double percent sign so that they are not used during this first
 ///     formatting pass, but become valid format specifiers afterwards.
 /// - Generate an error message based on this format string.
-///   * This step is needed because the tracef() macro does not have a
-///     `vtracef()` variant that takes a `va_list`.
-/// - Log this error message at trace() level.
-#define trace_expr(expr)  \
+///   * This step is needed because the debugf() macro does not have a
+///     `vdebugf()` variant that takes a `va_list`.
+/// - Log this error message at debug() level.
+#define debug_expr(expr)  \
     do {  \
-        if (log_enabled(UDIPE_TRACE)) {  \
-            trace_expr_impl("At %%s:%%u.\n"  \
+        if (log_enabled(UDIPE_DEBUG)) {  \
+            debug_expr_impl("At %%s:%%u.\n"  \
                             "Evaluated %%s\n"  \
                             "       => %s",   \
                             format_for(expr),  \
@@ -282,12 +282,12 @@ static inline bool log_enabled(udipe_log_level_t level);
 ///
 /// This admittedly unpleasant pattern enables the following :
 ///
-/// - Consistently logging function arguments at the \ref UDIPE_TRACE log level,
+/// - Consistently logging function arguments at the \ref UDIPE_DEBUG log level,
 ///   enabling function call tracing with a consistent syntax during debugging.
 /// - Tracking the depth of call stacks via the udipe scope tracking
 ///   infrastructure, enabling logs to be filtered by call stack depth. This
 ///   form of log filtering is often needed when displaying logs at the \ref
-///   UDIPE_TRACE level, as those can be too verbose otherwise resulting in
+///   UDIPE_DEBUG level, as those can be too verbose otherwise resulting in
 ///   excessive slowdown and useful information being drown in noise.
 ///
 /// \param args_format must be a printf format string indicating how the
@@ -300,7 +300,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 ///                    LOGGED_FUNCTION_START_NO_PARAMS.
 #define LOGGED_FUNCTION_START(args_format, ...)  \
     do {  \
-        SCOPE_START_WITH_DESTRUCTOR(trace_function_return, (void*)__func__)  \
+        SCOPE_START_WITH_DESTRUCTOR(debug_function_return, (void*)__func__)  \
             debugf("Called function %s(" args_format ")",  \
                    __func__,  \
                    __VA_ARGS__);
@@ -501,14 +501,14 @@ static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_le
 
 /// Record return from a logged function
 ///
-/// This helper function lets LOGGED_FUNCTION_START/LOGGED_FUNCTION_END trace
-/// when a logged function is exited, much like it already traces when a logged
+/// This helper function lets LOGGED_FUNCTION_START/LOGGED_FUNCTION_END debug
+/// when a logged function is exited, much like it already debugs when a logged
 /// function is entered.
 ///
 /// \param context must be a pointer to the function's `__func__`, casted to
 ///                `void*` for interface compatibility with \ref
 ///                SCOPE_START_WITH_DESTRUCTOR.
-static inline void trace_function_return(void* context) {
+static inline void debug_function_return(void* context) {
     const char* const func = (const char*)context;
     debugf("Returning from %s()", func);
 }
@@ -527,15 +527,15 @@ static inline void restore_thread_logger(void* context) {
     udipe_thread_logger = (logger_t*)context;
 }
 
-/// Implementation of trace_expr()
+/// Implementation of debug_expr()
 ///
-/// This is an implementation detail of trace_expr() that you should not call
+/// This is an implementation detail of debug_expr() that you should not call
 /// directly.
 ///
-/// See the internal section of the trace_expr() documentation for more
+/// See the internal section of the debug_expr() documentation for more
 /// information about what it does.
 UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2)
-void trace_expr_impl(const char* format_template,
+void debug_expr_impl(const char* format_template,
                      const char* expr_format,
                      ...);
 

@@ -265,7 +265,7 @@ static bool try_increase_mlock_budget(size_t size) {
             if (SetProcessWorkingSetSize(system_current_process,
                                          min_working_set,
                                          max_working_set)) {
-                trace("Successfully increased the process working set.");
+                debug("Successfully increased the process working set.");
                 result = true;
                 goto unlock_and_return;
             }

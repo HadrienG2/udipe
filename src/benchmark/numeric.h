@@ -346,11 +346,12 @@
         const size_t low_word_idx = magnitude.low_word_idx;
         assert(low_word_idx < NUM_ACCUMULATOR_WORDS);
         const uint64_t low_word = magnitude.words[0];
-        tracef("Accumulating magnitude[0] = %#018zx into accumulator[%zu] = %#018zx...",
+        debugf("Accumulating magnitude[0] = %#018zx "
+               "into accumulator[%zu] = %#018zx...",
                low_word, low_word_idx, acc->words[low_word_idx]);
         bool carry = accumulate_return_carry(&acc->words[low_word_idx],
                                              low_word);
-        tracef("...yields new accumulator[%zu] = %#018zx and carry %d.",
+        debugf("...yields new accumulator[%zu] = %#018zx and carry %d.",
                low_word_idx, acc->words[low_word_idx], carry);
 
         // Track the highest-order accumulator word that was modified
@@ -363,7 +364,7 @@
         uint64_t high_word = magnitude.words[1];
         high_word += (uint64_t)carry;
         if (carry) {
-            tracef("Propagated carry %d into high_word -> %#018zx.",
+            debugf("Propagated carry %d into high_word -> %#018zx.",
                    carry, high_word);
         }
         carry = false;
@@ -381,11 +382,12 @@
                 exit_with_error("Encountered an accumulator_t add overflow. "
                                 "You can avoid this by normalizing inputs.");
             }
-            tracef("Accumulating high_word = %#018zx into accumulator[%zu] = %#018zx...",
+            debugf("Accumulating high_word = %#018zx "
+                   "into accumulator[%zu] = %#018zx...",
                    high_word, high_word_idx, acc->words[high_word_idx]);
             carry = accumulate_return_carry(&acc->words[high_word_idx],
                                             high_word);
-            tracef("...yields new accumulator[%zu] = %#018zx and carry %d.",
+            debugf("...yields new accumulator[%zu] = %#018zx and carry %d.",
                    high_word_idx, acc->words[high_word_idx], carry);
             highest_modified_idx = high_word_idx;
         }
@@ -410,7 +412,8 @@
         }
 
         // Update the accumulator's highest_word_idx
-        tracef("Updating highest accumulator idx knowing we modified words up to #%zu...",
+        debugf("Updating highest accumulator idx knowing "
+               "we modified words up to #%zu...",
                highest_modified_idx);
         update_highest_idx(acc, highest_modified_idx);
     }
@@ -536,10 +539,12 @@
         const uint64_t subtrahend_high_word = subtrahend.words[1];
         const size_t subtrahend_high_word_idx = subtrahend.low_word_idx + 1;
         if (acc->highest_word_idx > subtrahend_high_word_idx) {
-            trace("acc has higher magnitude because its highest set word is higher.");
+            debug("acc has higher magnitude because "
+                  "its highest set word is higher.");
             return false;
         } else if (acc->highest_word_idx < subtrahend.low_word_idx) {
-            trace("acc has lower magnitude because its highest set word is lower.");
+            debug("acc has lower magnitude because "
+                  "its highest set word is lower.");
             assert((subtrahend_low_word | subtrahend_high_word) != 0);
             return true;
         }
@@ -552,11 +557,11 @@
         const uint64_t acc_high_word = acc->words[acc->highest_word_idx];
         if (acc->highest_word_idx == subtrahend.low_word_idx) {
             if (subtrahend_high_word != 0) {
-                trace("acc has lower magnitude because the addend high word is "
+                debug("acc has lower magnitude because the addend high word is "
                       "nonzero and located higher than the acc high word.");
                 return true;
             }
-            tracef("Magnitude comparison is fully determined by comparison of "
+            debugf("Magnitude comparison is fully determined by comparison of "
                    "acc->words[%zu] = %#zx and subtrahend->words[0] = %#zx",
                    acc->highest_word_idx, acc_high_word, subtrahend_low_word);
             return (acc_high_word < subtrahend_low_word);
@@ -571,17 +576,17 @@
         // subtraction because the carry can reduce the high word by at most one,
         // which is enough to take it to zero but not to take it below zero
         if (acc_high_word > subtrahend_high_word) {
-            trace("acc has higher magnitude because same-index "
+            debug("acc has higher magnitude because same-index "
                   "subtrahend high word is lower.");
             return false;
         }
         if (acc_high_word < subtrahend_high_word) {
-            trace("acc has lower magnitude because same-index "
+            debug("acc has lower magnitude because same-index "
                   "subtrahend high word is higher.");
             return true;
         }
         assert(acc_high_word == subtrahend_high_word);
-        trace("acc has the same high word as subtrahend, "
+        debug("acc has the same high word as subtrahend, "
               "magnitude comparison is determined by comparison of low words.");
         return (acc_low_word < subtrahend_low_word);
     }
@@ -645,7 +650,7 @@
         const uint64_t fraction = value_bits & FRACTION_MASK_F64;
         const uint64_t raw_exponent = value_bits & EXPONENT_MASK_F64;
         const bool negative = (value_bits & SIGN_BIT_F64) != 0;
-        tracef("Processing value %g (%a) with "
+        debugf("Processing value %g (%a) with "
                "fraction %#015zx, biased exponent %#05zx (%zu), sign %d",
                value,
                value,

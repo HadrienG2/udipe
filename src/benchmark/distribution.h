@@ -264,13 +264,13 @@
         // final distribution_t, it can only use the sorted_values field.
         const int64_t* sorted_values = distribution_layout(dist).sorted_values;
         const size_t end_pos = dist->num_bins;
-        tracef("Searching for a bin with a value around %zd (direction %d) "
+        debugf("Searching for a bin with a value around %zd (direction %d) "
                "within a distribution with %zu bins.",
                value, (int)direction, dist->num_bins);
 
         // Handle the empty distribution edge case
         if (dist->num_bins == 0) {
-            trace("Distribution is empty: return placeholder bin index.");
+            debug("Distribution is empty: return placeholder bin index.");
             switch (direction) {
             case BIN_BELOW:
             case BIN_NEAREST:
@@ -284,7 +284,7 @@
         const size_t last_pos = end_pos - 1;
         const int64_t last_value = sorted_values[last_pos];
         if (value > last_value) {
-            tracef("Input value is above last bin value %zd.", last_value);
+            debugf("Input value is above last bin value %zd.", last_value);
             switch (direction) {
             case BIN_BELOW:
             case BIN_NEAREST:
@@ -293,7 +293,7 @@
                 return PTRDIFF_MAX;
             }
         } else if (value == last_value) {
-            tracef("Input value is equal to last bin value %zd.", last_value);
+            debugf("Input value is equal to last bin value %zd.", last_value);
             return last_pos;
         }
         assert(value < last_value);
@@ -302,7 +302,7 @@
         const size_t first_pos = 0;
         const int64_t first_value = sorted_values[first_pos];
         if (value < first_value) {
-            tracef("Input value is below first bin value %zd.", first_value);
+            debugf("Input value is below first bin value %zd.", first_value);
             switch (direction) {
             case BIN_BELOW:
                 return PTRDIFF_MIN;
@@ -311,7 +311,7 @@
                 return first_pos;
             }
         } else if (value == first_value) {
-            tracef("Input value is equal to first bin value %zd.", first_value);
+            debugf("Input value is equal to first bin value %zd.", first_value);
             return first_pos;
         }
         assert(value > first_value);
@@ -327,7 +327,7 @@
         int64_t below_value = first_value;
         size_t above_pos = last_pos;
         int64_t above_value = last_value;
-        tracef("Input value belongs to central range ]%zd; %zd[, "
+        debugf("Input value belongs to central range ]%zd; %zd[, "
                "will now locate bin via binary search...",
                below_value, above_value);
         while (above_pos - below_pos > 1) {
@@ -365,7 +365,7 @@
 
         // Narrowed down a pair of bins between which the value belongs, insert
         // a new bin at the appropriate position
-        tracef("Narrowed search interval to 1-bin gap ]%zu; %zu[.",
+        debugf("Narrowed search interval to 1-bin gap ]%zu; %zu[.",
                below_pos, above_pos);
         assert(above_pos == below_pos + 1);
         assert(value > below_value);
@@ -451,7 +451,7 @@
                                     int64_t value,
                                     size_t count) {
         distribution_t* dist = &builder->inner;
-        tracef("Asked to insert %zu copies of value %zd "
+        debugf("Asked to insert %zu copies of value %zd "
                "into a distribution with %zu bins.",
                count, value,
                dist->num_bins);
@@ -467,7 +467,7 @@
             const size_t end_pos = dist->num_bins;
             const size_t last_pos = end_pos - 1;
             const int64_t last_value = layout.sorted_values[last_pos];
-            tracef("Value is past the end of histogram %zd, "
+            debugf("Value is past the end of histogram %zd, "
                    "will become new last bin #%zu.",
                    last_value, end_pos);
             distribution_create_bin(builder, end_pos, value, count);
@@ -479,11 +479,11 @@
         // Got a bin above or equal to the value, find out which
         const int64_t bin_value = layout.sorted_values[bin_pos];
         if (value == bin_value) {
-            tracef("Found matching bin #%zu, add value to it.", bin_pos);
+            debugf("Found matching bin #%zu, add value to it.", bin_pos);
             assert(layout.counts[bin_pos] <= SIZE_MAX - count);
             layout.counts[bin_pos] += count;
         } else {
-            tracef("Found upper neighbour %zd in bin #%zu, insert bin here.",
+            debugf("Found upper neighbour %zd in bin #%zu, insert bin here.",
                    bin_value, bin_pos);
             distribution_create_bin(builder, bin_pos, value, count);
         }
@@ -550,7 +550,7 @@
     size_t distribution_bin_by_rank(const distribution_t* dist,
                                     size_t value_rank) {
         // Handle the case where the value is in the first histogram bin
-        tracef("Searching for the bin matching value rank %zu "
+        debugf("Searching for the bin matching value rank %zu "
                "within a distribution with %zu bins.",
                value_rank, dist->num_bins);
         assert(value_rank < distribution_len(dist));
@@ -559,7 +559,7 @@
         const size_t first_end_rank = layout.end_ranks[first_pos];
         if (value_rank < first_end_rank) {
             const int64_t first_value = layout.sorted_values[first_pos];
-            tracef("This is value %zd from first bin with end_rank %zu.",
+            debugf("This is value %zd from first bin with end_rank %zu.",
                    first_value, first_end_rank);
             return first_pos;
         }
@@ -578,7 +578,7 @@
         size_t below_end_rank = layout.end_ranks[below_pos];
         size_t above_pos = dist->num_bins - 1;
         size_t above_end_rank = layout.end_ranks[above_pos];
-        tracef("Input rank belongs to central rank range [%zd; %zd[, "
+        debugf("Input rank belongs to central rank range [%zd; %zd[, "
                "will now locate bin via binary search...",
                below_end_rank, above_end_rank);
         while (above_pos - below_pos > 1) {
@@ -610,7 +610,7 @@
         }
 
         // Narrowed down the pair of bins to which value_rank belongs
-        tracef("Narrowed search to single bin ]%zu; %zu]: "
+        debugf("Narrowed search to single bin ]%zu; %zu]: "
                "value must come from bin #%zu.",
                below_pos, above_pos, above_pos);
         assert(above_pos == below_pos + 1);
@@ -1003,7 +1003,7 @@
     uint64_t distribution_min_difference(const distribution_t* dist) {
         const size_t num_bins = dist->num_bins;
         if (num_bins == 0) {
-            trace("No value, will return UINT64_MAX");
+            debug("No value, will return UINT64_MAX");
             return UINT64_MAX;
         }
 
@@ -1061,7 +1061,7 @@
         assert(dist->num_bins >= (size_t)1);
         const size_t num_values = distribution_len(dist);
         const size_t value_rank = rand() % num_values;
-        tracef("Sampling %zu-th value from a distribution containing %zu values, "
+        debugf("Sampling %zu-th value from a distribution containing %zu values, "
                "spread across %zu bins.",
                value_rank, num_values, dist->num_bins);
         return distribution_nth(dist, value_rank);

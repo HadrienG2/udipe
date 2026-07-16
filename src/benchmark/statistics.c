@@ -208,7 +208,7 @@
     UDIPE_NON_NULL_ARGS
     statistics_t analyzer_apply(analyzer_t* analyzer,
                                 const distribution_t* dist) {
-        trace("Computing sample statistics...");
+        debug("Computing sample statistics...");
         statistics_t result;
         result.center_start.sample =
             distribution_quantile(dist, CENTER_START_QUANTILE);
@@ -222,7 +222,7 @@
         result.center_width.sample =
             result.center_end.sample - result.center_start.sample;
 
-        trace("Performing bootstrap resampling...");
+        debug("Performing bootstrap resampling...");
         for (size_t run = 0; run < NUM_RESAMPLES; ++run) {
             tracef("- Performing resample #%zu/%zu", run, NUM_RESAMPLES);
             distribution_t resample =
@@ -251,7 +251,7 @@
             analyzer->resample_builder = distribution_reset(&resample);
         }
 
-        trace("Estimating confidence intervals from resamples...");
+        debug("Estimating confidence intervals from resamples...");
         set_result_confidence(analyzer,
                               CENTER_START,
                               &result.center_start);
@@ -360,11 +360,11 @@
                    analyzer->mean_capacity, analyzer->mean_accumulators);
         }
 
-        trace("Collecting mean contributions...");
+        debug("Collecting mean contributions...");
         const distribution_layout_t layout = distribution_layout(dist);
         const size_t len = distribution_len(dist);
         const double len_norm = 1.0 / (double)len;
-        tracef("- Distribution contains %zu values, corresponding to norm %g.",
+        debugf("- Distribution contains %zu values, corresponding to norm %g.",
                len, len_norm);
         double* const mean_accumulators = analyzer->mean_accumulators;
         size_t prev_end_rank = 0;
@@ -383,7 +383,7 @@
                    rel_count * 100.0, mean_accumulators[bin]);
         }
 
-        trace("Computing the mean...");
+        debug("Computing the mean...");
         return sum_f64(mean_accumulators, num_bins);
     }
 
@@ -403,13 +403,13 @@
     void set_result_confidence(analyzer_t* analyzer,
                                statistic_id_t stat,
                                estimate_t* estimate) {
-        trace("Sorting bootstrap statistics...");
+        debug("Sorting bootstrap statistics...");
         qsort(analyzer->statistics[stat],
               NUM_RESAMPLES,
               sizeof(double),
               compare_f64);
 
-        trace("Deducing confidence interval...");
+        debug("Deducing confidence interval...");
         const size_t last_idx = NUM_RESAMPLES - 1;
         const size_t low_idx = round((1.0 - CONFIDENCE) / 2.0 * last_idx);
         const size_t high_idx = round((1.0 + CONFIDENCE) / 2.0 * last_idx);

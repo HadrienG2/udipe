@@ -165,7 +165,7 @@ void future_status_debug_check(future_status_t status,
             case STATUS_KIND_ALLOCATED:
                 return random_status(STATUS_KIND_AVAILABLE + (rand() % 2));
             }
-            trace_expr(result.downstream_count);
+            debug_expr(result.downstream_count);
 
             result.downstream_count_overflow = false;
 
@@ -186,10 +186,10 @@ void future_status_debug_check(future_status_t status,
             default:
                 exit_with_error("Excluded above");
             }
-            trace_expr((size_t)result.type);
+            debug_expr((size_t)result.type);
 
             result.available = (kind == STATUS_KIND_AVAILABLE);
-            trace_expr((bool)result.available);
+            debug_expr((bool)result.available);
 
             const bool has_dependencies =
                 future_type_has_dependencies(result.type);
@@ -246,7 +246,7 @@ void future_status_debug_check(future_status_t status,
             default:
                 exit_with_error("Should never happen");
             }
-            trace_expr((size_t)result.state);
+            debug_expr((size_t)result.state);
 
             switch (result.state) {
             case STATE_UNINITIALIZED:
@@ -274,7 +274,7 @@ void future_status_debug_check(future_status_t status,
             default:
                 exit_with_error("Should never happen");
             }
-            trace_expr((size_t)result.outcome);
+            debug_expr((size_t)result.outcome);
 
             result.notify_address = (result.type == TYPE_INVALID) ? false
                                                                   : rand() % 2;
@@ -287,8 +287,8 @@ void future_status_debug_check(future_status_t status,
                 result.notify_event_or_lazy_lock = uses_worker ? rand() % 2
                                                                : false;
             }
-            trace_expr((size_t)result.notify_address);
-            trace_expr((bool)result.notify_event_or_lazy_lock);
+            debug_expr((size_t)result.notify_address);
+            debug_expr((bool)result.notify_event_or_lazy_lock);
 
             result.reserved = 0;
             return result;
