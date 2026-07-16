@@ -5,6 +5,7 @@
 
 #include "error.h"
 #include "memory.h"
+#include "scope.h"
 #include "thread_name.h"
 #include "visibility.h"
 
@@ -369,7 +370,11 @@ UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2)
 void trace_expr_impl(const char* format_template,
                      const char* expr_format,
                      ...) {
-    LOGGED_FUNCTION_START("\"%s\", \"%s\", ...", format_template, expr_format)
+    // As this is the implementation of a logging macro, we can't afford to do
+    // much logging or we will drown the intended user logs in user noise.
+    // That's why we use a raw scope rather than LOGGED_FUNCTION and do not emit
+    // any debug log inside as we normally would.
+    SCOPE_START
         // Determine the format string size
         int result = snprintf(NULL, 0, format_template, expr_format);
         exit_on_negative(result, "Failed to evaluate format string size!");
@@ -405,5 +410,5 @@ void trace_expr_impl(const char* format_template,
 
         // Finally log the trace message
         trace(trace_message);
-    LOGGED_FUNCTION_END
+    SCOPE_END
 }
