@@ -31,7 +31,7 @@ void event_cache_finalize(event_cache_t* cache) {
         debugf("Liberating all events from cache %p...", cache);
         while (cache->events[cache->latest] != EVENT_INVALID) {
             assert(cache->latest < EVENT_CACHE_CAPACITY);
-            tracef("Liberating occupied entry events[%zu]...", (size_t)cache->latest);
+            tracef("- Liberating occupied entry events[%zu]...", (size_t)cache->latest);
             event_finalize(&cache->events[cache->latest]);
             sync_cache_decrement_index(&cache->latest, EVENT_CACHE_CAPACITY);
         }
@@ -130,7 +130,7 @@ void event_cache_finalize(event_cache_t* cache) {
                 assert(target < EVENT_CACHE_CAPACITY);
                 const fd_t fd = cache->inpolls[target];
                 assert(fd >= 0);
-                tracef("Liberating inpoll %d from entry inpolls[%zu]...",
+                tracef("- Liberating inpoll %d from entry inpolls[%zu]...",
                        fd, (size_t)target);
                 inpoll_finalize(&cache->inpolls[target]);
                 sync_cache_decrement_index(&target, EVENT_CACHE_CAPACITY);

@@ -26,7 +26,7 @@ UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 future_thread_cache_t* future_thread_cache_initialize(udipe_context_t* context) {
     LOGGED_FUNCTION_START("%p", context)
-        debug("- Allocating the shared struct...");
+        debug("Allocating the shared struct...");
         future_thread_cache_t* const cache = (future_thread_cache_t*)malloc(
             sizeof(future_thread_cache_t)
         );
@@ -34,21 +34,21 @@ future_thread_cache_t* future_thread_cache_initialize(udipe_context_t* context) 
         memset(cache, 0, sizeof(future_thread_cache_t));
         debugf(" ...done, it will reside at address %p.", (void*)cache);
 
-        debug("- Setting up the future pointer cache...");
+        debug("Setting up the future pointer cache...");
         cache->futures = future_pointer_cache_initialize(false);
 
-        debug("- Setting up the event object cache...");
+        debug("Setting up the event object cache...");
         cache->events = event_cache_initialize();
 
         #ifdef __linux__
-            debug("- Setting up the inpoll+eventfd cache...");
+            debug("Setting up the inpoll+eventfd cache...");
             cache->latched_inpolls = latched_inpoll_cache_initialize();
         #endif
 
-        debug("- Setting up flags...");
+        debug("Setting up flags...");
         atomic_init(&cache->flags, 0);
 
-        debugf("- Registering cache with context %p...", context);
+        debugf("Registering cache with context %p...", context);
         cache->context = context;
         future_context_cache_register_thread(&context->future_global_cache,
                                              cache);

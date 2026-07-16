@@ -460,14 +460,14 @@ const char* get_thread_name() {
                     expected_thread_name[len] = '\0';
                     tracef("- Testing name of length %zu: %s", len, expected_thread_name);
 
-                    trace("Setting thread name...");
+                    trace("- Setting thread name...");
                     set_thread_name(expected_thread_name);
 
-                    trace("Checking thread name...");
+                    trace("- Checking thread name...");
                     actual_thread_name = get_thread_name();
                     ensure(actual_thread_name);
 
-                    tracef("Got name %s", actual_thread_name);
+                    tracef("- Got name %s", actual_thread_name);
                     ensure_eq(strcmp(expected_thread_name, actual_thread_name), 0);
                 }
             });

@@ -26,11 +26,13 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
     size_t min_size = SIZE_MAX;
     unsigned os_cpu;
     hwloc_bitmap_foreach_begin(os_cpu, thread_cpuset)
-        tracef("Finding the PU object associated with CPU %d...", os_cpu);
+        tracef("- Taking CPU #%d into account...", os_cpu);
+
+        trace("  * Finding the associated PU object...");
         const hwloc_obj_t pu = hwloc_get_pu_obj_by_os_index(topology, os_cpu);
         exit_on_null(pu, "Failed to find PU from thread cpuset!");
 
-        trace("Finding the cache capacity of this PU...");
+        trace("  * Finding the cache capacity of this PU...");
         const hwloc_obj_t cache = hwloc_get_ancestor_obj_by_type(topology,
                                                                  cache_type,
                                                                  pu);
@@ -38,9 +40,9 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
         assert(("Caches should have attributes", cache->attr));
         assert(cache->attr->cache.size < (uint64_t)SIZE_MAX);
         size_t cache_size = (size_t)cache->attr->cache.size;
-        tracef("Requested cache can hold %zu bytes.", cache_size);
+        tracef("  * Requested cache can hold %zu bytes.", cache_size);
 
-        trace("Determining cache cpuset...");
+        trace("  * Determining cache cpuset...");
         assert(("Caches should have a cpuset", cache->cpuset));
         const hwloc_cpuset_t cache_cpuset = hwloc_bitmap_dup(cache->cpuset);
         exit_on_null(cache_cpuset, "Failed to duplicate cache cpuset!");
@@ -48,29 +50,29 @@ static size_t smallest_cache_capacity(hwloc_topology_t topology,
             char* cpuset_str;
             exit_on_negative(hwloc_bitmap_list_asprintf(&cpuset_str, cache_cpuset),
                              "Failed to display cache cpuset!");
-            tracef("Cache is attached to CPU(s) %s.", cpuset_str);
+            tracef("  * Cache is attached to CPU(s) %s.", cpuset_str);
             free(cpuset_str);
         }
 
-        trace("Removing hyperthreads...");
+        trace("  * Removing hyperthreads...");
         int result = hwloc_bitmap_singlify_per_core(topology, cache_cpuset, 0);
         ensure_eq(result, 0);
         if (log_enabled(UDIPE_TRACE)) {
             char* cpuset_str;
             exit_on_negative(hwloc_bitmap_list_asprintf(&cpuset_str, cache_cpuset),
                              "Failed to display cache cpuset!");
-            tracef("That leaves CPU(s) %s.", cpuset_str);
+            tracef("  * That leaves CPU(s) %s.", cpuset_str);
             free(cpuset_str);
         }
 
-        trace("Computing fair share of cache across attached CPU(s)...");
+        trace("  * Computing fair share of cache across attached CPU(s)...");
         const int weight = hwloc_bitmap_weight(cache_cpuset);
         assert(weight >= 1);
         cache_size /= (size_t)weight;
         hwloc_bitmap_free(cache_cpuset);
-        tracef("Each CPU can safely use %zu bytes from this cache.", cache_size);
+        tracef("  * Each CPU can safely use %zu bytes from this cache.", cache_size);
 
-        trace("Updating minimum cache capacity...");
+        trace("  * Updating minimum cache capacity...");
         if (cache_size < min_size) min_size = cache_size;
     hwloc_bitmap_foreach_end();
     assert(("Thread cpuset should contain at least one PU", min_size < SIZE_MAX));
@@ -336,15 +338,15 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
         trace("Allocating all the buffers...");
         void* buffers[UDIPE_MAX_BUFFERS];
         for (size_t buf = 0; buf < UDIPE_MAX_BUFFERS; ++buf) {
-            tracef("Allocating buffer #%zu...", buf);
+            tracef("- Allocating buffer #%zu...", buf);
             buffers[buf] = buffer_allocate(&allocator);
 
-            trace("Checking invariant fields...");
+            trace("  * Checking invariant fields...");
             ensure_eq(allocator.config.buffer_size, config.buffer_size);
             ensure_eq(allocator.config.buffer_count, config.buffer_count);
             ensure_eq(allocator.memory_pool, memory_pool);
 
-            trace("Handling allocation failure...");
+            trace("  * Handling allocation failure...");
             if (!buffers[buf]) {
                 ensure_ge(buf, config.buffer_count);
                 ensure_eq(bit_array_count(allocator.buffer_availability,
@@ -354,7 +356,7 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
                 continue;
             }
 
-            trace("Handling allocation success...");
+            trace("  * Handling allocation success...");
             ensure_lt(buf, config.buffer_count);
             ensure_eq(bit_array_count(allocator.buffer_availability,
                                       UDIPE_MAX_BUFFERS,
@@ -364,7 +366,7 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
             ensure_eq(offset % config.buffer_size, (size_t)0);
             ensure_lt(offset / config.buffer_size, config.buffer_count);
 
-            trace("Checking allocation unicity...");
+            trace("  * Checking allocation unicity...");
             for (size_t other = 0; other < buf; ++other) {
                 ensure_ne(buffers[buf], buffers[other]);
             }
@@ -372,15 +374,15 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
 
         trace("Liberating all the buffers...");
         for (size_t buf = 0; buf < config.buffer_count; ++buf) {
-            tracef("Liberating buffer #%zu...", buf);
+            tracef("- Liberating buffer #%zu...", buf);
             buffer_liberate(&allocator, buffers[buf]);
 
-            trace("Checking invariant fields...");
+            trace("  * Checking invariant fields...");
             ensure_eq(allocator.config.buffer_size, config.buffer_size);
             ensure_eq(allocator.config.buffer_count, config.buffer_count);
             ensure_eq(allocator.memory_pool, memory_pool);
 
-            trace("Checking availability bit array...");
+            trace("  * Checking availability bit array...");
             ensure_eq(bit_array_count(allocator.buffer_availability,
                                       UDIPE_MAX_BUFFERS,
                                       true),

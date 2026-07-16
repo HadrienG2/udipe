@@ -438,20 +438,20 @@ void future_status_debug_check(future_status_t status,
         configure_rand();
 
         for (size_t i = 0; i < NUM_TRIALS; ++i) {
-            trace("Testing future initialization...");
+            trace("- Testing future initialization...");
             udipe_future_t future;
             check_future_status_init(&future, random_status(STATUS_KIND_UNALLOCATED));
 
-            trace("Testing status word writes...");
+            trace("- Testing status word writes...");
             check_future_status_write(&future, random_status(STATUS_KIND_ANY));
 
-            trace("Testing status word CAS failure...");
+            trace("- Testing status word CAS failure...");
             check_future_status_cas_fail(&future);
 
-            trace("Testing status word CAS success...");
+            trace("- Testing status word CAS success...");
             check_future_status_cas_success(&future);
 
-            trace("Testing downstream count increment/decrement...");
+            trace("- Testing downstream count increment/decrement...");
             check_future_downstream_count_inc_dec(&future);
         }
     }
