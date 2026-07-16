@@ -113,18 +113,20 @@ UDIPE_NON_NULL_ARGS
 static inline
 void prepare_downstream_count_inc(future_status_t* status,
                                   downstream_count_policy_t count_policy) {
-    future_status_debug_check(*status, true);
-    assert(status->state != STATE_RESULT);
-    ensure(!status->downstream_count_overflow);
-    switch (count_policy) {
-    case DOWNSTREAM_COUNT_CYCLE:
-        ensure_lt((size_t)status->downstream_count,
-                  (size_t)MAX_DOWNSTREAM_COUNT);
-        ++(status->downstream_count);
-        break;
-    case DOWNSTREAM_COUNT_KEEP:
-        break;
-    }
+    LOGGED_FUNCTION_START("%p, %d", status, count_policy)
+        future_status_debug_check(*status, true);
+        assert(status->state != STATE_RESULT);
+        ensure(!status->downstream_count_overflow);
+        switch (count_policy) {
+        case DOWNSTREAM_COUNT_CYCLE:
+            ensure_lt((size_t)status->downstream_count,
+                      (size_t)MAX_DOWNSTREAM_COUNT);
+            ++(status->downstream_count);
+            break;
+        case DOWNSTREAM_COUNT_KEEP:
+            break;
+        }
+    LOGGED_FUNCTION_END
 }
 
 /// Apply the effect of future_downstream_count_dec() to a local status word
@@ -155,17 +157,19 @@ UDIPE_NON_NULL_ARGS
 static inline
 void prepare_downstream_count_dec(future_status_t* status,
                                   downstream_count_policy_t count_policy) {
-    future_status_debug_check(*status, true);
-    ensure(!status->downstream_count_overflow);
-    switch (count_policy) {
-    case DOWNSTREAM_COUNT_CYCLE:
-        ensure_ge((size_t)status->downstream_count,
-                  (size_t)1);
-        --(status->downstream_count);
-        break;
-    case DOWNSTREAM_COUNT_KEEP:
-        break;
-    }
+    LOGGED_FUNCTION_START("%p, %d", status, count_policy)
+        future_status_debug_check(*status, true);
+        ensure(!status->downstream_count_overflow);
+        switch (count_policy) {
+        case DOWNSTREAM_COUNT_CYCLE:
+            ensure_ge((size_t)status->downstream_count,
+                      (size_t)1);
+            --(status->downstream_count);
+            break;
+        case DOWNSTREAM_COUNT_KEEP:
+            break;
+        }
+    LOGGED_FUNCTION_END
 }
 
 /// Check if two future status words are equal
@@ -476,42 +480,44 @@ UDIPE_NON_NULL_ARGS
 static inline
 bool future_downstream_count_try_inc(udipe_future_t* future,
                                      future_status_t* latest_status) {
-    trace("Incrementing downstream_count...");
-    future_status_debug_check(*latest_status, true);
-    future_status_t pre_op_status = (future_status_word_t){
-        // Acquire ordering needed because subsequent operations on the future
-        // should not be reordered before this downstream_count increment.
-        .as_word = atomic_fetch_add_explicit(&future->status_word,
-                                             1,
-                                             memory_order_acquire)
-    }.as_bitfield;
-    future_status_debug_check(pre_op_status, true);
-    if (pre_op_status.downstream_count_overflow
-        || pre_op_status.downstream_count == MAX_DOWNSTREAM_COUNT)
-    {
-        errorf("Sorry, the current future implementation does not support "
-               "attaching more than %zu waiters to a future",
-               (size_t)MAX_DOWNSTREAM_COUNT);
-        exit(EXIT_FAILURE);
-    } else if (pre_op_status.state == STATE_RESULT) {
-        trace("Future concurrently switched to STATE_RESULT, reverting...");
-        // This is a rare case where the decrement does not need release
-        // ordering because it directly follows the acquire increment, without
-        // any other manipulation of the future meanwhile. An acquire barrier is
-        // still needed, however, because we do want to synchronize with the
-        // final future state if it changes again (which is unlikely).
-        *latest_status = future_downstream_count_dec(future,
-                                                     memory_order_acquire);
-        assert(latest_status->state == STATE_RESULT);
+    LOGGED_FUNCTION_START("%p, %p", future, latest_status)
+        debug("Incrementing downstream_count...");
         future_status_debug_check(*latest_status, true);
-        return false;
-    } {
-        trace("Updating latest_status after successful increment...");
-        *latest_status = pre_op_status;
-        ++(latest_status->downstream_count);
-        future_status_debug_check(*latest_status, true);
-        return true;
-    }
+        future_status_t pre_op_status = (future_status_word_t){
+            // Acquire ordering needed because subsequent operations on the
+            // future should not be reordered before downstream_count increment.
+            .as_word = atomic_fetch_add_explicit(&future->status_word,
+                                                 1,
+                                                 memory_order_acquire)
+        }.as_bitfield;
+        future_status_debug_check(pre_op_status, true);
+        if (pre_op_status.downstream_count_overflow
+            || pre_op_status.downstream_count == MAX_DOWNSTREAM_COUNT)
+        {
+            errorf("Sorry, the current future implementation does not support "
+                   "attaching more than %zu waiters to a future",
+                   (size_t)MAX_DOWNSTREAM_COUNT);
+            exit(EXIT_FAILURE);
+        } else if (pre_op_status.state == STATE_RESULT) {
+            debug("Future concurrently switched to STATE_RESULT, reverting...");
+            // This is a rare case where the decrement does not need release
+            // ordering because it follows the acquire increment, without any
+            // other manipulation of the future meanwhile. An acquire barrier is
+            // still needed, however, because we do want to synchronize with the
+            // final future state if it changes again (which is unlikely).
+            *latest_status = future_downstream_count_dec(future,
+                                                         memory_order_acquire);
+            assert(latest_status->state == STATE_RESULT);
+            future_status_debug_check(*latest_status, true);
+            return false;
+        } {
+            debug("Updating latest_status after successful increment...");
+            *latest_status = pre_op_status;
+            ++(latest_status->downstream_count);
+            future_status_debug_check(*latest_status, true);
+            return true;
+        }
+    LOGGED_FUNCTION_END
 }
 
 
