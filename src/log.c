@@ -369,7 +369,7 @@ UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2)
 void trace_expr_impl(const char* format_template,
                      const char* expr_format,
                      ...) {
-    LOGGED_FUNCTION_START("%s, %s, ...", format_template, expr_format)
+    LOGGED_FUNCTION_START("\"%s\", \"%s\", ...", format_template, expr_format)
         // Determine the format string size
         int result = snprintf(NULL, 0, format_template, expr_format);
         exit_on_negative(result, "Failed to evaluate format string size!");
