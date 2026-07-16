@@ -261,6 +261,7 @@ logger_t logger_initialize(udipe_log_config_t config) {
             } else {
                 assert(("No other return value expected", result == 0));
                 assert(("No other error expected", errno == ENOTTY));
+                errno = 0;
                 atomic_store_explicit(&stderr_is_tty,
                                       false,
                                       memory_order_relaxed);

@@ -168,6 +168,7 @@ void event_reset(event_t event) {
             const int result = read(event, total.chars, sizeof(total.chars));
             if (result == -1) switch(errno) {
             case EAGAIN:  // eventfd not signaled but is in nonblocking mode
+                errno = 0;
                 warn("Reset event which was not in the signaled state.");
                 return;
             case EINVAL:  // size of the supplied buffer is less than 8 bytes.

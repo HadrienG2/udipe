@@ -31,6 +31,7 @@ void warn_on_errno() {
         // No errno, no output
         if (errno == 0) return;
         const int initial_errno = errno;
+        errno = 0;
 
         // Output buffer
         //
@@ -57,7 +58,6 @@ void warn_on_errno() {
                 assert(("Output buffer should be large enough to hold an integer",
                         (unsigned)out_chars < sizeof(output)));
                 warn(output);
-                errno = 0;
                 return;
             }
 
@@ -102,7 +102,6 @@ void warn_on_errno() {
         #endif
         assert(("String snprintf should never fail!", result > 0));
         warn(output);
-        errno = 0;
     SCOPE_END
 }
 

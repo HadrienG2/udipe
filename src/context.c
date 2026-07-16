@@ -11,7 +11,6 @@
 #include "refcounted_tss.h"
 #include "visibility.h"
 
-#include <errno.h>
 #include <hwloc.h>
 #include <stdalign.h>
 #include <stdlib.h>

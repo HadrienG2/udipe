@@ -60,16 +60,17 @@ bool wait_on_address(_Atomic uint32_t* atom,
                       "or an unrelated spurious wakeup.");
                 return true;
             case -1:
-                const int futex_errno = errno;
-                errno = 0;
-                switch (futex_errno) {
+                switch (errno) {
                 case EAGAIN:
+                    errno = 0;
                     debug("Value changed before we even started waiting.");
                     return true;
                 case ETIMEDOUT:
+                    errno = 0;
                     debug("Wait for change timed out.");
                     return false;
                 case EINTR:
+                    errno = 0;
                     debug("Wait for change was interrupted by a signal.");
                     return false;
                 // timeout did not point to a valid user-space address.

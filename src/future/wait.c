@@ -638,6 +638,7 @@ future_status_t future_wait_timer_once(
             case -1:
                 switch (errno) {
                     case EINTR:
+                        errno = 0;
                         trace("Interrupted by signal, updating timeout...");
                         udipe_duration_ns_t elapsed_time =
                             stopwatch_measure(&stopwatch);
@@ -652,7 +653,7 @@ future_status_t future_wait_timer_once(
                     case EINVAL:  // nfds too high or timeout is negative
                     case ENOMEM:  // Unable to allocate kernel memory
                     default:
-                        exit_with_error("These errors should never happen");
+                        exit_after_c_error("These errors should never happen");
                 }
             default:
                 exit_with_error("This result should never be returned");

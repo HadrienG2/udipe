@@ -77,6 +77,7 @@
             switch (errno) {
             case ELOOP:  // fd is an epollfd and this attachment would result in an
                          // epoll loop or in an epoll nesting depth greater than 5
+                errno = 0;
                 warn("Encountered an epoll loop or excessive epoll nesting, "
                      "will assume it is excessive nesting...");
                 return INPOLL_ATTACH_TOO_NESTED;
@@ -114,6 +115,7 @@
             assert(result == -1);
             switch (errno) {
             case ENOENT:  // (op is DEL) fd is not registered with this epollfd.
+                errno = 0;
                 debugf("Attempted to detach upstream %d from inpoll %d, but no "
                        "such attachment exits. This can happen on collective "
                        "future cancelation, otherwise it's suspicious.",
@@ -187,6 +189,7 @@
 
                 switch(errno) {
                 case EINTR:  // The call was interrupted by a signal
+                    errno = 0;
                     debug("Got interrupted by a signal, updating timeout...");
                     const udipe_duration_ns_t elapsed_time =
                         stopwatch_measure(&stopwatch);

@@ -55,6 +55,7 @@
             case EINTR:  // Interrupted by a signal
                 // On Linux, man 2 close guarantees that fds will be closed even if
                 // a signal occurs, on other OSes behavior is unspecified.
+                errno = 0;
                 #ifndef __linux__
                     warn("Interrupted by a signal, fd may not have been closed properly.");
                 #endif
