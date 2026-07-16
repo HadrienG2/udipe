@@ -256,7 +256,7 @@ static inline bool log_enabled(udipe_log_level_t level);
     do {  \
         logger_t* const udipe_prev_logger = udipe_thread_logger;  \
         udipe_thread_logger = (logger_ptr);  \
-        tracef("Set up logger %p.", logger_ptr);  \
+        debugf("Set up logger %p.", logger_ptr);  \
         SCOPE_START_WITH_DESTRUCTOR(restore_thread_logger,  \
                                     (void*)udipe_prev_logger)
 
@@ -301,7 +301,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 #define LOGGED_FUNCTION_START(args_format, ...)  \
     do {  \
         SCOPE_START_WITH_DESTRUCTOR(trace_function_return, (void*)__func__)  \
-            tracef("Called function %s(" args_format ")",  \
+            debugf("Called function %s(" args_format ")",  \
                    __func__,  \
                    __VA_ARGS__);
 
@@ -349,7 +349,7 @@ static inline bool log_enabled(udipe_log_level_t level);
             udipe_thread_log_level = (level);  \
             assert(udipe_thread_log_level == UDIPE_DEBUG  \
                    || udipe_thread_log_level == UDIPE_TRACE);  \
-            trace("Start of a with_log_level() scope.");  \
+            debug("Start of a with_log_level() scope.");  \
             do __VA_ARGS__ while(false);  \
         } while(false)
 #elif defined(_MSC_VER)
@@ -361,7 +361,7 @@ static inline bool log_enabled(udipe_log_level_t level);
                 udipe_thread_log_level = (level);  \
                 assert(udipe_thread_log_level == UDIPE_DEBUG  \
                        || udipe_thread_log_level == UDIPE_TRACE);  \
-                trace("Start of a with_log_level() scope.");  \
+                debug("Start of a with_log_level() scope.");  \
                 do __VA_ARGS__ while(false);  \
             }  \
             __finally {  \
@@ -495,7 +495,7 @@ static inline udipe_log_level_t thread_log_level(udipe_log_level_t level) {
 /// This helper function enables with_log_level() to clean up after itself
 /// through the GNU `__cleanup__` attribute.
 static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_level) {
-    trace("End of a with_log_level() scope.");
+    debug("End of a with_log_level() scope.");
     udipe_thread_log_level = *prev_log_level;
 }
 
@@ -510,7 +510,7 @@ static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_le
 ///                SCOPE_START_WITH_DESTRUCTOR.
 static inline void trace_function_return(void* context) {
     const char* const func = (const char*)context;
-    tracef("Returning from %s()", func);
+    debugf("Returning from %s()", func);
 }
 
 /// Restore `udipe_thread_logger`
@@ -521,7 +521,7 @@ static inline void trace_function_return(void* context) {
 ///                `void*` for interface compatibility with \ref
 ///                SCOPE_START_WITH_DESTRUCTOR.
 static inline void restore_thread_logger(void* context) {
-    tracef("Disabled logger %p, back to %p.",
+    debugf("Disabled logger %p, back to %p.",
            udipe_thread_logger,
            context);
     udipe_thread_logger = (logger_t*)context;
