@@ -163,50 +163,52 @@
 UDIPE_NODISCARD
 static inline
 udipe_timer_t timer_initialize() {
-    #ifdef __linux__
-        int maybe_timerfd = timerfd_create(
-            CLOCK_REALTIME,
-            // No need for TFD_NONBLOCK as these fds should never be read from
-            // until the associated future is destroyed and they are liberated.
-            TFD_CLOEXEC
-        );
-        if (maybe_timerfd == -1) switch(errno) {
-        case EMFILE:  // Reached process fd limit
-            exit_after_c_error(
-                "The number of fds in current process reached the limit. "
-                "Consider increasing the limit if possible."
+    LOGGED_FUNCTION_START_NO_PARAMS
+        #ifdef __linux__
+            int maybe_timerfd = timerfd_create(
+                CLOCK_REALTIME,
+                // No TFD_NONBLOCK as these fds should not be read until the
+                // associated future is destroyed and they're liberated.
+                TFD_CLOEXEC
             );
-        case ENFILE:  // Reached system fd limit
-            exit_after_c_error(
-                "The number of fds in the system reached the limit. "
-                "Consider increasing the limit if possible."
+            if (maybe_timerfd == -1) switch(errno) {
+            case EMFILE:  // Reached process fd limit
+                exit_after_c_error(
+                    "The number of fds in current process reached the limit. "
+                    "Consider increasing the limit if possible."
+                );
+            case ENFILE:  // Reached system fd limit
+                exit_after_c_error(
+                    "The number of fds in the system reached the limit. "
+                    "Consider increasing the limit if possible."
+                );
+            case EINVAL:  // clockid or flags is invalid.
+            case ENODEV:  // Could not mount (internal) anonymous inode device.
+            case ENOMEM:  // Not enough memory to create a new timerfd.
+                exit_after_c_error("This error is not expected to happen");
+            }
+            ensure_ge(maybe_timerfd, 0);
+            debugf("Created a timer object with fd %d.", maybe_timerfd);
+            return maybe_timerfd;
+        #elif defined(_WIN32)
+            HANDLE handle = CreateWaitableTimerExW(
+                NULL,
+                NULL,
+                // Needed to allow N threads to wait on one future
+                CREATE_WAITABLE_TIMER_MANUAL_RESET
+                    // Needed because otherwise we get ~16ms resolution which is
+                    // miserable by the standards of high-performance UDP.
+                    | CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                DELETE | SYNCHRONIZE | TIMER_MODIFY_STATE
             );
-        case EINVAL:  // clockid or flags is invalid.
-        case ENODEV:  // Could not mount (internal) anonymous inode device.
-        case ENOMEM:  // Not enough memory to create a new timerfd.
-            exit_after_c_error("This error is not expected to happen");
-        }
-        ensure_ge(maybe_timerfd, 0);
-        debugf("Created a timer object with fd %d.", maybe_timerfd);
-        return maybe_timerfd;
-    #elif defined(_WIN32)
-        HANDLE handle = CreateWaitableTimerExW(
-            NULL,
-            NULL,
-            // Needed to allow N threads to wait on one future
-            CREATE_WAITABLE_TIMER_MANUAL_RESET
-                // Needed because otherwise we get ~16ms resolution which is
-                // miserable by the standards of high-performance UDP.
-                | CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
-            DELETE | SYNCHRONIZE | TIMER_MODIFY_STATE
-        );
-        win32_exit_on_null(handle,
-                           "Failed to create an anonymous timer object!");
-        debugf("Set up a timer object with handle %p.", handle);
-        return handle;
-    #else
-        #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
-    #endif
+            win32_exit_on_null(handle,
+                               "Failed to create an anonymous timer object!");
+            debugf("Set up a timer object with handle %p.", handle);
+            return handle;
+        #else
+            #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
+        #endif
+    LOGGED_FUNCTION_END
 }
 
 /// Set up a timer object in one-shot mode
@@ -227,34 +229,43 @@ static inline
 void timer_set_once(udipe_timer_t timer, struct timespec deadline) {
     assert(deadline.tv_nsec < 1000 * 1000 * 1000);
     #ifdef __linux__
-        debugf("Setting a deadline for the timer object with fd %d...", timer);
-        struct itimerspec spec = { 0 };
-        spec.it_value = deadline;
-        exit_on_negative(
-            timerfd_settime(
-                timer,
-                // Don't want to expose TFD_TIMER_CANCEL_ON_SET as it has no
-                // clean equivalent on Windows.
-                TFD_TIMER_ABSTIME,
-                &spec,
-                NULL
-            ),
-            "Failed to configure a timerfd's deadline!"
-        );
+        LOGGED_FUNCTION_START("%d, { .tv_sec = %zu, .tv_nsec = %zu }",
+                              timer,
+                              deadline.tv_sec,
+                              deadline.tv_nsec)
+            struct itimerspec spec = { 0 };
+            spec.it_value = deadline;
+            exit_on_negative(
+                timerfd_settime(
+                    timer,
+                    // Don't want to expose TFD_TIMER_CANCEL_ON_SET as it has no
+                    // clean equivalent on Windows.
+                    TFD_TIMER_ABSTIME,
+                    &spec,
+                    NULL
+                ),
+                "Failed to configure a timerfd's deadline!"
+            );
+        LOGGED_FUNCTION_END
     #elif defined(_WIN32)
-        debugf("Setting a deadline for timer object with handle %p...", timer);
-        const LARGE_INTEGER due = win32_filetime_from_timespec(deadline, false);
-        win32_exit_on_zero(
-            SetWaitableTimer(
-                timer,
-                &due,
-                0,
-                NULL,
-                NULL,
-                false
-            ),
-            "Failed to configure a Windows timer's deadline!"
-        );
+        LOGGED_FUNCTION_START("%p, { .tv_sec = %zu, .tv_nsec = %zu }",
+                              timer,
+                              deadline.tv_sec,
+                              deadline.tv_nsec)
+            const LARGE_INTEGER due = win32_filetime_from_timespec(deadline,
+                                                                   false);
+            win32_exit_on_zero(
+                SetWaitableTimer(
+                    timer,
+                    &due,
+                    0,
+                    NULL,
+                    NULL,
+                    false
+                ),
+                "Failed to configure a Windows timer's deadline!"
+            );
+        LOGGED_FUNCTION_END
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
@@ -281,27 +292,31 @@ void timer_set_once(udipe_timer_t timer, struct timespec deadline) {
     void linux_timer_set_repeat(udipe_timer_t timer,
                                 struct timespec initial,
                                 udipe_duration_ns_t interval) {
-        debugf("Setting a deadline and repetition interval "
-               "for the timer object with fd %d...", timer);
-        assert(initial.tv_nsec < 1000 * 1000 * 1000);
-        const struct itimerspec spec = {
-            .it_value = initial,
-            .it_interval = (struct timespec){
-                .tv_sec = interval / (1000 * 1000 * 1000),
-                .tv_nsec = interval % (1000 * 1000 * 1000)
-            }
-        };
-        exit_on_negative(
-            timerfd_settime(
-                timer,
-                // Don't want to expose TFD_TIMER_CANCEL_ON_SET as it has no
-                // clean equivalent on Windows.
-                TFD_TIMER_ABSTIME,
-                &spec,
-                NULL
-            ),
-            "Failed to configure a timerfd's deadline and period!"
-        );
+        LOGGED_FUNCTION_START("%d, { .tv_sec = %zu, .tv_nsec = %zu }, %zu",
+                              timer,
+                              initial.tv_sec,
+                              initial.tv_nsec,
+                              interval)
+            assert(initial.tv_nsec < 1000 * 1000 * 1000);
+            const struct itimerspec spec = {
+                .it_value = initial,
+                .it_interval = (struct timespec){
+                    .tv_sec = interval / (1000 * 1000 * 1000),
+                    .tv_nsec = interval % (1000 * 1000 * 1000)
+                }
+            };
+            exit_on_negative(
+                timerfd_settime(
+                    timer,
+                    // Don't want to expose TFD_TIMER_CANCEL_ON_SET as it has no
+                    // clean equivalent on Windows.
+                    TFD_TIMER_ABSTIME,
+                    &spec,
+                    NULL
+                ),
+                "Failed to configure a timerfd's deadline and period!"
+            );
+        LOGGED_FUNCTION_END
     }
 #endif  // __linux__
 
@@ -325,12 +340,14 @@ UDIPE_NON_NULL_ARGS
 static inline
 void timer_finalize(udipe_timer_t* timer) {
     #ifdef __linux__
-        debugf("Destroying the timer object with fd %d...", *timer);
-        close_virtual_fd(timer);
+        LOGGED_FUNCTION_START("&%d", *timer)
+            close_virtual_fd(timer);
+        LOGGED_FUNCTION_END
     #elif defined(_WIN32)
-        debugf("Destroying the timer object with handle %p...", *timer);
-        win32_exit_on_zero(CloseHandle(*timer),
-                           "Failed to destroy a timer object!");
+        LOGGED_FUNCTION_START("&%p", *timer)
+            win32_exit_on_zero(CloseHandle(*timer),
+                               "Failed to destroy a timer object!");
+        LOGGED_FUNCTION_END
     #else
         #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
     #endif
