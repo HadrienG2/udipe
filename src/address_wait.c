@@ -86,7 +86,6 @@ bool wait_on_address(_Atomic uint32_t* atom,
                         "FUTEX_WAIT errno doesn't match associated manpage!"
                     );
                 }
-                break;
             default:
                 exit_after_c_error("FUTEX_WAIT result doesn't match manpage!");
             }
@@ -120,9 +119,6 @@ bool wait_on_address(_Atomic uint32_t* atom,
             #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
         #endif
     LOGGED_FUNCTION_END
-    exit_with_error(
-        "This code is unreachable but GCC static analysis can't tell... :("
-    );
 }
 
 UDIPE_NON_NULL_ARGS
