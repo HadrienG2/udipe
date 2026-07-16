@@ -28,121 +28,139 @@ UDIPE_NON_NULL_ARGS
 bool wait_on_address(_Atomic uint32_t* atom,
                      uint32_t expected,
                      udipe_duration_ns_t timeout) {
-    tracef("Preparing to wait for the value at address %p to change from %#x...",
-           (void*)atom,
-           expected);
+    LOGGED_FUNCTION_START("%p, %u, %zu", atom, expected, timeout)
+        // Handle invalid internal use of DEFAULT + zero timeout
+        assert(timeout != UDIPE_DURATION_DEFAULT);
+        if (timeout == UDIPE_DURATION_MIN) {
+            debugf("Checking if %p changed away from %#x...",
+                   atom, expected);
+            const uint32_t actual = atomic_load_explicit(atom,
+                                                         memory_order_relaxed);
+            debugf("Actual value turns out to be %#x.", actual);
+            return actual != expected;
+        }
 
-    // Handle invalid internal use of DEFAULT + zero timeout
-    assert(timeout != UDIPE_DURATION_DEFAULT);
-    if (timeout == UDIPE_DURATION_MIN) {
-        trace("...but with MIN timeout i.e. just return if value changed.");
-        return atomic_load_explicit(atom, memory_order_relaxed) != expected;
-    }
+        debugf("Waiting for %p to change away from %#x "
+               "with a udipe timeout of %zu ns...",
+               atom, expected, timeout);
+        #ifdef __linux__
+            // Translate udipe timeout into Linux timeout
+            struct timespec delay;
+            struct timespec* pdelay = make_unix_timeout(&delay, timeout);
 
-    #ifdef __linux__
-        // Translate udipe timeout into Linux timeout
-        struct timespec delay;
-        struct timespec* pdelay = make_unix_timeout(&delay, timeout);
-
-        // Call futex and handle results
-        long result = syscall(SYS_futex,
-                              atom,
-                              FUTEX_WAIT_PRIVATE,
-                              expected,
-                              pdelay);
-        switch (result) {
-        case 0:
-            trace("...and got notified (perhaps spuriously).");
-            return true;
-        case -1:
-            switch (errno) {
-            case EAGAIN:
-                errno = 0;
-                trace("...but the value changed before we even started.");
+            // Call futex and handle results
+            long result = syscall(SYS_futex,
+                                  atom,
+                                  FUTEX_WAIT_PRIVATE,
+                                  expected,
+                                  pdelay);
+            switch (result) {
+            case 0:
+                debug("Waiting was interrupted by a true notification "
+                      "or an unrelated spurious wakeup.");
                 return true;
-            case ETIMEDOUT:
-                trace("...but our wait timed out.");
-                return false;
-            case EINTR:
+            case -1:
+                const int futex_errno = errno;
                 errno = 0;
-                trace("...but our wait was interrupted by a signal.");
-                return false;
-            // timeout did not point to a valid user-space address.
-            case EFAULT:
-            // The supplied timeout argument was invalid (tv_sec was less than
-            // zero, or tv_nsec was not less than 1,000,000,000).
-            case EINVAL:
-                exit_after_c_error("Shouldn't happen with our pdelay setup!");
+                switch (futex_errno) {
+                case EAGAIN:
+                    debug("Value changed before we even started waiting.");
+                    return true;
+                case ETIMEDOUT:
+                    debug("Wait for change timed out.");
+                    return false;
+                case EINTR:
+                    debug("Wait for change was interrupted by a signal.");
+                    return false;
+                // timeout did not point to a valid user-space address.
+                case EFAULT:
+                // The supplied timeout argument was invalid (tv_sec was less
+                // than zero, or tv_nsec was not less than 1,000,000,000).
+                case EINVAL:
+                    exit_after_c_error(
+                        "Shouldn't happen with our pdelay setup!"
+                    );
+                default:
+                    exit_after_c_error(
+                        "FUTEX_WAIT errno doesn't match associated manpage!"
+                    );
+                }
+                break;
             default:
-                exit_after_c_error("FUTEX_WAIT errno doesn't match manpage!");
+                exit_after_c_error("FUTEX_WAIT result doesn't match manpage!");
             }
-            break;
-        default:
-            exit_after_c_error("FUTEX_WAIT result doesn't match manpage!");
-        }
-    #elif defined(_WIN32)
-        DWORD delay;
-        if (timeout > UINT32_MAX) {
-            trace("...with an infinite timeout...");
-            delay = INFINITE;
-        } else {
-            delay = timeout / (1000 * 1000);
-            tracef("...with a timeout of %u ms", delay);
-        }
-        bool result = WaitOnAddress((volatile VOID*)atom,
-                                    (PVOID)(&expected),
-                                    4,
-                                    delay);
-        if (result) {
-            trace("...and got notified, value changed, or spurious wakeup occured.");
-        } else {
-            if (GetLastError() == ERROR_TIMEOUT) {
-                trace("...but our wait timed out.");
+        #elif defined(_WIN32)
+            DWORD delay;
+            if (timeout > UINT32_MAX) {
+                debug("...which translates to an INFINITE Win32 timeout.");
+                delay = INFINITE;
             } else {
-                trace("...but our wait was interrupted by an unknown cause.");
-                win32_warn_on_error();
+                delay = timeout / (1000 * 1000);
+                debugf("...which translates to a Win32 timeout of %u ms.",
+                       delay);
             }
-        }
-        return result;
-    #else
-        #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
-    #endif
+            bool result = WaitOnAddress((volatile VOID*)atom,
+                                        (PVOID)(&expected),
+                                        4,
+                                        delay);
+            if (result) {
+                debug("Waiting was interrupted by a true notification, "
+                      "a value change, or an unrelated spurious wakeup.");
+            } else {
+                if (GetLastError() == ERROR_TIMEOUT) {
+                    debug("Waiting timed out before the value changed.");
+                } else {
+                    debug("Waiting was interrupted by an unknown cause.");
+                    win32_warn_on_error();
+                }
+            }
+            return result;
+        #else
+            #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
+        #endif
+    LOGGED_FUNCTION_END
+    exit_with_error(
+        "This code is unreachable but GCC static analysis can't tell... :("
+    );
 }
 
 UDIPE_NON_NULL_ARGS
 void wake_by_address_all(_Atomic uint32_t* atom) {
-    tracef("Signaling all waiters that the value at address %p has changed...",
-           (void*)atom);
-    #ifdef __linux__
-        long result = syscall(SYS_futex, atom, FUTEX_WAKE_PRIVATE, (uint32_t)INT32_MAX);
-        assert(result >= -1);
-        exit_on_negative((int)result, "No error expected here");
-        tracef("...which woke %u waiter(s).", (uint32_t)result);
-    #elif defined(_WIN32)
-        WakeByAddressAll((PVOID)atom);
-    #else
-        #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
-    #endif
+    LOGGED_FUNCTION_START("%p", atom)
+        #ifdef __linux__
+            long result = syscall(SYS_futex, atom, FUTEX_WAKE_PRIVATE, (uint32_t)INT32_MAX);
+            assert(result >= -1);
+            exit_on_negative((int)result, "No error expected here");
+            debugf("Woke %u threads waiting for %p to change.",
+                   (uint32_t)result, atom);
+        #elif defined(_WIN32)
+            WakeByAddressAll((PVOID)atom);
+        #else
+            #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
+        #endif
+    LOGGED_FUNCTION_END
 }
 
 UDIPE_NON_NULL_ARGS
 void wake_by_address_single(_Atomic uint32_t* atom) {
-    tracef("Signaling one waiter that the value at address %p has changed...",
-           (void*)atom);
-    #ifdef __linux__
-        long result = syscall(SYS_futex, atom, FUTEX_WAKE_PRIVATE, 1);
-        assert(result >= -1 && result <= 1);
-        exit_on_negative((int)result, "No error expected here");
-        if (result == 1) {
-            trace("...which woke a waiter.");
-        } else {
-            trace("...but no thread was waiting.");
-        }
-    #elif defined(_WIN32)
-        WakeByAddressSingle((PVOID)atom);
-    #else
-        #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
-    #endif
+    LOGGED_FUNCTION_START("%p", atom)
+        #ifdef __linux__
+            long result = syscall(SYS_futex, atom, FUTEX_WAKE_PRIVATE, 1);
+            assert(result >= -1 && result <= 1);
+            exit_on_negative((int)result, "No error expected here");
+            if (result == 1) {
+                debugf("Woke a thread waiting for %p to change.", atom);
+            } else {
+                debugf("Sent a notification that %p changed, "
+                       "but no thread was waiting for it.",
+                       atom);
+            }
+        #elif defined(_WIN32)
+            WakeByAddressSingle((PVOID)atom);
+        #else
+            #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
+        #endif
+    LOGGED_FUNCTION_END
 }
 
 
@@ -234,178 +252,190 @@ void wake_by_address_single(_Atomic uint32_t* atom) {
         worker_state_t* state = (worker_state_t*)context;
         shared_state_t* shared = state->shared;
         logger_restore(&shared->logger);
-        tracef("Setting up worker%u...", state->id);
-        char name[8] = "workerN";
-        ensure_le(state->id, (uint8_t)9);
-        name[6] = '0' + (char)(state->id);
-        set_thread_name(name);
+        LOGGED_FUNCTION_START("%p", context)
+            debugf("Setting up worker%u...", state->id);
+            char name[8] = "workerN";
+            ensure_le(state->id, (uint8_t)9);
+            name[6] = '0' + (char)(state->id);
+            set_thread_name(name);
 
-        trace("Entering wait/notify loop...");
-        const size_t last = 0;
-        const size_t current = 1;
-        uint32_t notify[2] = { 0, 0 };
-        uint32_t global_wake[2] = { 0, 0 };
-        for (uint32_t wait = 1; wait <= NUM_WAIT_CYCLES; ++wait) {
-            // Wait for the value of notify_counter to change
-            tracef("Waiting for notify_counter to increase from %u...",
-                   notify[last]);
-            do {
-                notify[current] = atomic_load_explicit(&shared->notify_counter,
-                                                       memory_order_acquire);
-                if (notify[current] != notify[last]) break;
-                wait_on_address(&shared->notify_counter,
-                                notify[current],
-                                UDIPE_DURATION_MAX);
-            } while(true);
+            debug("Entering wait/notify loop...");
+            const size_t last = 0;
+            const size_t current = 1;
+            uint32_t notify[2] = { 0, 0 };
+            uint32_t global_wake[2] = { 0, 0 };
+            for (uint32_t wait = 1; wait <= NUM_WAIT_CYCLES; ++wait) {
+                // Wait for the value of notify_counter to change
+                tracef("Waiting for notify_counter to increase from %u...",
+                       notify[last]);
+                do {
+                    notify[current] = atomic_load_explicit(&shared->notify_counter,
+                                                           memory_order_acquire);
+                    if (notify[current] != notify[last]) break;
+                    wait_on_address(&shared->notify_counter,
+                                    notify[current],
+                                    UDIPE_DURATION_MAX);
+                } while(true);
 
-            tracef("...done, notify_counter is now %u", notify[current]);
-            ensure_gt(notify[current], notify[last]);
-            notify[last] = notify[current];
+                tracef("...done, notify_counter is now %u", notify[current]);
+                ensure_gt(notify[current], notify[last]);
+                notify[last] = notify[current];
 
-            // Record that we are done waiting
-            tracef("Recording that we completed wait cycle %u...",
-                   wait);
-            const uint32_t old_private =
-                atomic_exchange_explicit(&state->private_wake_counter,
-                                         wait,
-                                         memory_order_relaxed);
-            ensure_eq(old_private, wait - 1);
+                // Record that we are done waiting
+                tracef("Recording that we completed wait cycle %u...",
+                       wait);
+                const uint32_t old_private =
+                    atomic_exchange_explicit(&state->private_wake_counter,
+                                             wait,
+                                             memory_order_relaxed);
+                ensure_eq(old_private, wait - 1);
 
-            // Increment the global wake count and ping the main thread
-            trace("...then pinging the main thread via global_wake.");
-            global_wake[current] =
-                1 + atomic_fetch_add_explicit(&shared->global_wake_counter,
-                                              1,
-                                              memory_order_release);
-            ensure_ge(global_wake[current], global_wake[last] + 1);
-            if (shared->notify_all) {
-                ensure_le(global_wake[current], wait * NUM_WORKERS);
+                // Increment the global wake count and ping the main thread
+                trace("...then pinging the main thread via global_wake.");
+                global_wake[current] =
+                    1 + atomic_fetch_add_explicit(&shared->global_wake_counter,
+                                                  1,
+                                                  memory_order_release);
+                ensure_ge(global_wake[current], global_wake[last] + 1);
+                if (shared->notify_all) {
+                    ensure_le(global_wake[current], wait * NUM_WORKERS);
+                }
+                if (shared->notify_all) {
+                    wake_by_address_all(&shared->global_wake_counter);
+                } else {
+                    wake_by_address_single(&shared->global_wake_counter);
+                }
             }
-            if (shared->notify_all) {
-                wake_by_address_all(&shared->global_wake_counter);
-            } else {
-                wake_by_address_single(&shared->global_wake_counter);
-            }
-        }
 
-        trace("Done with our last wait cycle, exiting...");
-        return 0;
+            debug("Done with our last wait cycle, exiting...");
+            return 0;
+        LOGGED_FUNCTION_END
     }
 
     static void test_wait_notify(bool notify_all) {
-        trace("Setting up the shared state...");
-        shared_state_t shared;
-        shared.logger = logger_backup();
-        atomic_init(&shared.notify_counter, 0);
-        atomic_init(&shared.global_wake_counter, 0);
-        shared.notify_all = notify_all;
+        LOGGED_FUNCTION_START("%u", notify_all)
+            debug("Setting up the shared state...");
+            shared_state_t shared;
+            shared.logger = logger_backup();
+            atomic_init(&shared.notify_counter, 0);
+            atomic_init(&shared.global_wake_counter, 0);
+            shared.notify_all = notify_all;
 
-        trace("Setting up worker threads...");
-        worker_state_t private[NUM_WORKERS];
-        thrd_t handles[NUM_WORKERS];
-        for (uint8_t worker = 0; worker < NUM_WORKERS; ++worker) {
-            private[worker].shared = &shared;
-            atomic_init(&private[worker].private_wake_counter, 0);
-            private[worker].id = worker;
-            exit_on_thread_error(
-                thrd_create(&handles[worker],
-                            worker_func,
-                            (void*)(&private[worker])),
-                "Failed to set up a worker thread"
-            );
-        }
-
-        trace("Entering notify/wait loop...");
-        const size_t last = 0;
-        const size_t current = 1;
-        uint32_t notify[2] = { 0, 0 };
-        uint32_t global_wake[2] = { 0, 0 };
-        while (global_wake[last] < NUM_WORKERS * NUM_WAIT_CYCLES) {
-            trace("Giving workers time to start waiting...");
-            ensure_eq(thrd_sleep(&WAIT_FOR_IDLE, NULL), 0);
-
-            tracef("Waking workers by increasing notify_counter to %u...",
-                   notify[last] + 1);
-            notify[current] =
-                1 + atomic_fetch_add_explicit(&shared.notify_counter,
-                                              1,
-                                              memory_order_release);
-            ensure_eq(notify[current], notify[last] + 1);
-            notify[last] = notify[current];
-            if (notify_all) {
-                wake_by_address_all(&shared.notify_counter);
-            } else {
-                wake_by_address_single(&shared.notify_counter);
-            }
-
-            trace("Waiting for workers to reply...");
-            unsigned awoken;
-            do {
-                global_wake[current] =
-                    atomic_load_explicit(&shared.global_wake_counter,
-                                         memory_order_acquire);
-                awoken = global_wake[current] - global_wake[last];
-                if (awoken == 0) {
-                    wait_on_address(&shared.global_wake_counter,
-                                    global_wake[current],
-                                    UDIPE_DURATION_MAX);
-                    continue;
-                } else if (awoken == NUM_WORKERS || !notify_all) {
-                    break;
-                }
-                tracef("Got a reply from %u/%u workers, but we expect more...",
-                       awoken, NUM_WORKERS);
-            } while(true);
-            global_wake[last] = global_wake[current];
-
-            tracef("Got a reply from expected %u/%u workers!",
-                   awoken, NUM_WORKERS);
-            if (!notify_all) {
-                trace("When notify_one is used, this is all we can check.");
-                continue;
-            }
-
-            for (unsigned worker = 0; worker < NUM_WORKERS; ++worker) {
-                tracef("Checking if worker%u is in sync...", worker);
-                ensure_eq(
-                    atomic_load_explicit(&private[worker].private_wake_counter,
-                                         memory_order_relaxed),
-                    global_wake[last] / NUM_WORKERS
+            debug("Setting up worker threads...");
+            worker_state_t private[NUM_WORKERS];
+            thrd_t handles[NUM_WORKERS];
+            for (uint8_t worker = 0; worker < NUM_WORKERS; ++worker) {
+                private[worker].shared = &shared;
+                atomic_init(&private[worker].private_wake_counter, 0);
+                private[worker].id = worker;
+                exit_on_thread_error(
+                    thrd_create(&handles[worker],
+                                worker_func,
+                                (void*)(&private[worker])),
+                    "Failed to set up a worker thread"
                 );
             }
-            trace("All workers in sync, proceeding to next wait cycle.");
-        }
 
-        trace("All done, waiting for workers to terminate...");
-        for (unsigned worker = 0; worker < NUM_WORKERS; ++worker) {
-            int res;
-            exit_on_thread_error(
-                thrd_join(handles[worker], &res),
-                "Failed to join a worker thread"
-            );
-            ensure_eq(res, 0);
-        }
+            debug("Entering notify/wait loop...");
+            const size_t last = 0;
+            const size_t current = 1;
+            uint32_t notify[2] = { 0, 0 };
+            uint32_t global_wake[2] = { 0, 0 };
+            while (global_wake[last] < NUM_WORKERS * NUM_WAIT_CYCLES) {
+                trace("Giving workers time to start waiting...");
+                ensure_eq(thrd_sleep(&WAIT_FOR_IDLE, NULL), 0);
+
+                tracef("Waking workers by increasing notify_counter to %u...",
+                       notify[last] + 1);
+                notify[current] =
+                    1 + atomic_fetch_add_explicit(&shared.notify_counter,
+                                                  1,
+                                                  memory_order_release);
+                ensure_eq(notify[current], notify[last] + 1);
+                notify[last] = notify[current];
+                if (notify_all) {
+                    wake_by_address_all(&shared.notify_counter);
+                } else {
+                    wake_by_address_single(&shared.notify_counter);
+                }
+
+                trace("Waiting for workers to reply...");
+                unsigned awoken;
+                do {
+                    global_wake[current] =
+                        atomic_load_explicit(&shared.global_wake_counter,
+                                             memory_order_acquire);
+                    awoken = global_wake[current] - global_wake[last];
+                    if (awoken == 0) {
+                        wait_on_address(&shared.global_wake_counter,
+                                        global_wake[current],
+                                        UDIPE_DURATION_MAX);
+                        continue;
+                    } else if (awoken == NUM_WORKERS || !notify_all) {
+                        break;
+                    }
+                    tracef(
+                        "Got a reply from %u/%u workers, but we expect more...",
+                        awoken, NUM_WORKERS
+                    );
+                } while(true);
+                global_wake[last] = global_wake[current];
+
+                tracef("Got a reply from expected %u/%u workers!",
+                       awoken, NUM_WORKERS);
+                if (!notify_all) {
+                    trace("When notify_one is used, this is all we can check.");
+                    continue;
+                }
+
+                for (unsigned worker = 0; worker < NUM_WORKERS; ++worker) {
+                    tracef("Checking if worker%u is in sync...", worker);
+                    ensure_eq(
+                        atomic_load_explicit(
+                            &private[worker].private_wake_counter,
+                            memory_order_relaxed
+                        ),
+                        global_wake[last] / NUM_WORKERS
+                    );
+                }
+                trace("All workers in sync, proceeding to next wait cycle.");
+            }
+
+            debug("All done, waiting for workers to terminate...");
+            for (unsigned worker = 0; worker < NUM_WORKERS; ++worker) {
+                debugf("Joining worker%u...", worker);
+                int res;
+                exit_on_thread_error(
+                    thrd_join(handles[worker], &res),
+                    "Failed to join a worker thread"
+                );
+                ensure_eq(res, 0);
+            }
+        LOGGED_FUNCTION_END
     }
 
     void address_wait_unit_tests() {
-        info("Running atomic wait unit tests...");
-        with_log_level(UDIPE_DEBUG, {
-            debug("Testing wait + notify_all");
-            with_log_level(UDIPE_TRACE, {
-                test_wait_notify(true);
-            });
+        LOGGED_FUNCTION_START_NO_PARAMS
+            info("Running atomic wait unit tests...");
+            with_log_level(UDIPE_DEBUG, {
+                debug("Testing wait + notify_all");
+                with_log_level(UDIPE_TRACE, {
+                    test_wait_notify(true);
+                });
 
-            debug("Testing wait + notify_one");
-            with_log_level(UDIPE_TRACE, {
-                test_wait_notify(false);
-            });
+                debug("Testing wait + notify_one");
+                with_log_level(UDIPE_TRACE, {
+                    test_wait_notify(false);
+                });
 
-            debug("Testing wait with timeout");
-            _Atomic uint32_t futex;
-            atomic_init(&futex, 42);
-            ensure(!wait_on_address(&futex, 42, UDIPE_DURATION_MIN));
-            ensure(!wait_on_address(&futex, 42, UDIPE_DURATION_MIN + 1));
-        });
+                debug("Testing wait with timeout");
+                _Atomic uint32_t futex;
+                atomic_init(&futex, 42);
+                ensure(!wait_on_address(&futex, 42, UDIPE_DURATION_MIN));
+                ensure(!wait_on_address(&futex, 42, UDIPE_DURATION_MIN + 1));
+
+            });
+        LOGGED_FUNCTION_END
     }
 
 #endif  // UDIPE_BUILD_TESTS
