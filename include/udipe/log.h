@@ -260,5 +260,9 @@ typedef struct udipe_log_config_s {
     /// automatically applied by default. This ensures that very detailed
     /// logging only happens to the people who ask for it with a clear debugging
     /// intent, and is never exposed to users by accident.
+    ///
+    /// `ERROR`, `WARN` and `INFO` logs are not affected by this filter because
+    /// they are meant to be used sparingly for important information that the
+    /// logger should not hide away.
     size_t max_debug_depth;
 } udipe_log_config_t;
