@@ -206,7 +206,7 @@ logger_t logger_initialize(udipe_log_config_t config) {
     case UDIPE_ERROR:
         break;
     case UDIPE_DEFAULT_LOG_LEVEL:
-        const char* level_str = getenv("UDIPE_LOG");
+        const char* level_str = getenv("UDIPE_LOG_LEVEL");
         if (level_str) {
             if ((strcmp(level_str, "ERROR") & strcmp(level_str, "error")) == 0) {
                 config.min_level = UDIPE_ERROR;
@@ -221,8 +221,8 @@ logger_t logger_initialize(udipe_log_config_t config) {
             } else {
                 // Cannot log before logger is initialized
                 fprintf(stderr,
-                        "libudipe: UDIPE_LOG environment varible is set to "
-                        "invalid value %s\n", level_str);
+                        "libudipe: UDIPE_LOG_LEVEL environment varible is set "
+                        "to invalid value \"%s\"!\n", level_str);
                 exit(EXIT_FAILURE);
             }
         } else {

@@ -124,13 +124,15 @@ typedef enum udipe_log_level_e {
 
     /// Default configuration placeholder for \ref udipe_log_config_t::min_level
     ///
-    /// If the `UDIPE_LOG` environment variable is set, then it determines this
-    /// default. For example, setting `UDIPE_LOG=WARN` has the same effect as
-    /// setting the log level to \ref UDIPE_WARN in the configuration struct.
+    /// If the `UDIPE_LOG_LEVEL` environment variable is set, then it determines
+    /// this default. For example, setting `UDIPE_LOG_LEVEL=WARN` has the same
+    /// effect as setting the log level to \ref UDIPE_WARN using the
+    /// configuration struct.
     ///
-    /// Otherwise the default is to emit logs of priority >= `INFO` in all
-    /// builds, and additionally emit logs of priority `DEBUG` in `Debug`
-    /// builds.
+    /// When the configuration struct is left at its default value and the
+    /// `UDIPE_LOG_LEVEL` environment variable is unset, the default is to emit
+    /// logs of priority >= `INFO` in all builds, and additionally emit logs of
+    /// priority `DEBUG` in `Debug` builds.
     ///
     /// \internal
     ///

@@ -48,8 +48,8 @@ cd ../..
 # of without full colored logs
 cd build-test
 set +e
-./tests/unit_tests || (separator && UDIPE_LOG=trace ./tests/unit_tests) || exit 1
-ctest -j$(nproc) -E '^unit_tests$' || (separator && UDIPE_LOG=trace ctest -V -E '^unit_tests$') || exit 1
+./tests/unit_tests || (separator && UDIPE_LOG_LEVEL=trace ./tests/unit_tests) || exit 1
+ctest -j$(nproc) -E '^unit_tests$' || (separator && UDIPE_LOG_LEVEL=trace ctest -V -E '^unit_tests$') || exit 1
 set -e
 cd ..
 
@@ -72,7 +72,7 @@ cd ..
 # for entry in $(ls); do
 #     if [[ -f ${entry} && -x ${entry} ]]; then
 #         set +e
-#         ./${entry} || (separator && UDIPE_LOG=trace ./${entry}) || exit 1
+#         ./${entry} || (separator && UDIPE_LOG_LEVEL=trace ./${entry}) || exit 1
 #         set -e
 #     fi
 # done
