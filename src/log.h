@@ -5,6 +5,8 @@
 //!
 //! This code module implements the logging facility used by udipe to report
 //! various events throughout the library execution lifecycle.
+//!
+//! Loggers are set up using
 
 #include <udipe/log.h>
 #include <udipe/nodiscard.h>
@@ -64,7 +66,7 @@ void logger_finalize(logger_t* logger);
 
 /// Decide if a user log should be emitted
 ///
-/// This function can only be called within a logging scope.
+/// Must be called within a logging scope. See udipe_log() for more info.
 ///
 /// This function is implicitly called by the logging macros, but you may want
 /// to use it manually in situations where the logging message is not a static
@@ -80,9 +82,21 @@ static inline bool log_enabled(udipe_log_level_t level);
 
 /// Log a message if `level` is above configured logging threshold
 ///
-/// This macro can only be used within a logging scope. It takes as input a
-/// \link #udipe_log_level_t log level \endlink and the message to be logged at
-/// this log level (as a standard `NULL`-terminated `const char[]`).
+/// This macro can only be used within a logging scope, which is a code location
+/// where both of the following statements true:
+///
+/// - Either the active function or another function up its call stack has set
+///   up a logger with LOGGER_START() and not torn it down with \ref LOGGER_END.
+/// - A function that doesn't set up a logger should normally start with
+///   LOGGED_FUNCTION_START() (or its \ref LOGGED_FUNCTION_START_NO_PARAMS
+///   cousin) and end with \ref LOGGED_FUNCTION_END, which log simple
+///   call/return traces. When this is undesirable because the active function
+///   cannot or should not perform formatted logging, \ref SCOPE_START and \ref
+///   SCOPE_END can be used instead.
+///
+/// This macro takes as input a \link #udipe_log_level_t log level \endlink and
+/// the message to be logged at this log level (as a standard `NULL`-terminated
+/// `const char[]`).
 ///
 /// You should prefer using the log level specific macros error(), warn(),
 /// info(), debug() and trace() over this one, outside of special circumstances
@@ -100,6 +114,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 #define udipe_log(level, message)  \
     do {  \
         const udipe_log_level_t udipe_level = thread_log_level(level);  \
+        assert(IS_INSIDE_LOCAL_SCOPE);  \
         if (log_enabled(udipe_level)) {  \
             (udipe_thread_logger->callback)(udipe_thread_logger->context,  \
                                             udipe_level,  \
@@ -277,18 +292,23 @@ static inline bool log_enabled(udipe_log_level_t level);
 ///
 /// In addition to setting up a logger with \ref LOGGER_START at the entrance of
 /// each public API entry point and at the start of every worker thread, the
-/// udipe logging infrastructure demands that every other function that performs
-/// logging also starts with this macro and ends with \ref LOGGED_FUNCTION_END.
+/// udipe logging infrastructure is based on the principle that every other
+/// function that performs logging should also starts with this macro and ends
+/// with \ref LOGGED_FUNCTION_END.
 ///
 /// This admittedly unpleasant pattern enables the following :
 ///
 /// - Consistently logging function arguments at the \ref UDIPE_DEBUG log level,
-///   enabling function call tracing with a consistent syntax during debugging.
+///   enabling easy function call/return tracing during debugging.
 /// - Tracking the depth of call stacks via the udipe scope tracking
 ///   infrastructure, enabling logs to be filtered by call stack depth. This
 ///   form of log filtering is often needed when displaying logs at the \ref
 ///   UDIPE_DEBUG level, as those can be too verbose otherwise resulting in
 ///   excessive slowdown and useful information being drown in noise.
+///
+/// In cases where the former is undesirable because the active function cannot
+/// or should not perform formatted logging, \ref SCOPE_START and \ref SCOPE_END
+/// can be used as an alternative to this macro family.
 ///
 /// \param args_format must be a printf format string indicating how the
 ///                    arguments of the function should be displayed. For
@@ -307,8 +327,8 @@ static inline bool log_enabled(udipe_log_level_t level);
 
 /// Variant of \ref LOGGED_FUNCTION_START for functions that take no parameters
 ///
-/// This macro only exists to work around a stupid limitation of the C
-/// preprocessor, see \ref LOGGED_FUNCTION_START for general semantics.
+/// This macro only exists to work around limitations of the C programming
+/// language. See \ref LOGGED_FUNCTION_START for general semantics.
 #define LOGGED_FUNCTION_START_NO_PARAMS  LOGGED_FUNCTION_START("%s", "")
 
 /// End the logging scope of a certain function
@@ -490,15 +510,6 @@ static inline udipe_log_level_t thread_log_level(udipe_log_level_t level) {
     }
 }
 
-/// Restore `udipe_log_level` (implementation detail of with_log_level())
-///
-/// This helper function enables with_log_level() to clean up after itself
-/// through the GNU `__cleanup__` attribute.
-static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_level) {
-    debug("End of a with_log_level() scope.");
-    udipe_thread_log_level = *prev_log_level;
-}
-
 /// Record return from a logged function
 ///
 /// This helper function lets LOGGED_FUNCTION_START/LOGGED_FUNCTION_END debug
@@ -509,8 +520,23 @@ static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_le
 ///                `void*` for interface compatibility with \ref
 ///                SCOPE_START_WITH_DESTRUCTOR.
 static inline void debug_function_return(void* context) {
-    const char* const func = (const char*)context;
-    debugf("Returning from %s()", func);
+    // Cannot use the LOGGED_FUNCTION macros here as this is part of their
+    // implementation, so calling them here would result in unbounded recursion
+    SCOPE_START
+        const char* const func = (const char*)context;
+        debugf("Returning from %s()", func);
+    SCOPE_END
+}
+
+/// Restore `udipe_log_level` (implementation detail of with_log_level())
+///
+/// This helper function enables with_log_level() to clean up after itself
+/// through the GNU `__cleanup__` attribute.
+static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_level) {
+    LOGGED_FUNCTION_START("&%d", *prev_log_level)
+        debug("End of a with_log_level() scope.");
+        udipe_thread_log_level = *prev_log_level;
+    LOGGED_FUNCTION_END
 }
 
 /// Restore `udipe_thread_logger`
@@ -521,9 +547,11 @@ static inline void debug_function_return(void* context) {
 ///                `void*` for interface compatibility with \ref
 ///                SCOPE_START_WITH_DESTRUCTOR.
 static inline void restore_thread_logger(void* context) {
-    debugf("Disabled logger %p, back to %p.",
-           udipe_thread_logger,
-           context);
+    LOGGED_FUNCTION_START("%p", context)
+        debugf("Disabled logger %p, back to %p.",
+               udipe_thread_logger,
+               context);
+    LOGGED_FUNCTION_END
     udipe_thread_logger = (logger_t*)context;
 }
 
