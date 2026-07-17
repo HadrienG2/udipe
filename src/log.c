@@ -357,16 +357,18 @@ void logf_impl(udipe_log_level_t level,
 }
 
 UDIPE_NODISCARD
-logger_state_t logger_backup() {
-    return (logger_state_t){
+logger_parent_state_t logger_save_parent() {
+    return (logger_parent_state_t){
         .logger = udipe_thread_logger,
-        .log_level = udipe_thread_log_level
+        .log_level = udipe_thread_log_level,
+        .scope_depth = global_scope_depth()
     };
 }
 
-void logger_restore(const logger_state_t* state) {
+void logger_init_child(const logger_parent_state_t* state) {
     udipe_thread_logger = state->logger;
     udipe_thread_log_level = state->log_level;
+    bias_scope_depth(state->scope_depth);
 }
 
 thread_local logger_t* udipe_thread_logger = NULL;

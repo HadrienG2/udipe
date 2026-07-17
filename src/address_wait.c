@@ -200,7 +200,7 @@ void wake_by_address_single(_Atomic uint32_t* atom) {
         ///
         /// Used to sync up the logging configuration of worker threads with
         /// that of the main thread.
-        logger_state_t logger;
+        logger_parent_state_t logger;
 
         /// Main thread notification counter
         ///
@@ -248,7 +248,7 @@ void wake_by_address_single(_Atomic uint32_t* atom) {
         // Grab worker thread state and give it a clear name
         worker_state_t* state = (worker_state_t*)context;
         shared_state_t* shared = state->shared;
-        logger_restore(&shared->logger);
+        logger_init_child(&shared->logger);
         LOGGED_FUNCTION_START("%p", context)
             debugf("Setting up worker%u...", state->id);
             char name[8] = "workerN";
@@ -313,7 +313,7 @@ void wake_by_address_single(_Atomic uint32_t* atom) {
         LOGGED_FUNCTION_START("%u", notify_all)
             debug("Setting up the shared state...");
             shared_state_t shared;
-            shared.logger = logger_backup();
+            shared.logger = logger_save_parent();
             atomic_init(&shared.notify_counter, 0);
             atomic_init(&shared.global_wake_counter, 0);
             shared.notify_all = notify_all;

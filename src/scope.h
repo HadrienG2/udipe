@@ -262,6 +262,20 @@ size_t global_scope_depth() {
     return udipe_scope_tracker.nesting_depth;
 }
 
+/// Bias the scope depth so that it is always greater than some number
+///
+/// This is used to ensure that worker threads which are spawned by some
+/// function are treated as children of that function for the purpose of
+/// abstraction depth tracking.
+///
+/// It should be called at the very start of the worker thread, before any
+/// scope- or logging-related action is carried out.
+static inline
+void bias_scope_depth(size_t depth) {
+    assert(udipe_scope_tracker.nesting_depth == (size_t)0);
+    udipe_scope_tracker.nesting_depth = depth;
+}
+
 /// \}
 
 

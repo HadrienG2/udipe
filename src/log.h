@@ -393,36 +393,40 @@ static inline bool log_enabled(udipe_log_level_t level);
     #error "Sorry, we don't support your compiler yet. Please file a bug report about it!"
 #endif
 
-/// Thread-local logger state backup
+/// Backup of a parent thread's logging configuration
 ///
-/// This struct can be saved from the current thread-local state via
-/// logger_backup() and restored into the current thread-local state via
-/// logger_restore(). This is typically done in unit tests when spawning test
-/// threads that should use the same logger configuration as the main thread.
-typedef struct logger_state_s {
+/// This struct is a backup of the thread-local configuration of a "parent"
+/// thread, which is recorded with logger_save_parent() and can be propagaged to
+/// the child threads that it spawns with logger_init_child().
+typedef struct logger_parent_state_s {
     logger_t* logger;  ///< Backup of \ref udipe_thread_logger
     udipe_log_level_t log_level;  ///< Backup of \ref udipe_thread_log_level
-} logger_state_t;
+    size_t scope_depth;  ///< Backup of global_scope_depth()
+} logger_parent_state_t;
 
-/// Save the current thread-local logger state
+/// Save the logger state of a parent thread
 ///
-/// This is typically used to propagate the current logger configuration to
-/// child threads with logger_restore().
+/// This is used to propagate the logger configuration of the active thread to
+/// the child threads that it spawns using logger_init_child().
 ///
-/// Bear in mind that the resulting \ref logger_state_t may only be used as long
-/// as the underlying \ref logger_t is valid. The simplest way to enforce this
-/// is to join the child threads to which the logger configuration has been
-/// propagated before the end of the main thread's LOGGER_START/LOGGER_END
-/// block.
+/// Bear in mind that the resulting \ref logger_parent_state_t may only be used
+/// as long as the underlying \ref logger_t is valid. The simplest way to
+/// enforce this is to join the child threads to which the logger configuration
+/// has been propagated before the end of the main thread's
+/// LOGGER_START/LOGGER_END block.
 ///
-/// \returns a backup of the thread-local logger state
+/// \returns a backup of the current thread's logger state
 UDIPE_NODISCARD
-logger_state_t logger_backup();
+logger_parent_state_t logger_save_parent();
 
-/// Restore the thread-local logger state from a backup
+/// Initialize a child thread's logger from its parent
 ///
-/// This is typically used to propagate the logger configuration of a main
-/// thread, which has been saved with logger_backup(), into a child thread.
+/// This is used to propagate the logger configuration of a parent thread,
+/// previously saved with logger_save_parent(), to the child threads that this
+/// parent thread has spawned.
+///
+/// The child thread can only take this action very early on, before it has
+/// engaged in any use of scope tracking or logging macros.
 ///
 /// Bear in mind that the resulting state may only be used as long as the
 /// underlying logger object is valid. The simplest way to enforce this
@@ -431,7 +435,7 @@ logger_state_t logger_backup();
 /// block.
 ///
 /// \param state is a previously saved backup of the thread-local logger state
-void logger_restore(const logger_state_t* state);
+void logger_init_child(const logger_parent_state_t* parent_state);
 
 ///@}
 
@@ -522,8 +526,8 @@ static inline udipe_log_level_t thread_log_level(udipe_log_level_t level) {
 ///                SCOPE_START_WITH_DESTRUCTOR.
 static inline void debug_function_return(void* context) {
     // Usine raw SCOPE_START over LOGGED_FUNCTION_START following the
-    // recommendation of SCOPE_START_WITH_DESTRUCTOR docs, but this function has
-    // no choice anyway as a part of the LOGGED_FUNCTION_START implementation...
+    // recommendation of SCOPE_START_WITH_DESTRUCTOR docs. And this function has
+    // no choice anyway as it is part of the LOGGED_FUNCTION_ implementation...
     SCOPE_START
         const char* const func = (const char*)context;
         debugf("Returning from %s.", func);
