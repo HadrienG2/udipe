@@ -113,7 +113,7 @@ bool future_type_has_dependencies(future_type_t type) {
             return true;
         case NUM_TYPES:
         default:
-            exit_with_error("Unexpected future type!");
+            exit_with_error("Encountered an invalid future type!");
         }
     LOGGED_FUNCTION_END
 }
@@ -143,7 +143,7 @@ bool future_type_has_processing(future_type_t type) {
             return false;
         case NUM_TYPES:
         default:
-            exit_with_error("Unexpected future type!");
+            exit_with_error("Encountered an invalid future type!");
         }
     LOGGED_FUNCTION_END
 }
@@ -180,7 +180,7 @@ bool future_type_uses_lazy_lock(future_type_t type) {
         #endif
         case NUM_TYPES:
         default:
-            exit_with_error("Unexpected future type!");
+            exit_with_error("Encountered an invalid future type!");
         }
     LOGGED_FUNCTION_END
 }
@@ -240,7 +240,7 @@ bool future_type_uses_worker_thread(future_type_t type) {
             return false;
         case NUM_TYPES:
         default:
-            exit_with_error("Unexpected future type!");
+            exit_with_error("Encountered an invalid future type!");
         }
     LOGGED_FUNCTION_END
 }

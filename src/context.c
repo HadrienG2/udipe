@@ -31,7 +31,7 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
     logger_t logger = logger_initialize(config.log);
     udipe_context_t* context = NULL;
     LOGGER_START(&logger)
-        debug("Allocating a udipe_context_t struct...");
+        debug("Allocating a udipe_context_t...");
         #ifdef _WIN32
             context = _aligned_malloc(sizeof(udipe_context_t),
                                       alignof(udipe_context_t));

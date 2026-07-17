@@ -36,7 +36,7 @@ void event_cache_finalize(event_cache_t* cache) {
             sync_cache_decrement_index(&cache->latest, EVENT_CACHE_CAPACITY);
         }
 
-        debug("Resetting the latest event index...");
+        debug("Poisoning the latest event index...");
         cache->latest = 0;
     LOGGED_FUNCTION_END
 }

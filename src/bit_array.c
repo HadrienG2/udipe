@@ -425,7 +425,8 @@
                                          bool main_value) {
         LOGGED_SUBTEST_START
             const bool hole_value = !main_value;
-            debugf("Using main value %u and hole value %u.", main_value, hole_value);
+            debugf("Using main value %u and hole value %u.",
+                   main_value, hole_value);
 
             debug("Filling the bit array with the desired pattern...");
             bit_array_range_set(bit_array,
@@ -493,8 +494,16 @@
                     tracef("- Testing bit arrays with a \"hole\" "
                              "at index range [%zu; %zu[...",
                            hole_start, hole_end);
-                    test_bit_array_with_hole(bit_array, length, hole_start, hole_end, false);
-                    test_bit_array_with_hole(bit_array, length, hole_start, hole_end, true);
+                    test_bit_array_with_hole(bit_array,
+                                             length,
+                                             hole_start,
+                                             hole_end,
+                                             false);
+                    test_bit_array_with_hole(bit_array,
+                                             length,
+                                             hole_start,
+                                             hole_end,
+                                             true);
                 }
             }
         LOGGED_FUNCTION_END

@@ -184,7 +184,7 @@ void future_status_debug_check(future_status_t status,
             case STATUS_KIND_ANY:
             case STATUS_KIND_ALLOCATED:
             default:
-                exit_with_error("Excluded above");
+                exit_with_error("Excluded by code above.");
             }
             debug_expr((size_t)result.type);
 
@@ -244,7 +244,7 @@ void future_status_debug_check(future_status_t status,
                 break;
             case NUM_TYPES:
             default:
-                exit_with_error("Should never happen");
+                exit_with_error("Encountered an invalid future type!");
             }
             debug_expr((size_t)result.state);
 
@@ -272,7 +272,7 @@ void future_status_debug_check(future_status_t status,
                 break;
             case NUM_STATES:
             default:
-                exit_with_error("Should never happen");
+                exit_with_error("Encountered an invalid future state!");
             }
             debug_expr((size_t)result.outcome);
 

@@ -11,9 +11,9 @@
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
-name_filter_t name_filter_initialize(const char* key) {
+name_filter_t name_filter_initialize(const char* key, bool log_info) {
     LOGGED_FUNCTION_START("\"%s\"", key)
-        if (strcmp(key, "") != 0) {
+        if (strcmp(key, "") != 0 && log_info) {
             infof(
                 "Will only execute tests/benchmarks whose name contains \"%s\"",
                 key
@@ -53,14 +53,14 @@ void name_filter_finalize(name_filter_t* filter) {
             info("Running name filtering unit tests...");
 
             debug("Testing catch-all empty name filter...");
-            name_filter_t filter = name_filter_initialize("");
+            name_filter_t filter = name_filter_initialize("", false);
             ensure(name_filter_matches(filter, ""));
             ensure(name_filter_matches(filter, "a"));
             ensure(name_filter_matches(filter, "ba"));
             name_filter_finalize(&filter);
 
             debug("Testing non-empty name filter...");
-            filter = name_filter_initialize("abc");
+            filter = name_filter_initialize("abc", false);
             ensure(!name_filter_matches(filter, ""));
             ensure(!name_filter_matches(filter, "a"));
             ensure(!name_filter_matches(filter, "ab"));

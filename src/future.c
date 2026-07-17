@@ -109,7 +109,7 @@ bool udipe_cancel(udipe_future_t* future, bool finish) {
                 break;
             case NUM_OUTCOMES:
             default:
-                exit_with_error("Should never happen!");
+                exit_with_error("Encountered an invalid future outcome!");
             }
             if (failure_cause) {
                 debugf("Cannot cancel future because the operation %s!",
@@ -129,7 +129,7 @@ bool udipe_cancel(udipe_future_t* future, bool finish) {
                 case STATE_UNINITIALIZED:
                 case NUM_STATES:
                 default:
-                    exit_with_error("Active future shouldn't have this state!");
+                    exit_with_error("Encountered an invalid future state!");
                 }
             #endif
 
@@ -305,7 +305,7 @@ UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
 bool udipe_custom_canceled(udipe_future_t* custom) {
     LOGGER_START(&custom->context->logger)
-        debugf("Checking if custom future %p is canceled...", custom);
+        debugf("Loading the initial status word of future %p...", custom);
         const future_status_t status = future_status_load(
             custom,
             // Can use relaxed ordering here because we're not reading from any
@@ -313,6 +313,8 @@ bool udipe_custom_canceled(udipe_future_t* custom) {
             // accesses to other future fields.
             memory_order_relaxed
         );
+
+        debug("Checking if it indicates that it is canceled...");
         return future_custom_check_canceled(status);
     LOGGER_END
 }
@@ -557,7 +559,7 @@ void future_finish(udipe_future_t* future,
             case OUTCOME_UNKNOWN:
             case NUM_OUTCOMES:
             default:
-                exit_with_error("Should never happen");
+                exit_with_error("Encountered an invalid future outcome!");
             }
         } else {
             debug("Asked not to collect the end result, will skip that part.");
@@ -645,7 +647,9 @@ bool future_custom_check_canceled(future_status_t status) {
             case OUTCOME_FAILURE_DEPENDENCY:  // Not valid for custom futures
             case NUM_OUTCOMES:  // Never valid
             default:
-                exit_with_error("Observed an invalid custom future outcome!");
+                exit_with_error(
+                    "Encountered an invalid custom future outcome!"
+                );
             }
         #endif
 
@@ -663,7 +667,7 @@ bool future_custom_check_canceled(future_status_t status) {
         case STATE_WAITING:  // Not valid for custom futures
         case NUM_STATES:  // Never valid
         default:
-            exit_with_error("Observed an invalid custom future state!");
+            exit_with_error("Encountered an invalid custom future state!");
         }
     LOGGED_FUNCTION_END
 }

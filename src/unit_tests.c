@@ -52,7 +52,7 @@
             // Set up name-based test filtering
             ensure_le(argc, 2);
             const char* filter_key = (argc == 2) ? argv[1] : "";
-            name_filter_t filter = name_filter_initialize(filter_key);
+            name_filter_t filter = name_filter_initialize(filter_key, true);
 
             // Tests are ordered such that a piece of code is tested before
             // other pieces of code that may depend on it

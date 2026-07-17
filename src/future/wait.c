@@ -134,8 +134,7 @@ future_status_t future_wait(udipe_future_t* future,
         case TYPE_INVALID:
         case NUM_TYPES:
         default:
-            errorf("Observed invalid future type %d", status.type);
-            exit(EXIT_FAILURE);
+            exit_with_error("Encountered an invalid future type!");
         }
     LOGGED_FUNCTION_END
 }
@@ -531,14 +530,14 @@ future_status_t future_wait_join(udipe_future_t* future,
                         } while(true);
 
                         if (latest_status.downstream_count == 0 || canceled) {
-                            // - No notification needed if no thread is waiting for
-                            //   this future's status to change. Any thread that
-                            //   observes this future's final status afterwards
-                            //   should not need to query its eventfd to know that
-                            //   it's already in STATE_RESULT.
+                            // - No notification needed if no thread is waiting
+                            //   for this future's status to change. Any thread
+                            //   that observes this future's final status
+                            //   afterwards should not need to query its eventfd
+                            //   to know that it's already in STATE_RESULT.
                             // - No notification needed if we were canceled, the
-                            //   thread that switched to a canceled status will take
-                            //   care of notifying other threads for us.
+                            //   thread that switched to a canceled status will
+                            //   take care of notifying other threads for us.
                         } else if (outcome_known) {
                             debug(
                                 "Letting other threads know that the outcome "
@@ -552,14 +551,16 @@ future_status_t future_wait_join(udipe_future_t* future,
                             event_signal(future->specific.join.inpoll_latch);
                         } else {
                             assert(reached_timeout);
-                            debug("Reached timeout without completing the wait.");
+                            debug(
+                                "Reached timeout without completing the wait."
+                            );
                             if (latest_status.notify_address) {
                                 debug("Will now wake up one waiter (if any) to "
                                       "take over the lazy_lock.");
                                 // Use of wake_by_address_single() avoids the
                                 // thundering herd that would occur if multiple
-                                // waiters woke only to immediately race to acquire
-                                // lazy_lock and fall back asleep.
+                                // waiters woke only to immediately race to
+                                // acquire lazy_lock and fall back asleep.
                                 wake_by_address_single(&future->status_word);
                             } else {
                                 debug("No other thread could be waiting for "
@@ -570,7 +571,8 @@ future_status_t future_wait_join(udipe_future_t* future,
                         return latest_status;
                     } while(true);
                 #else
-                    // TODO add windows version based on event objects signaled via the thread pool
+                    // TODO add windows version based on event objects signaled
+                    //      via the thread pool
                     #error "Sorry, we don't support your operating system yet. Please file a bug report about it!"
                 #endif
             }

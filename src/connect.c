@@ -50,7 +50,7 @@ UDIPE_NON_NULL_ARGS
 void
 connect_options_allocator_finalize(connect_options_allocator_t* allocator) {
     LOGGED_FUNCTION_START("%p", allocator)
-        debugf("Checking availability mask of allocator %p...", allocator);
+        debug("Making sure no options are still allocated...");
         const uint32_t current_availability =
             atomic_load_explicit(&allocator->availability,
                                  memory_order_relaxed);
@@ -129,7 +129,7 @@ UDIPE_NON_NULL_ARGS
 void connect_options_liberate(connect_options_allocator_t* allocator,
                               udipe_connect_options_t* options) {
     LOGGED_FUNCTION_START("%p, %p", allocator, options)
-        debugf("Marking worker thread as done with options @ %p...", options);
+        debugf("Marking options @ %p as available...", options);
         const size_t options_idx = options - allocator->options;
         const uint32_t bit = 1 << options_idx;
         // With release ordering here, we ensure that our prior accesses to the
@@ -142,7 +142,7 @@ void connect_options_liberate(connect_options_allocator_t* allocator,
                 (previous_availability & bit) == 0));
 
         if (previous_availability == 0) {
-            debug("All connect options were in use, let's wake up "
+            debug("All connect options were in use before, let's wake up "
                   "one of the worker threads awaiting some (if any)");
             wake_by_address_single(&allocator->availability);
         }

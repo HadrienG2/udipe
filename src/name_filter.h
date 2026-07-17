@@ -29,11 +29,13 @@ typedef char* name_filter_t;
 /// \param key is a user-specified string that should be taken as the first and
 ///            only optional positional CLI argument of test and benchmark
 ///            binaries, with "" as the default value.
+/// \param log_info controls whether an INFO log is emitted to describe the name
+///                 filter configuration.
 /// \returns a name filter that must be liberated with name_filter_liberate()
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
-name_filter_t name_filter_initialize(const char* key);
+name_filter_t name_filter_initialize(const char* key, bool log_info);
 
 /// Check if a test/benchmark name passes the name filter
 ///

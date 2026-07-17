@@ -376,6 +376,8 @@
                                    ratio);
                 }
                 break;
+            default:
+                exit_with_error("Encountered an unsupported comparison!");
             }
             ensure_ge(len, 0);
             ensure_lt((size_t)len, output_size);
