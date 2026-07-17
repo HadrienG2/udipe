@@ -258,131 +258,139 @@
     ptrdiff_t distribution_bin_by_value(const distribution_t* dist,
                                         int64_t value,
                                         bin_direction_t direction) {
-        // Determine the distribution's memory layout
-        //
-        // Since this function works with both distribution_builder_t and the
-        // final distribution_t, it can only use the sorted_values field.
-        const int64_t* sorted_values = distribution_layout(dist).sorted_values;
-        const size_t end_pos = dist->num_bins;
-        debugf("Searching for a bin with a value around %zd (direction %d) "
-               "within a distribution with %zu bins.",
-               value, (int)direction, dist->num_bins);
+        LOGGED_FUNCTION_START("%p, %zd, %d", dist, value, direction)
+            // Determine the distribution's memory layout
+            //
+            // Since this function works with both distribution_builder_t and
+            // distribution_t, it can only use the sorted_values field.
+            const int64_t* sorted_values =
+                distribution_layout(dist).sorted_values;
+            const size_t end_pos = dist->num_bins;
+            debugf("Searching for a bin with a value around %zd (direction %d) "
+                   "within a distribution with %zu bins.",
+                   value, (int)direction, dist->num_bins);
 
-        // Handle the empty distribution edge case
-        if (dist->num_bins == 0) {
-            debug("Distribution is empty: return placeholder bin index.");
-            switch (direction) {
-            case BIN_BELOW:
-            case BIN_NEAREST:
-                return PTRDIFF_MIN;
-            case BIN_ABOVE:
-                return PTRDIFF_MAX;
+            // Handle the empty distribution edge case
+            if (dist->num_bins == 0) {
+                debug("Distribution is empty: return placeholder bin index.");
+                switch (direction) {
+                case BIN_BELOW:
+                case BIN_NEAREST:
+                    return PTRDIFF_MIN;
+                case BIN_ABOVE:
+                    return PTRDIFF_MAX;
+                }
             }
-        }
 
-        // Handle values at or above the last value
-        const size_t last_pos = end_pos - 1;
-        const int64_t last_value = sorted_values[last_pos];
-        if (value > last_value) {
-            debugf("Input value is above last bin value %zd.", last_value);
-            switch (direction) {
-            case BIN_BELOW:
-            case BIN_NEAREST:
+            // Handle values at or above the last value
+            const size_t last_pos = end_pos - 1;
+            const int64_t last_value = sorted_values[last_pos];
+            if (value > last_value) {
+                debugf("Input value is above last bin value %zd.", last_value);
+                switch (direction) {
+                case BIN_BELOW:
+                case BIN_NEAREST:
+                    return last_pos;
+                case BIN_ABOVE:
+                    return PTRDIFF_MAX;
+                }
+            } else if (value == last_value) {
+                debugf("Input value is equal to last bin value %zd.",
+                       last_value);
                 return last_pos;
-            case BIN_ABOVE:
-                return PTRDIFF_MAX;
             }
-        } else if (value == last_value) {
-            debugf("Input value is equal to last bin value %zd.", last_value);
-            return last_pos;
-        }
-        assert(value < last_value);
+            assert(value < last_value);
 
-        // Handle values at or below the first value
-        const size_t first_pos = 0;
-        const int64_t first_value = sorted_values[first_pos];
-        if (value < first_value) {
-            debugf("Input value is below first bin value %zd.", first_value);
-            switch (direction) {
-            case BIN_BELOW:
-                return PTRDIFF_MIN;
-            case BIN_NEAREST:
-            case BIN_ABOVE:
+            // Handle values at or below the first value
+            const size_t first_pos = 0;
+            const int64_t first_value = sorted_values[first_pos];
+            if (value < first_value) {
+                debugf("Input value is below first bin value %zd.",
+                       first_value);
+                switch (direction) {
+                case BIN_BELOW:
+                    return PTRDIFF_MIN;
+                case BIN_NEAREST:
+                case BIN_ABOVE:
+                    return first_pos;
+                }
+            } else if (value == first_value) {
+                debugf("Input value is equal to first bin value %zd.",
+                       first_value);
                 return first_pos;
             }
-        } else if (value == first_value) {
-            debugf("Input value is equal to first bin value %zd.", first_value);
-            return first_pos;
-        }
-        assert(value > first_value);
+            assert(value > first_value);
 
-        // At this point, we have established the following:
-        // - There are at least two bins in the histogram
-        // - The input value is strictly greater than the minimum value
-        // - The input value is strictly smaller than the maximum value
-        //
-        // Use binary search to locate either the bin to which the input value
-        // belongs or the pair of bins between which it resides.
-        size_t below_pos = first_pos;
-        int64_t below_value = first_value;
-        size_t above_pos = last_pos;
-        int64_t above_value = last_value;
-        debugf("Input value belongs to central range ]%zd; %zd[, "
-               "will now locate bin via binary search...",
-               below_value, above_value);
-        while (above_pos - below_pos > 1) {
-            assert(below_pos < above_pos);
-            assert(below_value < value);
-            assert(above_value > value);
-            tracef("- Input value is in range ]%zd; %zd[ from bins ]%zu; %zu[.",
-                   below_value, above_value, below_pos, above_pos);
+            // At this point, we have established the following:
+            // - There are at least two bins in the histogram
+            // - The input value is strictly greater than the minimum value
+            // - The input value is strictly smaller than the maximum value
+            //
+            // Use binary search to locate either the bin to which the input value
+            // belongs or the pair of bins between which it resides.
+            size_t below_pos = first_pos;
+            int64_t below_value = first_value;
+            size_t above_pos = last_pos;
+            int64_t above_value = last_value;
+            debugf("Input value belongs to central range ]%zd; %zd[, "
+                   "will now locate bin via binary search...",
+                   below_value, above_value);
+            while (above_pos - below_pos > 1) {
+                assert(below_pos < above_pos);
+                assert(below_value < value);
+                assert(above_value > value);
+                tracef("- Input value is in range ]%zd; %zd[ "
+                       "from bins ]%zu; %zu[.",
+                       below_value, above_value, below_pos, above_pos);
 
-            const size_t middle_pos = below_pos + (above_pos - below_pos) / 2;
-            assert(below_pos <= middle_pos);
-            assert(middle_pos < above_pos);
-            const int64_t middle_value = sorted_values[middle_pos];
-            assert(below_value <= middle_value);
-            assert(middle_value < above_value);
-            tracef("- Investigating middle value %zd from bin #%zu...",
-                   middle_value, middle_pos);
+                const size_t middle_pos =
+                    below_pos + (above_pos - below_pos) / 2;
+                assert(below_pos <= middle_pos);
+                assert(middle_pos < above_pos);
+                const int64_t middle_value = sorted_values[middle_pos];
+                assert(below_value <= middle_value);
+                assert(middle_value < above_value);
+                tracef("- Investigating middle value %zd from bin #%zu...",
+                       middle_value, middle_pos);
 
-            if (middle_value > value) {
-                trace("- It's larger: can eliminate all subsequent bins.");
-                above_pos = middle_pos;
-                above_value = middle_value;
-                continue;
-            } else if (middle_value < value) {
-                trace("- It's smaller: can eliminate all previous bins.");
-                below_pos = middle_pos;
-                below_value = middle_value;
-                continue;
-            } else {
-                assert(middle_value == value);
-                trace("- Found a bin equal to our input value, we're done.");
-                return middle_pos;
+                if (middle_value > value) {
+                    trace("- It's larger: can eliminate all subsequent bins.");
+                    above_pos = middle_pos;
+                    above_value = middle_value;
+                    continue;
+                } else if (middle_value < value) {
+                    trace("- It's smaller: can eliminate all previous bins.");
+                    below_pos = middle_pos;
+                    below_value = middle_value;
+                    continue;
+                } else {
+                    assert(middle_value == value);
+                    trace("- It's equal to our input value, we're done.");
+                    return middle_pos;
+                }
             }
-        }
 
-        // Narrowed down a pair of bins between which the value belongs, insert
-        // a new bin at the appropriate position
-        debugf("Narrowed search interval to 1-bin gap ]%zu; %zu[.",
-               below_pos, above_pos);
-        assert(above_pos == below_pos + 1);
-        assert(value > below_value);
-        assert(value < above_value);
-        switch (direction) {
-        case BIN_BELOW:
-            return below_pos;
-        case BIN_NEAREST:
-            if (value - below_value <= above_value - value) {
+            // Narrowed down a pair of bins between which the value belongs,
+            // insert a new bin at the appropriate position
+            debugf("Narrowed search interval to 1-bin gap ]%zu; %zu[.",
+                   below_pos, above_pos);
+            assert(above_pos == below_pos + 1);
+            assert(value > below_value);
+            assert(value < above_value);
+            switch (direction) {
+            case BIN_BELOW:
                 return below_pos;
-            } else {
+            case BIN_NEAREST:
+                if (value - below_value <= above_value - value) {
+                    return below_pos;
+                } else {
+                    return above_pos;
+                }
+            case BIN_ABOVE:
                 return above_pos;
             }
-        case BIN_ABOVE:
-            return above_pos;
-        }
-        exit_with_error("Control should never reach this point!");
+            exit_with_error("Control should never reach this point!");
+        LOGGED_FUNCTION_END
     }
 
     // === Specific to distribution_builder_t ===
@@ -450,43 +458,45 @@
     void distribution_insert_copies(distribution_builder_t* builder,
                                     int64_t value,
                                     size_t count) {
-        distribution_t* dist = &builder->inner;
-        debugf("Asked to insert %zu copies of value %zd "
-               "into a distribution with %zu bins.",
-               count, value,
-               dist->num_bins);
+        LOGGED_FUNCTION_START("%p, %zd, %zu", builder, value, count)
+            distribution_t* dist = &builder->inner;
+            debugf("Asked to insert %zu copies of value %zd "
+                   "into a distribution with %zu bins.",
+                   count, value,
+                   dist->num_bins);
 
-        // Find index of closest bin >= value, if any
-        const int64_t bin_pos = distribution_bin_by_value(dist,
-                                                          value,
-                                                          BIN_ABOVE);
+            // Find index of closest bin >= value, if any
+            const int64_t bin_pos = distribution_bin_by_value(dist,
+                                                              value,
+                                                              BIN_ABOVE);
 
-        // Handle past-the-end case
-        const distribution_layout_t layout = distribution_layout(dist);
-        if (bin_pos == PTRDIFF_MAX) {
-            const size_t end_pos = dist->num_bins;
-            const size_t last_pos = end_pos - 1;
-            const int64_t last_value = layout.sorted_values[last_pos];
-            debugf("Value is past the end of histogram %zd, "
-                   "will become new last bin #%zu.",
-                   last_value, end_pos);
-            distribution_create_bin(builder, end_pos, value, count);
-            return;
-        }
-        assert(bin_pos >= 0);
-        assert((size_t)bin_pos < dist->num_bins);
+            // Handle past-the-end case
+            const distribution_layout_t layout = distribution_layout(dist);
+            if (bin_pos == PTRDIFF_MAX) {
+                const size_t end_pos = dist->num_bins;
+                const size_t last_pos = end_pos - 1;
+                const int64_t last_value = layout.sorted_values[last_pos];
+                debugf("Value is past the end of histogram %zd, "
+                       "will become new last bin #%zu.",
+                       last_value, end_pos);
+                distribution_create_bin(builder, end_pos, value, count);
+                return;
+            }
+            assert(bin_pos >= 0);
+            assert((size_t)bin_pos < dist->num_bins);
 
-        // Got a bin above or equal to the value, find out which
-        const int64_t bin_value = layout.sorted_values[bin_pos];
-        if (value == bin_value) {
-            debugf("Found matching bin #%zu, add value to it.", bin_pos);
-            assert(layout.counts[bin_pos] <= SIZE_MAX - count);
-            layout.counts[bin_pos] += count;
-        } else {
-            debugf("Found upper neighbour %zd in bin #%zu, insert bin here.",
-                   bin_value, bin_pos);
-            distribution_create_bin(builder, bin_pos, value, count);
-        }
+            // Got a bin above or equal to the value, find out which
+            const int64_t bin_value = layout.sorted_values[bin_pos];
+            if (value == bin_value) {
+                debugf("Found matching bin #%zu, add value to it.", bin_pos);
+                assert(layout.counts[bin_pos] <= SIZE_MAX - count);
+                layout.counts[bin_pos] += count;
+            } else {
+                debugf("Found upper neighbour %zd in bin #%zu, add a bin here.",
+                       bin_value, bin_pos);
+                distribution_create_bin(builder, bin_pos, value, count);
+            }
+        LOGGED_FUNCTION_END
     }
 
     /// Largest amount of values in any \ref distribution_builder_t bin
@@ -549,74 +559,77 @@
     static inline
     size_t distribution_bin_by_rank(const distribution_t* dist,
                                     size_t value_rank) {
-        // Handle the case where the value is in the first histogram bin
-        debugf("Searching for the bin matching value rank %zu "
-               "within a distribution with %zu bins.",
-               value_rank, dist->num_bins);
-        assert(value_rank < distribution_len(dist));
-        const distribution_layout_t layout = distribution_layout(dist);
-        const size_t first_pos = 0;
-        const size_t first_end_rank = layout.end_ranks[first_pos];
-        if (value_rank < first_end_rank) {
-            const int64_t first_value = layout.sorted_values[first_pos];
-            debugf("This is value %zd from first bin with end_rank %zu.",
-                   first_value, first_end_rank);
-            return first_pos;
-        }
-
-        // At this point, we have established the following:
-        // - value_rank does not belong to the first bin
-        // - There are at least two bins in the histogram, because value_rank
-        //   must map to at least one other bin
-        // - value_rank is in bounds, so it must belong to the last bin or one
-        //   of the previous bins
-        //
-        // Use binary search to locate the bin to which value_rank belongs,
-        // which is the first bin whose end_rank is strictly greater than
-        // value_rank.
-        size_t below_pos = first_pos;
-        size_t below_end_rank = layout.end_ranks[below_pos];
-        size_t above_pos = dist->num_bins - 1;
-        size_t above_end_rank = layout.end_ranks[above_pos];
-        debugf("Input rank belongs to central rank range [%zd; %zd[, "
-               "will now locate bin via binary search...",
-               below_end_rank, above_end_rank);
-        while (above_pos - below_pos > 1) {
-            assert(below_pos < above_pos);
-            assert(below_end_rank <= value_rank);
-            assert(above_end_rank > value_rank);
-            tracef("- Rank is in range [%zd; %zd[ from bins ]%zu; %zu].",
-                   below_end_rank, above_end_rank, below_pos, above_pos);
-
-            const size_t middle_pos = below_pos + (above_pos - below_pos) / 2;
-            assert(below_pos <= middle_pos);
-            assert(middle_pos < above_pos);
-            const size_t middle_end_rank = layout.end_ranks[middle_pos];
-            assert(below_end_rank <= middle_end_rank);
-            assert(middle_end_rank < above_end_rank);
-            tracef("- Investigating end_rank %zd from middle bin #%zu...",
-                   middle_end_rank, middle_pos);
-
-            if (middle_end_rank > value_rank) {
-                trace("- It's larger: can eliminate subsequent bins.");
-                above_pos = middle_pos;
-                above_end_rank = layout.end_ranks[above_pos];
-            } else {
-                trace("- It's smaller: can eliminate previous bins.");
-                assert(middle_end_rank <= value_rank);
-                below_pos = middle_pos;
-                below_end_rank = layout.end_ranks[below_pos];
+        LOGGED_FUNCTION_START("%p, %zu", dist, value_rank)
+            // Handle the case where the value is in the first histogram bin
+            debugf("Searching for the bin matching value rank %zu "
+                   "within a distribution with %zu bins.",
+                   value_rank, dist->num_bins);
+            assert(value_rank < distribution_len(dist));
+            const distribution_layout_t layout = distribution_layout(dist);
+            const size_t first_pos = 0;
+            const size_t first_end_rank = layout.end_ranks[first_pos];
+            if (value_rank < first_end_rank) {
+                const int64_t first_value = layout.sorted_values[first_pos];
+                debugf("This is value %zd from first bin with end_rank %zu.",
+                       first_value, first_end_rank);
+                return first_pos;
             }
-        }
 
-        // Narrowed down the pair of bins to which value_rank belongs
-        debugf("Narrowed search to single bin ]%zu; %zu]: "
-               "value must come from bin #%zu.",
-               below_pos, above_pos, above_pos);
-        assert(above_pos == below_pos + 1);
-        assert(value_rank >= below_end_rank);
-        assert(value_rank < above_end_rank);
-        return above_pos;
+            // At this point, we have established the following:
+            // - value_rank does not belong to the first bin
+            // - There are at least two bins in the histogram, because
+            //   value_rank must map to at least one other bin
+            // - value_rank is in bounds, so it must belong to the last bin or
+            //   one of the previous bins
+            //
+            // Use binary search to locate the bin to which value_rank belongs,
+            // which is the first bin whose end_rank is strictly greater than
+            // value_rank.
+            size_t below_pos = first_pos;
+            size_t below_end_rank = layout.end_ranks[below_pos];
+            size_t above_pos = dist->num_bins - 1;
+            size_t above_end_rank = layout.end_ranks[above_pos];
+            debugf("Input rank belongs to central rank range [%zd; %zd[, "
+                   "will now locate bin via binary search...",
+                   below_end_rank, above_end_rank);
+            while (above_pos - below_pos > 1) {
+                assert(below_pos < above_pos);
+                assert(below_end_rank <= value_rank);
+                assert(above_end_rank > value_rank);
+                tracef("- Rank is in range [%zd; %zd[ from bins ]%zu; %zu].",
+                       below_end_rank, above_end_rank, below_pos, above_pos);
+
+                const size_t middle_pos =
+                    below_pos + (above_pos - below_pos) / 2;
+                assert(below_pos <= middle_pos);
+                assert(middle_pos < above_pos);
+                const size_t middle_end_rank = layout.end_ranks[middle_pos];
+                assert(below_end_rank <= middle_end_rank);
+                assert(middle_end_rank < above_end_rank);
+                tracef("- Investigating end_rank %zd from middle bin #%zu...",
+                       middle_end_rank, middle_pos);
+
+                if (middle_end_rank > value_rank) {
+                    trace("- It's larger: can eliminate subsequent bins.");
+                    above_pos = middle_pos;
+                    above_end_rank = layout.end_ranks[above_pos];
+                } else {
+                    trace("- It's smaller: can eliminate previous bins.");
+                    assert(middle_end_rank <= value_rank);
+                    below_pos = middle_pos;
+                    below_end_rank = layout.end_ranks[below_pos];
+                }
+            }
+
+            // Narrowed down the pair of bins to which value_rank belongs
+            debugf("Narrowed search to single bin ]%zu; %zu]: "
+                   "value must come from bin #%zu.",
+                   below_pos, above_pos, above_pos);
+            assert(above_pos == below_pos + 1);
+            assert(value_rank >= below_end_rank);
+            assert(value_rank < above_end_rank);
+            return above_pos;
+        LOGGED_FUNCTION_END
     }
 
     /// \}
@@ -1001,23 +1014,25 @@
     UDIPE_NON_NULL_ARGS
     static inline
     uint64_t distribution_min_difference(const distribution_t* dist) {
-        const size_t num_bins = dist->num_bins;
-        if (num_bins == 0) {
-            debug("No value, will return UINT64_MAX");
-            return UINT64_MAX;
-        }
+        LOGGED_FUNCTION_START("%p", dist)
+            const size_t num_bins = dist->num_bins;
+            if (num_bins == 0) {
+                debug("No value, will return UINT64_MAX");
+                return UINT64_MAX;
+            }
 
-        const distribution_layout_t layout = distribution_layout(dist);
-        uint64_t min_difference = UINT64_MAX;
-        int64_t prev_value = layout.sorted_values[0];
-        for (size_t bin = 1; bin < num_bins; ++bin) {
-            const int64_t curr_value = layout.sorted_values[bin];
-            assert(curr_value > prev_value);
-            const uint64_t difference = curr_value - prev_value;
-            if (difference < min_difference) min_difference = difference;
-        }
-        assert(min_difference > (uint64_t)0);
-        return min_difference;
+            const distribution_layout_t layout = distribution_layout(dist);
+            uint64_t min_difference = UINT64_MAX;
+            int64_t prev_value = layout.sorted_values[0];
+            for (size_t bin = 1; bin < num_bins; ++bin) {
+                const int64_t curr_value = layout.sorted_values[bin];
+                assert(curr_value > prev_value);
+                const uint64_t difference = curr_value - prev_value;
+                if (difference < min_difference) min_difference = difference;
+            }
+            assert(min_difference > (uint64_t)0);
+            return min_difference;
+        LOGGED_FUNCTION_END
     }
 
     /// Smallest difference between the values of two different distributions,
@@ -1058,13 +1073,15 @@
     UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     static inline int64_t distribution_choose(const distribution_t* dist) {
-        assert(dist->num_bins >= (size_t)1);
-        const size_t num_values = distribution_len(dist);
-        const size_t value_rank = rand() % num_values;
-        debugf("Sampling %zu-th value from a distribution containing %zu values, "
-               "spread across %zu bins.",
-               value_rank, num_values, dist->num_bins);
-        return distribution_nth(dist, value_rank);
+        LOGGED_FUNCTION_START("%p", dist)
+            assert(dist->num_bins >= (size_t)1);
+            const size_t num_values = distribution_len(dist);
+            const size_t value_rank = rand() % num_values;
+            debugf("Sampling %zu-th value from a distribution "
+                   "containing %zu values spread across %zu bins.",
+                   value_rank, num_values, dist->num_bins);
+            return distribution_nth(dist, value_rank);
+        LOGGED_FUNCTION_END
     }
 
     /// Create an independent copy of a \ref distribution_t
