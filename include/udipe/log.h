@@ -16,13 +16,15 @@
 #include "pointer.h"
 #include "visibility.h"
 
+#include <stddef.h>
+
 
 /// Log level/priority
 ///
-/// `libudipe` uses the standard logging convention where logs have various
-/// priorities. In \ref udipe_log_config_t, a certain minimal priority can be
-/// specified. Logs above this priority are recorded, and logs below this
-/// priority are not processed.
+/// The logs emitted by `libudipe` have various priorities, and a minimal
+/// priority can be configured in \ref udipe_log_config_t. Logs above the
+/// configured minimal priority are recorded, whereas logs below this priority
+/// are not processed.
 typedef enum udipe_log_level_e {
     /// Detailed debugging logs
     ///
@@ -38,8 +40,8 @@ typedef enum udipe_log_level_e {
     ///
     /// This is why the `DEBUG` log level exists as a less verbose alternative,
     /// and `TRACE` logs are not displayed by default even in debug builds. They
-    /// can, however, be easily displayed by tuning the log level in the udipe
-    /// configuration.
+    /// can, however, be easily displayed by tuning down the minimal log level
+    /// in the udipe configuration.
     ///
     /// In contrast, release builds filter out `TRACE` and `DEBUG` logs **at
     /// compile time** by default due to their performance impact which is major
@@ -62,15 +64,16 @@ typedef enum udipe_log_level_e {
     ///
     /// Like `TRACE` logs, `DEBUG` logs are primarily intended as a debugging
     /// aid and feature detailed technical information that will only make sense
-    /// to someone who is familiar with the udipe implementation. They also have
-    /// a significant performance impact even when not displayed, which is why
-    /// release builds filter them out at compile time by default (see above).
+    /// to someone who is familiar with the udipe implementation.
     ///
-    /// But in contrast with `TRACE` logs, `DEBUG` logs should never be
-    /// overwhelming when studied in isolation (e.g. calling a function once
-    /// while disabling logging from downstream functions via depth filtering
-    /// (TODO implement)). Which is why they can be displayed by default in
-    /// debug builds.
+    /// They also have a significant performance impact even when not displayed,
+    /// which is why release builds will filter them out at compile time by
+    /// default, as done for `TRACE` logs.
+    ///
+    /// But in contrast with `TRACE` logs, `DEBUG` logs aim to be comprehensible
+    /// when studied in isolation (e.g. calling a function once while disabling
+    /// logging from downstream functions via depth filtering). Which is why
+    /// they are displayed by default in debug builds, unlike `TRACE` logs.
     ///
     /// To achieve this reduction in cognitive load, `DEBUG` logs refrain from
     /// reporting on individual iterations of loops whose iteration count is
@@ -163,6 +166,8 @@ const char* udipe_log_level_name(udipe_log_level_t level);
 ///
 /// - User-defined \link #udipe_log_config_t::context context \endlink
 /// - \link #udipe_log_level_t Level/priority \endlink of the incoming log
+/// - \link #udipe_log_config_t::max_debug_depth Abstraction depth \endlink of the
+///   incoming log
 /// - Udipe source code location that the code originates from
 /// - Textual description of what happened
 ///
@@ -170,6 +175,7 @@ const char* udipe_log_level_name(udipe_log_level_t level);
 /// udipe worker threads and must therefore be thread-safe.
 typedef void (*udipe_log_callback_t)(void* /*context */,
                                      udipe_log_level_t /*level*/,
+                                     size_t /*depth*/,
                                      const char[] /*location*/,
                                      const char[] /*message*/);
 
@@ -227,7 +233,32 @@ typedef struct udipe_log_config_s {
 
     /// Minimal log level/priority to be reported
     ///
-    /// See \ref UDIPE_DEFAULT_LOG_LEVEL for more information about what happens
-    /// when you leave this configuration at its default value.
+    /// See \ref UDIPE_DEFAULT_LOG_LEVEL for more information about what this
+    /// setting does and what happens when you leave it at 0 (\ref
+    /// UDIPE_DEFAULT_LOG_LEVEL).
     udipe_log_level_t min_level;
+
+    /// Maximal depth at which `DEBUG` and `TRACE` logs are reported
+    ///
+    /// The `libudipe` logging infrastructure tracks the abstraction depth at
+    /// which `DEBUG` and `TRACE` logs are emitted. For example, logs from a
+    /// public `libudipe` entry point `udipe_something()` have an abstraction
+    /// depth of 1, logs from a utility `foo()` that is directly called by
+    /// `udipe_something()` have an abstraction depth of 2, logs from another
+    /// utility `bar()` that is called by `foo()` have an abstraction depth of
+    /// 3, and so on.
+    ///
+    /// You can use this setting to control the maximal abstraction depth at
+    /// which `DEBUG` and `TRACE` logs can be displayed, ensuring that logs
+    /// emitted at a greater abstraction depth do not get displayed to avoid
+    /// being flooded unmanageable log volumes and reduce the performance cost
+    /// of logging.
+    ///
+    /// If this setting is left at 0, the maximal logging abstraction depth is
+    /// controlled by the `UDIPE_LOG_DEPTH` environment variable. And if this
+    /// variable is unset, a rather conservative maximal abstraction depth is
+    /// automatically applied by default. This ensures that very detailed
+    /// logging only happens to the people who ask for it with a clear debugging
+    /// intent, and is never exposed to users by accident.
+    size_t max_debug_depth;
 } udipe_log_config_t;

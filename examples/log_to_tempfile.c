@@ -2,6 +2,7 @@
 #include <udipe/log.h>
 
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,12 +13,13 @@
 /// \param context is the `FILE*` pointer associated with the temporary file.
 void log_to_tempfile(void* context,
                      udipe_log_level_t level,
+                     size_t depth,
                      const char location[],
                      const char message[]) {
     FILE* tempfile = (FILE*)context;
     int result = fprintf(tempfile,
-                         "%s from %s: %s\n",
-                         udipe_log_level_name(level), location, message);
+                         "%s at depth %zu from %s: %s\n",
+                         udipe_log_level_name(level), depth, location, message);
     if (result < 0) {
         perror("Failed to write log to tempfile");
         exit(EXIT_FAILURE);
@@ -44,9 +46,10 @@ int main() {
 
     // Set up maximally verbose logging to the temporary file
     config.log = (udipe_log_config_t){
-        .min_level = UDIPE_TRACE,
         .callback = log_to_tempfile,
-        .context = (void*)tempfile
+        .context = (void*)tempfile,
+        .min_level = UDIPE_TRACE,
+        .max_debug_depth = SIZE_MAX
     };
 
     // Set up the upipe context

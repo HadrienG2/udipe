@@ -91,22 +91,30 @@ extern thread_local scope_tracker_t udipe_scope_tracker;
 /// pointer to the `guard` that was previously set up by \ref
 /// SCOPE_START_WITH_DESTRUCTOR_AND_ID and ensures that...
 ///
+/// - The scope nesting depth is updated first.
 /// - The user-specified destructor (if any) gets called.
-/// - The thread-local scope tracker is reset to the parent scope.
-/// - The scope nesting depth is updated accordingly.
+/// - The thread-local scope tracker is reset to target the parent scope.
 ///
 /// \param guard should point to the `guard` that was previously set up by \ref
 ///              SCOPE_START_WITH_DESTRUCTOR_AND_ID.
 UDIPE_NON_NULL_ARGS
 static inline
 void scope_guard_finalize(const scope_guard_t* guard) {
+    // Decrement the depth counter first
+    //
+    // This ensures that when a destructor emits logs, they get emitted at the
+    // same depth as logs from the source function.
+    assert(udipe_scope_tracker.nesting_depth >= (size_t)1);
+    --udipe_scope_tracker.nesting_depth;
+
+    // Call the user-provided destructor, if any
     assert(guard->destructor || (guard->destructor_context == NULL));
     if (guard->destructor) {
         (guard->destructor)(guard->destructor_context);
     }
+
+    // Reset the scope tracker to the previous scope in the stack
     udipe_scope_tracker.top_scope = guard->next_scope;
-    assert(udipe_scope_tracker.nesting_depth >= (size_t)1);
-    --udipe_scope_tracker.nesting_depth;
 }
 
 /// Implementation of `SCOPE_START` macros
@@ -163,7 +171,10 @@ void scope_guard_finalize(const scope_guard_t* guard) {
 ///
 /// \param destructor must be a \ref scope_destructor_t callback, which can be
 ///                   `NULL`. If non-null, it will be called when the scope is
-///                   exited by normal means.
+///                   exited by normal means. If this destructor uses logging,
+///                   it should prefer raw SCOPE_START/SCOPE_END over
+///                   LOGGED_FUNCTION wrappers thereof as otherwise the depth
+///                   accounting odd will be odd and may confuse the user.
 /// \param context is an arbitrary `void*` pointer that will be passed back to
 ///                `destructor`. It can be `NULL`, but is only allowed to be
 ///                non-null if `destructor` is non-null.

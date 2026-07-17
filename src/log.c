@@ -95,9 +95,10 @@ void record_startup_time(void) {
 ///
 /// This is the \ref udipe_log_config_t::callback that is used when the user
 /// does not specify one. It logs to `stderr` with basic formatting.
-UDIPE_NON_NULL_SPECIFIC_ARGS(3, 4)
+UDIPE_NON_NULL_SPECIFIC_ARGS(4, 5)
 static void default_log_callback(void* _context,
                                  udipe_log_level_t level,
+                                 size_t depth,
                                  const char location[],
                                  const char message[]) {
     // WARNING: This function is called by the logger implementation and must
@@ -169,14 +170,18 @@ static void default_log_callback(void* _context,
     // Display the log on stderr
     if (use_colors) {
         fprintf(stderr,
-                "[%5zu.%06zu %s%5s\033[0m] \033[33m%s %s: "
+                "[%5zu.%06zu %s%5s %zu\033[0m] "
+                "\033[33m%s %s: "
                 "%s%s\033[0m\n",
-                secs, microsecs, level_color, level_name, thread_name, location,
+                secs, microsecs, level_color, level_name, depth,
+                thread_name, location,
                 level_color, message);
     } else {
         fprintf(stderr,
-                "[%5zu.%06zu %5s] %s %s: %s\n",
-                secs, microsecs, level_name, thread_name, location, message);
+                "[%5zu.%06zu %5s %zu] "
+                "%s %s: %s\n",
+                secs, microsecs, level_name, depth,
+                thread_name, location, message);
     }
 }
 
@@ -221,8 +226,9 @@ logger_t logger_initialize(udipe_log_config_t config) {
             } else {
                 // Cannot log before logger is initialized
                 fprintf(stderr,
-                        "libudipe: UDIPE_LOG_LEVEL environment varible is set "
-                        "to invalid value \"%s\"!\n", level_str);
+                        "libudipe: UDIPE_LOG_LEVEL environment variable was "
+                        "set to invalid value \"%s\"!\n",
+                        level_str);
                 exit(EXIT_FAILURE);
             }
         } else {
@@ -240,6 +246,31 @@ logger_t logger_initialize(udipe_log_config_t config) {
                 "min_level %d!\n",
                 config.min_level);
         exit(EXIT_FAILURE);
+    }
+
+    // Select and configure log depth
+    if (config.max_debug_depth == 0) {
+        const char* depth_str = getenv("UDIPE_LOG_DEPTH");
+        if (depth_str) {
+            const size_t expected_len = strlen(depth_str);
+            char* end;
+            const unsigned long depth = strtoul(depth_str, &end, 10);
+            assert(end >= depth_str);
+            if ((size_t)(end - depth_str) != expected_len) {
+                assert(errno == ERANGE);
+                fprintf(stderr,
+                        "libudipe: UDIPE_LOG_DEPTH environment variable was "
+                        "set to invalid value \"%s\"!\n",
+                        depth_str);
+                exit(EXIT_FAILURE);
+            } else {
+                config.max_debug_depth = depth;
+            }
+        } else {
+            // TODO: Consider using a different max_debug_depth depending on
+            //       NDEBUG and other factors.
+            config.max_debug_depth = 2;
+        }
     }
 
     // Configure logging callback
@@ -282,6 +313,7 @@ void logger_finalize(logger_t* logger) {
     logger->callback = NULL;
     logger->context = NULL;
     logger->min_level = UDIPE_TRACE;
+    logger->max_debug_depth = 0;
 }
 
 LOGF_IMPL_ATTRIBUTES
@@ -319,6 +351,7 @@ void logf_impl(udipe_log_level_t level,
     // Emit the log
     (udipe_thread_logger->callback)(udipe_thread_logger->context,
                                     level,
+                                    global_scope_depth(),
                                     location,
                                     message);
 }

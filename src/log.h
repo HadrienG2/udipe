@@ -118,6 +118,7 @@ static inline bool log_enabled(udipe_log_level_t level);
         if (log_enabled(udipe_level)) {  \
             (udipe_thread_logger->callback)(udipe_thread_logger->context,  \
                                             udipe_level,  \
+                                            global_scope_depth(),  \
                                             __func__,  \
                                             (message));  \
         }  \
@@ -321,7 +322,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 #define LOGGED_FUNCTION_START(args_format, ...)  \
     do {  \
         SCOPE_START_WITH_DESTRUCTOR(debug_function_return, (void*)__func__)  \
-            debugf("Called function %s(" args_format ")",  \
+            debugf("Called %s(" args_format ").",  \
                    __func__,  \
                    __VA_ARGS__);
 
@@ -520,23 +521,13 @@ static inline udipe_log_level_t thread_log_level(udipe_log_level_t level) {
 ///                `void*` for interface compatibility with \ref
 ///                SCOPE_START_WITH_DESTRUCTOR.
 static inline void debug_function_return(void* context) {
-    // Cannot use the LOGGED_FUNCTION macros here as this is part of their
-    // implementation, so calling them here would result in unbounded recursion
+    // Usine raw SCOPE_START over LOGGED_FUNCTION_START following the
+    // recommendation of SCOPE_START_WITH_DESTRUCTOR docs, but this function has
+    // no choice anyway as a part of the LOGGED_FUNCTION_START implementation...
     SCOPE_START
         const char* const func = (const char*)context;
-        debugf("Returning from %s()", func);
+        debugf("Returning from %s.", func);
     SCOPE_END
-}
-
-/// Restore `udipe_log_level` (implementation detail of with_log_level())
-///
-/// This helper function enables with_log_level() to clean up after itself
-/// through the GNU `__cleanup__` attribute.
-static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_level) {
-    LOGGED_FUNCTION_START("&%d", *prev_log_level)
-        debug("End of a with_log_level() scope.");
-        udipe_thread_log_level = *prev_log_level;
-    LOGGED_FUNCTION_END
 }
 
 /// Restore `udipe_thread_logger`
@@ -547,12 +538,25 @@ static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_le
 ///                `void*` for interface compatibility with \ref
 ///                SCOPE_START_WITH_DESTRUCTOR.
 static inline void restore_thread_logger(void* context) {
-    LOGGED_FUNCTION_START("%p", context)
+    // Usine raw SCOPE_START over LOGGED_FUNCTION_START following the
+    // recommendation of SCOPE_START_WITH_DESTRUCTOR docs.
+    SCOPE_START
         debugf("Disabled logger %p, back to %p.",
                udipe_thread_logger,
                context);
-    LOGGED_FUNCTION_END
+    SCOPE_END
     udipe_thread_logger = (logger_t*)context;
+}
+
+/// Restore `udipe_log_level` (implementation detail of with_log_level())
+///
+/// This helper function enables with_log_level() to clean up after itself
+/// through the GNU `__cleanup__` attribute.
+static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_level) {
+    LOGGED_FUNCTION_START("%p", prev_log_level)
+        debug("End of a with_log_level() scope.");
+        udipe_thread_log_level = *prev_log_level;
+    LOGGED_FUNCTION_END
 }
 
 /// Implementation of debug_expr()
@@ -579,5 +583,18 @@ static inline bool log_enabled(udipe_log_level_t level) {
     //          signalled on stderr before exiting.
 
     validate_log(level);
-    return level >= udipe_thread_logger->min_level;
+    if (level < udipe_thread_logger->min_level) return false;
+    switch (level) {
+    case UDIPE_TRACE:
+    case UDIPE_DEBUG:
+        return global_scope_depth() <= udipe_thread_logger->max_debug_depth;
+    case UDIPE_INFO:
+    case UDIPE_WARN:
+    case UDIPE_ERROR:
+        return true;
+    case UDIPE_DEFAULT_LOG_LEVEL:
+    default:
+        assert(("User specified an invalid log level.", false));
+        return false;
+    }
 }
