@@ -342,80 +342,93 @@
         void (*update_highest_idx)(accumulator_t* /* acc */,
                                    size_t /* highest_modified_idx */)
     ) {
-        // Integrate the low-order word of the addend/subtrahend
-        const size_t low_word_idx = magnitude.low_word_idx;
-        assert(low_word_idx < NUM_ACCUMULATOR_WORDS);
-        const uint64_t low_word = magnitude.words[0];
-        debugf("Accumulating magnitude[0] = %#018zx "
-               "into accumulator[%zu] = %#018zx...",
-               low_word, low_word_idx, acc->words[low_word_idx]);
-        bool carry = accumulate_return_carry(&acc->words[low_word_idx],
-                                             low_word);
-        debugf("...yields new accumulator[%zu] = %#018zx and carry %d.",
-               low_word_idx, acc->words[low_word_idx], carry);
-
-        // Track the highest-order accumulator word that was modified
-        size_t highest_modified_idx = low_word_idx;
-
-        // Carry propagation can't overflow the high-order word of the
-        // addend/subtrahend because even in the worst case where the significand is
-        // shifted by 63 binary places in the low word, there's still >= 1 unset
-        // high-order bit in high_word.
-        uint64_t high_word = magnitude.words[1];
-        high_word += (uint64_t)carry;
-        if (carry) {
-            debugf("Propagated carry %d into high_word -> %#018zx.",
-                   carry, high_word);
-        }
-        carry = false;
-        assert(high_word >= magnitude.words[1]);
-
-        // What can overflow, however, is the addition of the high word itself,
-        // which will happen in the edge case where low_word_idx maps into the
-        // highest order word of the accumulator and the accumulator overflows
-        // as a result of carry propagation. When this happens, we have already
-        // overflown the exponent range of double by a fair margin anyway...
-        const size_t high_word_idx = low_word_idx + 1;
-        if (high_word != 0) {
-            if (high_word_idx >= NUM_ACCUMULATOR_WORDS) {
-                assert(carry && high_word == 1);
-                exit_with_error("Encountered an accumulator_t add overflow. "
-                                "You can avoid this by normalizing inputs.");
-            }
-            debugf("Accumulating high_word = %#018zx "
+        LOGGED_FUNCTION_START(
+            "%p, { .words = { %#zx, %#zx }, .low_word_idx = %zu }, %p, %p",
+            acc,
+            magnitude.words[0],
+            magnitude.words[1],
+            magnitude.low_word_idx,
+            accumulate_return_carry,
+            update_highest_idx
+        )
+            // Integrate the low-order word of the addend/subtrahend
+            const size_t low_word_idx = magnitude.low_word_idx;
+            assert(low_word_idx < NUM_ACCUMULATOR_WORDS);
+            const uint64_t low_word = magnitude.words[0];
+            debugf("Accumulating magnitude[0] = %#018zx "
                    "into accumulator[%zu] = %#018zx...",
-                   high_word, high_word_idx, acc->words[high_word_idx]);
-            carry = accumulate_return_carry(&acc->words[high_word_idx],
-                                            high_word);
+                   low_word, low_word_idx, acc->words[low_word_idx]);
+            bool carry = accumulate_return_carry(&acc->words[low_word_idx],
+                                                 low_word);
             debugf("...yields new accumulator[%zu] = %#018zx and carry %d.",
-                   high_word_idx, acc->words[high_word_idx], carry);
-            highest_modified_idx = high_word_idx;
-        }
+                   low_word_idx, acc->words[low_word_idx], carry);
 
-        // Beyond that, we just keep propagating carries until there is no carry
-        // anymore or we overflow the accumulator trying to propagate carries.
-        size_t carry_idx = highest_modified_idx + 1;
-        while (carry) {
-            if (carry_idx >= NUM_ACCUMULATOR_WORDS) {
-                exit_with_error(
-                    "Encountered an accumulator_t carry propagation overflow! "
-                    "You can avoid this by normalizing inputs."
-                );
+            // Track the highest-order accumulator word that was modified
+            size_t highest_modified_idx = low_word_idx;
+
+            // Carry propagation can't overflow the high-order word of the
+            // addend/subtrahend because even in the worst case where the
+            // significand is shifted by 63 binary places in the low word,
+            // there's still >= 1 unset high-order bit in high_word.
+            uint64_t high_word = magnitude.words[1];
+            high_word += (uint64_t)carry;
+            if (carry) {
+                debugf("Propagated carry %d into high_word -> %#018zx.",
+                       carry, high_word);
             }
-            tracef("Propagating carry to accumulator[%zu] = %#018zx...",
-                   carry_idx, acc->words[carry_idx]);
-            carry = accumulate_return_carry(&acc->words[carry_idx],
-                                            1);
-            tracef("...yields new accumulator[%zu] = %#018zx and carry %d.",
-                   carry_idx, acc->words[carry_idx], carry);
-            highest_modified_idx = carry_idx++;
-        }
+            carry = false;
+            assert(high_word >= magnitude.words[1]);
 
-        // Update the accumulator's highest_word_idx
-        debugf("Updating highest accumulator idx knowing "
-               "we modified words up to #%zu...",
-               highest_modified_idx);
-        update_highest_idx(acc, highest_modified_idx);
+            // What can overflow, however, is the addition of the high word
+            // itself, which will happen in the edge case where low_word_idx
+            // maps into the highest order word of the accumulator and the
+            // accumulator overflows as a result of carry propagation. When this
+            // happens, we have already overflown the exponent range of double
+            // by a fair margin anyway...
+            const size_t high_word_idx = low_word_idx + 1;
+            if (high_word != 0) {
+                if (high_word_idx >= NUM_ACCUMULATOR_WORDS) {
+                    assert(carry && high_word == 1);
+                    exit_with_error(
+                        "Encountered an accumulator_t add overflow. "
+                        "You can avoid this by normalizing inputs."
+                    );
+                }
+                debugf("Accumulating high_word = %#018zx "
+                       "into accumulator[%zu] = %#018zx...",
+                       high_word, high_word_idx, acc->words[high_word_idx]);
+                carry = accumulate_return_carry(&acc->words[high_word_idx],
+                                                high_word);
+                debugf("...yields new accumulator[%zu] = %#018zx and carry %d.",
+                       high_word_idx, acc->words[high_word_idx], carry);
+                highest_modified_idx = high_word_idx;
+            }
+
+            // Beyond that, we just keep propagating carries until there is no
+            // carry anymore or we overflow the accumulator.
+            size_t carry_idx = highest_modified_idx + 1;
+            while (carry) {
+                if (carry_idx >= NUM_ACCUMULATOR_WORDS) {
+                    exit_with_error(
+                        "Carry propagation caused accumulator overflow! "
+                        "You can avoid this by normalizing inputs."
+                    );
+                }
+                tracef("Propagating carry to accumulator[%zu] = %#018zx...",
+                       carry_idx, acc->words[carry_idx]);
+                carry = accumulate_return_carry(&acc->words[carry_idx],
+                                                1);
+                tracef("...yields new accumulator[%zu] = %#018zx and carry %d.",
+                       carry_idx, acc->words[carry_idx], carry);
+                highest_modified_idx = carry_idx++;
+            }
+
+            // Update the accumulator's highest_word_idx
+            debugf("Updating highest accumulator idx knowing "
+                   "we modified words up to #%zu...",
+                   highest_modified_idx);
+            update_highest_idx(acc, highest_modified_idx);
+        LOGGED_FUNCTION_END
     }
 
     /// `accumulate_return_carry` hook for additions
@@ -533,62 +546,75 @@
     static inline
     bool accumulator_lt_nonzero_subtrahend(const accumulator_t* acc,
                                            unsigned_addend_t subtrahend) {
-        // Handle trivial cases where the difference in magnitude can be
-        // assessed just by comparing the position of the highest-order words
-        const uint64_t subtrahend_low_word = subtrahend.words[0];
-        const uint64_t subtrahend_high_word = subtrahend.words[1];
-        const size_t subtrahend_high_word_idx = subtrahend.low_word_idx + 1;
-        if (acc->highest_word_idx > subtrahend_high_word_idx) {
-            debug("acc has higher magnitude because "
-                  "its highest set word is higher.");
-            return false;
-        } else if (acc->highest_word_idx < subtrahend.low_word_idx) {
-            debug("acc has lower magnitude because "
-                  "its highest set word is lower.");
-            assert((subtrahend_low_word | subtrahend_high_word) != 0);
-            return true;
-        }
-        assert(acc->highest_word_idx == subtrahend.low_word_idx
-               || acc->highest_word_idx == subtrahend_high_word_idx);
-
-        // Handle easy case where the subtrahend's low-order word is aligned
-        // with the highest-order word of the accumulator, which means that any
-        // nonzero subtrahend high-order word implies accumulator < subtrahend.
-        const uint64_t acc_high_word = acc->words[acc->highest_word_idx];
-        if (acc->highest_word_idx == subtrahend.low_word_idx) {
-            if (subtrahend_high_word != 0) {
-                debug("acc has lower magnitude because the addend high word is "
-                      "nonzero and located higher than the acc high word.");
+        LOGGED_FUNCTION_START(
+            "%p, { .words = { %#zx, %#zx }, .low_word_idx = %zu }",
+            acc,
+            subtrahend.words[0],
+            subtrahend.words[1],
+            subtrahend.low_word_idx
+        )
+            // Handle trivial cases where the difference in magnitude emerges
+            // from the position of the highest-order words
+            const uint64_t subtrahend_low_word = subtrahend.words[0];
+            const uint64_t subtrahend_high_word = subtrahend.words[1];
+            const size_t subtrahend_high_word_idx = subtrahend.low_word_idx + 1;
+            if (acc->highest_word_idx > subtrahend_high_word_idx) {
+                debug("acc has higher magnitude because "
+                      "its highest set word is higher.");
+                return false;
+            } else if (acc->highest_word_idx < subtrahend.low_word_idx) {
+                debug("acc has lower magnitude because "
+                      "its highest set word is lower.");
+                assert((subtrahend_low_word | subtrahend_high_word) != 0);
                 return true;
             }
-            debugf("Magnitude comparison is fully determined by comparison of "
-                   "acc->words[%zu] = %#zx and subtrahend->words[0] = %#zx",
-                   acc->highest_word_idx, acc_high_word, subtrahend_low_word);
-            return (acc_high_word < subtrahend_low_word);
-        }
-        assert(acc->highest_word_idx == subtrahend_high_word_idx);
-        // Must be true by definition of subtrahend_high_word_idx
-        assert(acc->highest_word_idx > 0);
+            assert(acc->highest_word_idx == subtrahend.low_word_idx
+                   || acc->highest_word_idx == subtrahend_high_word_idx);
 
-        // Handle full subtract-with-carry logic
-        const uint64_t acc_low_word = acc->words[acc->highest_word_idx - 1];
-        // This is true even in the presence of a carry from the low word
-        // subtraction because the carry can reduce the high word by at most one,
-        // which is enough to take it to zero but not to take it below zero
-        if (acc_high_word > subtrahend_high_word) {
-            debug("acc has higher magnitude because same-index "
-                  "subtrahend high word is lower.");
-            return false;
-        }
-        if (acc_high_word < subtrahend_high_word) {
-            debug("acc has lower magnitude because same-index "
-                  "subtrahend high word is higher.");
-            return true;
-        }
-        assert(acc_high_word == subtrahend_high_word);
-        debug("acc has the same high word as subtrahend, "
-              "magnitude comparison is determined by comparison of low words.");
-        return (acc_low_word < subtrahend_low_word);
+            // Handle easy case where the subtrahend's low-order word is aligned
+            // with the highest-order word of the accumulator, i.e. any nonzero
+            // subtrahend high-order word implies accumulator < subtrahend.
+            const uint64_t acc_high_word = acc->words[acc->highest_word_idx];
+            if (acc->highest_word_idx == subtrahend.low_word_idx) {
+                if (subtrahend_high_word != 0) {
+                    debug(
+                        "acc has lower magnitude because addend high word is "
+                        "nonzero and located higher than the acc's high word."
+                    );
+                    return true;
+                }
+                debugf(
+                    "Magnitude comparison is fully determined by comparison of "
+                    "acc->words[%zu] = %#zx and subtrahend->words[0] = %#zx",
+                    acc->highest_word_idx, acc_high_word, subtrahend_low_word
+                );
+                return (acc_high_word < subtrahend_low_word);
+            }
+            assert(acc->highest_word_idx == subtrahend_high_word_idx);
+            // Must be true by definition of subtrahend_high_word_idx
+            assert(acc->highest_word_idx > 0);
+
+            // Handle full subtract-with-carry logic
+            const uint64_t acc_low_word = acc->words[acc->highest_word_idx - 1];
+            // This is true even in the presence of a carry from the low word
+            // subtraction because the carry can reduce the high word by at most
+            // one, enough to take it to zero but not to take it below zero
+            if (acc_high_word > subtrahend_high_word) {
+                debug("acc has higher magnitude because same-index "
+                      "subtrahend high word is lower.");
+                return false;
+            }
+            if (acc_high_word < subtrahend_high_word) {
+                debug("acc has lower magnitude because same-index "
+                      "subtrahend high word is higher.");
+                return true;
+            }
+            assert(acc_high_word == subtrahend_high_word);
+            debug("acc has the same high word as subtrahend, "
+                  "magnitude comparison is determined by "
+                  "comparison of low words.");
+            return (acc_low_word < subtrahend_low_word);
+        LOGGED_FUNCTION_END
     }
 
     /// Add an addend of opposite sign and greater magnitude into an
@@ -645,43 +671,49 @@
     UDIPE_NON_NULL_ARGS
     static inline
     void accumulator_add_f64(accumulator_t* acc, double value) {
-        // Decompose input value into fraction/exponent/sign
-        const uint64_t value_bits = bitcast_f64_to_u64(value);
-        const uint64_t fraction = value_bits & FRACTION_MASK_F64;
-        const uint64_t raw_exponent = value_bits & EXPONENT_MASK_F64;
-        const bool negative = (value_bits & SIGN_BIT_F64) != 0;
-        debugf("Processing value %g (%a) with "
-               "fraction %#015zx, biased exponent %#05zx (%zu), sign %d",
-               value,
-               value,
-               fraction,
-               raw_exponent >> EXPONENT_SHIFT_F64,
-               raw_exponent >> EXPONENT_SHIFT_F64,
-               negative);
+        LOGGED_FUNCTION_START("%p, %f", acc, value)
+            // Decompose input value into fraction/exponent/sign
+            const uint64_t value_bits = bitcast_f64_to_u64(value);
+            const uint64_t fraction = value_bits & FRACTION_MASK_F64;
+            const uint64_t raw_exponent = value_bits & EXPONENT_MASK_F64;
+            const bool negative = (value_bits & SIGN_BIT_F64) != 0;
+            debugf("Processing value %g (%a) with "
+                   "fraction %#015zx, biased exponent %#05zx (%zu), sign %d",
+                   value,
+                   value,
+                   fraction,
+                   raw_exponent >> EXPONENT_SHIFT_F64,
+                   raw_exponent >> EXPONENT_SHIFT_F64,
+                   negative);
 
-        // Handle exponent special cases
-        switch (raw_exponent) {
-        case RAW_SUBNORMAL_EXPONENT_F64:
-            // No implicit leading one for subnormal numbers
-            accumulate_decoded_f64(acc,
-                                   fraction,
-                                   0,
-                                   negative);
-            break;
-        case RAW_NONFINITE_EXPONENT_F64:
-            // Nonfinite numbers are not welcome here
-            exit_with_error("accumulator_t does not support infinities and NaNs");
-        default:
-            // Add the implicit leading bit of normal IEEE-754 numbers + account
-            // for the implicit exponent shift that occurs as one shifts from
-            // subnormal to normal numbers.
-            const uint64_t significand = fraction | ((uint64_t)1 << FRACTION_BITS_F64);
-            const size_t zero_based_exponent = (raw_exponent >> EXPONENT_SHIFT_F64) - 1;
-            accumulate_decoded_f64(acc,
-                                   significand,
-                                   zero_based_exponent,
-                                   negative);
-        }
+            // Handle exponent special cases
+            switch (raw_exponent) {
+            case RAW_SUBNORMAL_EXPONENT_F64:
+                // No implicit leading one for subnormal numbers
+                accumulate_decoded_f64(acc,
+                                       fraction,
+                                       0,
+                                       negative);
+                break;
+            case RAW_NONFINITE_EXPONENT_F64:
+                // Nonfinite numbers are not welcome here
+                exit_with_error(
+                    "accumulator_t does not support infinities and NaNs"
+                );
+            default:
+                // Add the implicit leading bit of normal IEEE-754 numbers +
+                // account for the implicit exponent shift that occurs as one
+                // shifts from subnormal to normal numbers.
+                const uint64_t significand = fraction
+                                           | ((uint64_t)1 << FRACTION_BITS_F64);
+                const size_t zero_based_exponent =
+                    (raw_exponent >> EXPONENT_SHIFT_F64) - 1;
+                accumulate_decoded_f64(acc,
+                                       significand,
+                                       zero_based_exponent,
+                                       negative);
+            }
+        LOGGED_FUNCTION_END
     }
 
     /// Turn an \ref accumulator_t back into a binary64 number
