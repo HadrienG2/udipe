@@ -16,6 +16,8 @@
 
 #include <assert.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <threads.h>
 
 
@@ -501,7 +503,9 @@ static inline bool log_enabled(udipe_log_level_t level) {
         return true;
     case UDIPE_DEFAULT_LOG_LEVEL:
     default:
-        assert(("User specified an invalid log level.", false));
-        return false;
+        fprintf(stderr,
+                "libudipe: Called log_enabled() with invalid level %d!\n",
+                level);
+        exit(EXIT_FAILURE);
     }
 }
