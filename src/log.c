@@ -172,7 +172,7 @@ static void default_log_callback(void* _context,
         } else if (depth == udipe_thread_logger->max_debug_depth) {
             depth_color = "\033[0;32m";
         } else {
-            depth_color = "\033[0;93m";
+            depth_color = "\033[0;93;1m";
         }
     #endif
 
