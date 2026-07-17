@@ -274,9 +274,9 @@ static inline bool log_enabled(udipe_log_level_t level);
     do {  \
         logger_t* const udipe_prev_logger = udipe_thread_logger;  \
         udipe_thread_logger = (logger_ptr);  \
-        debugf("Set up logger %p.", logger_ptr);  \
         SCOPE_START_WITH_DESTRUCTOR(restore_thread_logger,  \
-                                    (void*)udipe_prev_logger)
+                                    (void*)udipe_prev_logger)  \
+            debugf("Enabled logger %p.", logger_ptr);
 
 /// End a scope where a certain logger is enabled
 ///
