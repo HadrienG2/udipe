@@ -138,14 +138,14 @@ void scope_guard_finalize(const scope_guard_t* guard) {
             ++udipe_scope_tracker.nesting_depth;
 #elif defined(_MSC_VER)
     #define SCOPE_START_WITH_DESTRUCTOR_AND_ID(destructor_, context_, id)  \
+        scope_guard_t const udipe_scope_guard_ ## id  \
+            = (scope_guard_t){  \
+                .next_scope = udipe_scope_tracker.top_scope,  \
+                .func = __func__,  \
+                .destructor = (destructor_),  \
+                .destructor_context = (context_)  \
+            };  \
         __try {  \
-            scope_guard_t const udipe_scope_guard_ ## id  \
-                = (scope_guard_t){  \
-                    .next_scope = udipe_scope_tracker.top_scope,  \
-                    .func = __func__,  \
-                    .destructor = (destructor_),  \
-                    .destructor_context = (context_)  \
-                };  \
             udipe_scope_tracker.top_scope = &(udipe_scope_guard_ ## id);  \
             ++udipe_scope_tracker.nesting_depth;
 #else
