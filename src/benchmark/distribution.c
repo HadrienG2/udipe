@@ -1039,9 +1039,7 @@
             LOGGED_FUNCTION_START_NO_PARAMS
                 info("Testing distributions of duration-based values...");
                 configure_rand();
-                with_log_level(UDIPE_TRACE, {
-                    test_distribution();
-                });
+                test_distribution();
             LOGGED_FUNCTION_END
         }
 

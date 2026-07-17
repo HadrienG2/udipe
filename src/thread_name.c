@@ -440,44 +440,38 @@ const char* get_thread_name() {
 
             debug("Checking the initial thread name...");
             const char* actual_thread_name;
-            with_log_level(UDIPE_TRACE, {
-                actual_thread_name = get_thread_name();
-                ensure(actual_thread_name);
-                ensure_gt(strlen(actual_thread_name), (size_t)0);
-            });
+            actual_thread_name = get_thread_name();
+            ensure(actual_thread_name);
+            ensure_gt(strlen(actual_thread_name), (size_t)0);
             char* initial_thread_name = strdup(actual_thread_name);
 
             debug("Manipulating the thread name...");
-            with_log_level(UDIPE_TRACE, {
-                char expected_thread_name[MAX_THREAD_NAME_SIZE];
-                for (size_t len = 1; len <= MAX_THREAD_NAME_LEN; ++len) {
-                    for (size_t i = 0; i < len; ++i) {
-                        int printable_range = (int)(LAST_PRINTABLE_ASCII - FIRST_PRINTABLE_ASCII) + 1;
-                        int printable_start = (int)FIRST_PRINTABLE_ASCII;
-                        expected_thread_name[i] =
-                            (char)(rand() % printable_range + printable_start);
-                    }
-                    expected_thread_name[len] = '\0';
-                    tracef("- Testing name of length %zu: %s", len, expected_thread_name);
-
-                    trace("- Setting thread name...");
-                    set_thread_name(expected_thread_name);
-
-                    trace("- Checking thread name...");
-                    actual_thread_name = get_thread_name();
-                    ensure(actual_thread_name);
-
-                    tracef("- Got name %s", actual_thread_name);
-                    ensure_eq(strcmp(expected_thread_name, actual_thread_name), 0);
+            char expected_thread_name[MAX_THREAD_NAME_SIZE];
+            for (size_t len = 1; len <= MAX_THREAD_NAME_LEN; ++len) {
+                for (size_t i = 0; i < len; ++i) {
+                    int printable_range = (int)(LAST_PRINTABLE_ASCII - FIRST_PRINTABLE_ASCII) + 1;
+                    int printable_start = (int)FIRST_PRINTABLE_ASCII;
+                    expected_thread_name[i] =
+                        (char)(rand() % printable_range + printable_start);
                 }
-            });
+                expected_thread_name[len] = '\0';
+                tracef("- Testing name of length %zu: %s", len, expected_thread_name);
+
+                trace("- Setting thread name...");
+                set_thread_name(expected_thread_name);
+
+                trace("- Checking thread name...");
+                actual_thread_name = get_thread_name();
+                ensure(actual_thread_name);
+
+                tracef("- Got name %s", actual_thread_name);
+                ensure_eq(strcmp(expected_thread_name, actual_thread_name), 0);
+            }
 
             debugf("Resetting thread name to %s", initial_thread_name);
-            with_log_level(UDIPE_TRACE, {
-                set_thread_name(initial_thread_name);
-                free(initial_thread_name);
-                initial_thread_name = NULL;
-            });
+            set_thread_name(initial_thread_name);
+            free(initial_thread_name);
+            initial_thread_name = NULL;
         LOGGED_FUNCTION_END
     }
 

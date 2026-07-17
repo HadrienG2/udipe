@@ -163,6 +163,19 @@ static void default_log_callback(void* _context,
         }
     #endif
 
+    // Color the current depth according to its position with respect to the
+    // currently configured depth limit.
+    const char* depth_color = "";
+    #ifdef __unix__
+        if (depth < udipe_thread_logger->max_debug_depth) {
+            depth_color = "\033[0;34m";
+        } else if (depth == udipe_thread_logger->max_debug_depth) {
+            depth_color = "\033[0m";
+        } else {
+            depth_color = "\033[0;93m";
+        }
+    #endif
+
     // Query the current thread's name
     const char* thread_name = get_thread_name();
     assert(thread_name);
@@ -170,10 +183,10 @@ static void default_log_callback(void* _context,
     // Display the log on stderr
     if (use_colors) {
         fprintf(stderr,
-                "[%5zu.%06zu %s%5s %zu\033[0m] "
+                "[%5zu.%06zu %s%5s %s%zu\033[0m] "
                 "\033[33m%s %s: "
                 "%s%s\033[0m\n",
-                secs, microsecs, level_color, level_name, depth,
+                secs, microsecs, level_color, level_name, depth_color, depth,
                 thread_name, location,
                 level_color, message);
     } else {
@@ -360,20 +373,16 @@ UDIPE_NODISCARD
 logger_parent_state_t logger_save_parent() {
     return (logger_parent_state_t){
         .logger = udipe_thread_logger,
-        .log_level = udipe_thread_log_level,
         .scope_depth = global_scope_depth()
     };
 }
 
 void logger_init_child(const logger_parent_state_t* state) {
     udipe_thread_logger = state->logger;
-    udipe_thread_log_level = state->log_level;
     bias_scope_depth(state->scope_depth);
 }
 
 thread_local logger_t* udipe_thread_logger = NULL;
-
-thread_local udipe_log_level_t udipe_thread_log_level = UDIPE_INFO;
 
 #ifndef NDEBUG
     void validate_log(udipe_log_level_t level) {

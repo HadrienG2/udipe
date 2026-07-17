@@ -504,27 +504,19 @@
                 configure_rand();
 
                 debug("Warming up with a few basic numbers...");
-                with_log_level(UDIPE_TRACE, {
-                    test_basic_numbers();
-                });
+                test_basic_numbers();
 
                 double test_set[TEST_SET_SIZE];
                 generate_test_set(test_set);
 
                 debug("Testing round trip conversions...");
-                with_log_level(UDIPE_TRACE, {
-                    test_round_trip(test_set);
-                });
+                test_round_trip(test_set);
 
                 debug("Testing pairwise sums...");
-                with_log_level(UDIPE_TRACE, {
-                    test_pair_sum(test_set);
-                });
+                test_pair_sum(test_set);
 
                 debug("Testing sum of powers of 2...");
-                with_log_level(UDIPE_TRACE, {
-                    test_sum_pow2(test_set);
-                });
+                test_sum_pow2(test_set);
             LOGGED_FUNCTION_END
         }
 

@@ -458,13 +458,11 @@ void realtime_liberate(void* buffer, size_t size) {
     static void test_system_config() {
         LOGGED_FUNCTION_START_NO_PARAMS
             info("Running system configuration unit tests...");
-            with_log_level(UDIPE_DEBUG, {
-                size_t page_size = get_page_size();
-                size_t allocation_granularity = get_allocation_granularity();
-                ensure_ge(page_size, MIN_PAGE_ALIGNMENT);
-                ensure_ge(page_size, EXPECTED_MIN_PAGE_SIZE);
-                ensure_eq(allocation_granularity % page_size, (size_t)0);
-            });
+            size_t page_size = get_page_size();
+            size_t allocation_granularity = get_allocation_granularity();
+            ensure_ge(page_size, MIN_PAGE_ALIGNMENT);
+            ensure_ge(page_size, EXPECTED_MIN_PAGE_SIZE);
+            ensure_eq(allocation_granularity % page_size, (size_t)0);
         LOGGED_FUNCTION_END
     }
 
@@ -497,26 +495,20 @@ void realtime_liberate(void* buffer, size_t size) {
     static void test_allocator() {
         LOGGED_FUNCTION_START_NO_PARAMS
             info("Running system memory allocator unit tests...");
-            with_log_level(UDIPE_DEBUG, {
-                const size_t page_size = get_page_size();
-                const size_t alloc_sizes[] = {
-                    1,
-                    page_size - 1, page_size, page_size + 1,
-                    2*page_size - 1, 2*page_size, 2*page_size + 1
-                };
-                for (
-                    size_t i = 0;
-                    i < sizeof(alloc_sizes)/sizeof(size_t);
-                    ++i
-                ) {
-                    const size_t alloc_size = alloc_sizes[i];
-                    tracef("- Exercising an allocation size of %zu bytes...",
-                           alloc_size);
-                    with_log_level(UDIPE_TRACE, {
-                        check_allocation_size(alloc_size);
-                    });
-                }
-            });
+
+            const size_t page_size = get_page_size();
+            const size_t alloc_sizes[] = {
+                1,
+                page_size - 1, page_size, page_size + 1,
+                2*page_size - 1, 2*page_size, 2*page_size + 1
+            };
+            const size_t alloc_sizes_len = sizeof(alloc_sizes)/sizeof(size_t);
+            for (size_t i = 0; i < alloc_sizes_len; ++i) {
+                const size_t alloc_size = alloc_sizes[i];
+                tracef("- Exercising an allocation size of %zu bytes...",
+                       alloc_size);
+                check_allocation_size(alloc_size);
+            }
         LOGGED_FUNCTION_END
     }
 

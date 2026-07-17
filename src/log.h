@@ -113,7 +113,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// system calls and third-party C libraries.
 #define udipe_log(level, message)  \
     do {  \
-        const udipe_log_level_t udipe_level = thread_log_level(level);  \
+        const udipe_log_level_t udipe_level = (level);  \
         assert(IS_INSIDE_LOCAL_SCOPE);  \
         if (log_enabled(udipe_level)) {  \
             (udipe_thread_logger->callback)(udipe_thread_logger->context,  \
@@ -170,7 +170,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// tracef() for level-specific formatted logging macros.
 #define udipe_logf(level, format, ...)  \
     do {  \
-        const udipe_log_level_t udipe_level = thread_log_level(level);  \
+        const udipe_log_level_t udipe_level = (level);  \
         if (log_enabled(udipe_level)) {  \
             logf_impl(udipe_level,  \
                       __func__,  \
@@ -341,58 +341,6 @@ static inline bool log_enabled(udipe_log_level_t level);
         SCOPE_END  \
     } while(false);
 
-/// Set up the thread-local relative log level
-///
-/// Call as `with_log_level(level, { ... })` to adjust how the \link #UDIPE_INFO
-/// `INFO`\endlink and \link #UDIPE_DEBUG `DEBUG`\endlink log levels are
-/// interpreted inside of the `{ ... }` inner code scope.
-///
-/// - If this is set to `DEBUG`, then the `INFO` log level is treated as
-///   `DEBUG` and the `DEBUG` log level is treated as `TRACE`.
-/// - If this is set to `TRACE`, then the `INFO` and `DEBUG` log levels are
-///   treated as `TRACE`.
-///
-/// Setting the relative log level to any other value is forbidden, and this
-/// functionality has no effect on the `ERROR`, `WARN` and `TRACE` log levels.
-///
-/// This functionality is needed in situations where a particular function is
-/// called at several different layers of abstraction, and what qualifies as
-/// `INFO` logging in one situation qualities as `DEBUG` or `TRACE` logging in
-/// another situation. This most frequently comes up in unit tests.
-///
-/// \param level must be set to \ref UDIPE_DEBUG or \ref UDIPE_TRACE.
-#ifdef __GNUC__
-    #define with_log_level(level, ...)  \
-        do {  \
-            const udipe_log_level_t udipe_prev_log_level  \
-                __attribute__((__cleanup__(restore_thread_log_level)))  \
-                    = udipe_thread_log_level;  \
-            udipe_thread_log_level = (level);  \
-            assert(udipe_thread_log_level == UDIPE_DEBUG  \
-                   || udipe_thread_log_level == UDIPE_TRACE);  \
-            debug("Start of a with_log_level() scope.");  \
-            do __VA_ARGS__ while(false);  \
-        } while(false)
-#elif defined(_MSC_VER)
-    #define with_log_level(level, ...)  \
-        do {  \
-            const udipe_log_level_t udipe_prev_log_level  \
-                = udipe_thread_log_level;  \
-            __try {  \
-                udipe_thread_log_level = (level);  \
-                assert(udipe_thread_log_level == UDIPE_DEBUG  \
-                       || udipe_thread_log_level == UDIPE_TRACE);  \
-                debug("Start of a with_log_level() scope.");  \
-                do __VA_ARGS__ while(false);  \
-            }  \
-            __finally {  \
-                restore_thread_log_level(&udipe_prev_log_level);  \
-            }  \
-        } while(false)
-#else
-    #error "Sorry, we don't support your compiler yet. Please file a bug report about it!"
-#endif
-
 /// Backup of a parent thread's logging configuration
 ///
 /// This struct is a backup of the thread-local configuration of a "parent"
@@ -400,7 +348,6 @@ static inline bool log_enabled(udipe_log_level_t level);
 /// the child threads that it spawns with logger_init_child().
 typedef struct logger_parent_state_s {
     logger_t* logger;  ///< Backup of \ref udipe_thread_logger
-    udipe_log_level_t log_level;  ///< Backup of \ref udipe_thread_log_level
     size_t scope_depth;  ///< Backup of global_scope_depth()
 } logger_parent_state_t;
 
@@ -476,44 +423,11 @@ void logf_impl(udipe_log_level_t level,
                const char* format,
                ...);
 
-/// Thread-local log level
-///
-/// This thread-local variable is used by with_log_level() in order to locally
-/// override the log level of some logging statements.
-extern thread_local udipe_log_level_t udipe_thread_log_level;
-
 /// Thread-local logger (implementation detail of LOGGER_START)
 ///
 /// This thread-local variable is used by LOGGER_START in order to locally
 /// enable a lightweight log syntax without explicit logger passing.
 extern thread_local logger_t* udipe_thread_logger;
-
-/// Reinterprete the specified log level according to surrounding
-/// with_log_level() scopes
-UDIPE_NODISCARD
-static inline udipe_log_level_t thread_log_level(udipe_log_level_t level) {
-    // WARNING: This function is called by the logger implementation and must
-    //          therefore not perform any logging. Normal events and non-fatal
-    //          errors should not be signaled at all, fatal errors should be
-    //          signalled on stderr before exiting.
-
-    validate_log(level);
-    switch (level) {
-    case UDIPE_DEBUG:
-        return (udipe_thread_log_level == UDIPE_TRACE) ? UDIPE_TRACE : UDIPE_DEBUG;
-    case UDIPE_INFO:
-        switch (udipe_thread_log_level) {
-        case UDIPE_TRACE:
-            return UDIPE_TRACE;
-        case UDIPE_DEBUG:
-            return UDIPE_DEBUG;
-        default:
-            return UDIPE_INFO;
-        }
-    default:
-        return level;
-    }
-}
 
 /// Record return from a logged function
 ///
@@ -550,17 +464,6 @@ static inline void restore_thread_logger(void* context) {
                context);
     SCOPE_END
     udipe_thread_logger = (logger_t*)context;
-}
-
-/// Restore `udipe_log_level` (implementation detail of with_log_level())
-///
-/// This helper function enables with_log_level() to clean up after itself
-/// through the GNU `__cleanup__` attribute.
-static inline void restore_thread_log_level(const udipe_log_level_t* prev_log_level) {
-    LOGGED_FUNCTION_START("%p", prev_log_level)
-        debug("End of a with_log_level() scope.");
-        udipe_thread_log_level = *prev_log_level;
-    LOGGED_FUNCTION_END
 }
 
 /// Implementation of debug_expr()

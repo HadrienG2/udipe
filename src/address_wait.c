@@ -414,24 +414,18 @@ void wake_by_address_single(_Atomic uint32_t* atom) {
     void address_wait_unit_tests() {
         LOGGED_FUNCTION_START_NO_PARAMS
             info("Running atomic wait unit tests...");
-            with_log_level(UDIPE_DEBUG, {
-                debug("Testing wait + notify_all");
-                with_log_level(UDIPE_TRACE, {
-                    test_wait_notify(true);
-                });
 
-                debug("Testing wait + notify_one");
-                with_log_level(UDIPE_TRACE, {
-                    test_wait_notify(false);
-                });
+            debug("Testing wait + notify_all");
+            test_wait_notify(true);
 
-                debug("Testing wait with timeout");
-                _Atomic uint32_t futex;
-                atomic_init(&futex, 42);
-                ensure(!wait_on_address(&futex, 42, UDIPE_DURATION_MIN));
-                ensure(!wait_on_address(&futex, 42, UDIPE_DURATION_MIN + 1));
+            debug("Testing wait + notify_one");
+            test_wait_notify(false);
 
-            });
+            debug("Testing wait with timeout");
+            _Atomic uint32_t futex;
+            atomic_init(&futex, 42);
+            ensure(!wait_on_address(&futex, 42, UDIPE_DURATION_MIN));
+            ensure(!wait_on_address(&futex, 42, UDIPE_DURATION_MIN + 1));
         LOGGED_FUNCTION_END
     }
 

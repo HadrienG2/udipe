@@ -452,60 +452,53 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
     void buffer_unit_tests() {
         LOGGED_FUNCTION_START_NO_PARAMS
             info("Running buffer allocator unit tests...");
-            with_log_level(UDIPE_DEBUG, {
-                debug("Setting up an hwloc topology...");
-                hwloc_topology_t topology;
-                exit_on_negative(hwloc_topology_init(&topology),
-                                 "Failed to allocate the hwloc hopology!");
-                exit_on_negative(hwloc_topology_load(topology),
-                                 "Failed to build the hwloc hopology!");
 
-                debug("Checking system page size...");
-                const size_t page_size = get_page_size();
-                debugf("System page size is %1$zu (%1$#zx) bytes.", page_size);
+            debug("Setting up an hwloc topology...");
+            hwloc_topology_t topology;
+            exit_on_negative(hwloc_topology_init(&topology),
+                             "Failed to allocate the hwloc hopology!");
+            exit_on_negative(hwloc_topology_load(topology),
+                             "Failed to build the hwloc hopology!");
 
-                debug("Testing the default configuration...");
-                udipe_buffer_configurator_t configurator = { 0 };
-                udipe_buffer_config_t config = { 0 };
-                buffer_allocator_t allocator = { 0 };
-                with_log_level(UDIPE_TRACE, {
-                    allocator = buffer_allocator_initialize(configurator,
-                                                            topology);
-                    check_and_finalize(allocator,
-                                       config,
-                                       page_size);
-                });
+            debug("Checking system page size...");
+            const size_t page_size = get_page_size();
+            debugf("System page size is %1$zu (%1$#zx) bytes.", page_size);
 
-                debug("Preparing for manual configurations...");
-                configurator.callback = apply_test_configuration;
-                configurator.context = (void*)&config;
+            debug("Testing the default configuration...");
+            udipe_buffer_configurator_t configurator = { 0 };
+            udipe_buffer_config_t config = { 0 };
+            buffer_allocator_t allocator = { 0 };
+            allocator = buffer_allocator_initialize(configurator,
+                                                    topology);
+            check_and_finalize(allocator,
+                               config,
+                               page_size);
 
-                debug("Testing a minimal configuration (1 x 1500B)...");
-                with_log_level(UDIPE_TRACE, {
-                    config = (udipe_buffer_config_t){
-                        .buffer_size = 1500,
-                        .buffer_count = 1
-                    };
-                    allocator = buffer_allocator_initialize(configurator,
-                                                            topology);
-                    check_and_finalize(allocator,
-                                       config,
-                                       page_size);
-                });
+            debug("Preparing for manual configurations...");
+            configurator.callback = apply_test_configuration;
+            configurator.context = (void*)&config;
 
-                debug("Testing a bigger configuration (MAX x 9216B)...");
-                with_log_level(UDIPE_TRACE, {
-                    config = (udipe_buffer_config_t){
-                        .buffer_size = 9216,
-                        .buffer_count = UDIPE_MAX_BUFFERS
-                    };
-                    allocator = buffer_allocator_initialize(configurator,
-                                                            topology);
-                    check_and_finalize(allocator,
-                                       config,
-                                       page_size);
-                });
-            });
+            debug("Testing a minimal configuration (1 x 1500B)...");
+            config = (udipe_buffer_config_t){
+                .buffer_size = 1500,
+                .buffer_count = 1
+            };
+            allocator = buffer_allocator_initialize(configurator,
+                                                    topology);
+            check_and_finalize(allocator,
+                               config,
+                               page_size);
+
+            debug("Testing a bigger configuration (MAX x 9216B)...");
+            config = (udipe_buffer_config_t){
+                .buffer_size = 9216,
+                .buffer_count = UDIPE_MAX_BUFFERS
+            };
+            allocator = buffer_allocator_initialize(configurator,
+                                                    topology);
+            check_and_finalize(allocator,
+                               config,
+                               page_size);
         LOGGED_FUNCTION_END
     }
 
