@@ -916,7 +916,7 @@
                         insert_pos = builder.inner.num_bins;
                     }
                 } while(rejected);
-                debugf("  * Value will be inserted as bin #%zu", insert_pos);
+                tracef("  * Value will be inserted as bin #%zu", insert_pos);
                 //
                 debug("- Backing up state...");
                 memcpy(prev_data, builder.inner.allocation, allocation_size);
