@@ -49,6 +49,10 @@ if (UDIPE_WERROR AND NOT WIN32)
     add_compile_options(-Werror)
 endif()
 
+option(UDIPE_ENABLE_EXPENSIVE_LOGS
+       "Let release builds emit DEBUG and TRACE logs (bad for performance!)"
+       OFF)
+
 # These options are only available in standalone builds, not vendored ones
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     option(UDIPE_BUILD_BENCHMARKS
@@ -217,6 +221,9 @@ if (WIN32)
     # Set Windows 10 as our minimal supported release, enabling newer features
     target_compile_definitions(udipe PRIVATE WINVER=0x0A00
                                              _WIN32_WINNT=0x0A00)
+endif()
+if (UDIPE_ENABLE_EXPENSIVE_LOGS)
+    target_compile_definitions(udipe PUBLIC UDIPE_ENABLE_EXPENSIVE_LOGS)
 endif()
 if (UDIPE_BUILD_TESTS)
     target_compile_definitions(udipe PUBLIC UDIPE_BUILD_BENCHMARKS)

@@ -496,7 +496,11 @@ static inline bool log_enabled(udipe_log_level_t level) {
     switch (level) {
     case UDIPE_TRACE:
     case UDIPE_DEBUG:
-        return global_scope_depth() <= udipe_thread_logger->max_debug_depth;
+        #if defined(NDEBUG) && !defined(UDIPE_ENABLE_EXPENSIVE_LOGS)
+            return false;
+        #else
+            return global_scope_depth() <= udipe_thread_logger->max_debug_depth;
+        #endif
     case UDIPE_INFO:
     case UDIPE_WARN:
     case UDIPE_ERROR:
