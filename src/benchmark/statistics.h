@@ -59,6 +59,8 @@
 
     #include "distribution.h"
 
+    #include "../log.h"
+
     #include <assert.h>
     #include <math.h>
     #include <stddef.h>
@@ -520,14 +522,17 @@
                                                  size_t output_size,
                                                  const char prefix[],
                                                  double quantile) {
-        ensure_gt(quantile, 0.0);
-        ensure_lt(quantile, 1.0);
-        const int len = snprintf(output, output_size,
-                                 "%sP%.1f",
-                                 prefix, quantile * 100.0);
-        ensure_gt(len, 0);
-        ensure_lt((size_t)len, output_size);
-        return (size_t)len;
+        LOGGED_FUNCTION_START("%p, %zu, \"%s\", %f",
+                              output, output_size, prefix, quantile)
+            ensure_gt(quantile, 0.0);
+            ensure_lt(quantile, 1.0);
+            const int len = snprintf(output, output_size,
+                                     "%sP%.1f",
+                                     prefix, quantile * 100.0);
+            ensure_gt(len, 0);
+            ensure_lt((size_t)len, output_size);
+            return (size_t)len;
+        LOGGED_FUNCTION_END
     }
 
     /// Describe how much a value differs from the sample mean of a distribution

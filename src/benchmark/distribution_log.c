@@ -53,28 +53,30 @@
     void distribution_log(const distribution_t* dist,
                           udipe_log_level_t level,
                           const char header[]) {
-        if (log_enabled(level)) {
-            const size_t line_size = line_buffer_size(DISTRIBUTION_WIDTH);
-            char* const left_line = alloca(line_size);
-            char* const right_line = alloca(line_size);
+        LOGGED_FUNCTION_START("%p, %d, \"%s\"", dist, level, header)
+            if (log_enabled(level)) {
+                const size_t line_size = line_buffer_size(DISTRIBUTION_WIDTH);
+                char* const left_line = alloca(line_size);
+                char* const right_line = alloca(line_size);
 
-            write_title_borders(left_line,
-                                header,
-                                right_line,
-                                SINGLE_SEGMENT,
-                                DISTRIBUTION_WIDTH);
-            udipe_logf(level, "%s%s%s", left_line, header, right_line);
+                write_title_borders(left_line,
+                                    header,
+                                    right_line,
+                                    SINGLE_SEGMENT,
+                                    DISTRIBUTION_WIDTH);
+                udipe_logf(level, "%s%s%s", left_line, header, right_line);
 
-            log_plot(level,
-                     "Histogram",
-                     dist,
-                     HISTOGRAM);
+                log_plot(level,
+                         "Histogram",
+                         dist,
+                         HISTOGRAM);
 
-            log_plot(level,
-                     "Quantile function",
-                     dist,
-                     QUANTILE_FUNCTION);
-        }
+                log_plot(level,
+                         "Quantile function",
+                         dist,
+                         QUANTILE_FUNCTION);
+            }
+        LOGGED_FUNCTION_END
     }
 
 
@@ -124,44 +126,51 @@
 
     UDIPE_NODISCARD
     axis_len_t max_plot_axis_len(plot_type_t type) {
-        // -1 because there is no data on the title line
-        const size_t ordinate_len = DISTRIBUTION_HEIGHT - 1;
-        switch (type) {
-        case HISTOGRAM:
-            return (axis_len_t){
-                // Histograms have the start position on the title line followed
-                // by one value per bin which represents the end of the previous
-                // bin (inclusive) and the start of the next bin (exclusive).
-                .abscissa = ordinate_len + 1,
-                .ordinate = ordinate_len
-            };
-        case QUANTILE_FUNCTION:
-            return (axis_len_t){
-                // Quantile functions do not have anything on the title line
-                .abscissa = ordinate_len,
-                .ordinate = ordinate_len
-            };
-        }
-        exit_with_error("Control should never reach this point!");
+        LOGGED_FUNCTION_START("%d", type)
+            // -1 because there is no data on the title line
+            const size_t ordinate_len = DISTRIBUTION_HEIGHT - 1;
+            switch (type) {
+            case HISTOGRAM:
+                return (axis_len_t){
+                    // Histograms have the start position on the title line
+                    // followed by one value per bin which represents the end of
+                    // the previous bin (inclusive) and the start of the next
+                    // bin (exclusive).
+                    .abscissa = ordinate_len + 1,
+                    .ordinate = ordinate_len
+                };
+            case QUANTILE_FUNCTION:
+                return (axis_len_t){
+                    // Quantile functions do not have anything on the title line
+                    .abscissa = ordinate_len,
+                    .ordinate = ordinate_len
+                };
+            default:
+                exit_with_error("Encountered an unsupported plot type!");
+            }
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     range_t plot_autoscale_abscissa(const distribution_t* dist,
                                     plot_type_t type) {
-        switch (type) {
-        case HISTOGRAM:
-            return (range_t){
-                .first = (coord_t){ .value = distribution_min_value(dist) },
-                .last = (coord_t){ .value = distribution_max_value(dist) }
-            };
-        case QUANTILE_FUNCTION:
-            return (range_t){
-                .first = (coord_t){ .percentile = 0.0 },
-                .last = (coord_t){ .percentile = 100.0 }
-            };
-        }
-        exit_with_error("Control should never reach this point!");
+        LOGGED_FUNCTION_START("%p, %d", dist, type)
+            switch (type) {
+            case HISTOGRAM:
+                return (range_t){
+                    .first = (coord_t){ .value = distribution_min_value(dist) },
+                    .last = (coord_t){ .value = distribution_max_value(dist) }
+                };
+            case QUANTILE_FUNCTION:
+                return (range_t){
+                    .first = (coord_t){ .percentile = 0.0 },
+                    .last = (coord_t){ .percentile = 100.0 }
+                };
+            default:
+                exit_with_error("Encountered an unsupported plot type!");
+            }
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NON_NULL_ARGS
@@ -169,51 +178,59 @@
                                coord_t abscissa[],
                                range_t range,
                                axis_len_t* len) {
-        ensure_ge(len->abscissa, (size_t)2);
-        switch (type) {
-        case HISTOGRAM: {
-            const int64_t first = range.first.value;
-            const int64_t last = range.last.value;
-            // The list of distinct abscissa first, first + 1, first + 2, ...,
-            // first + N = last has N + 1 elements where N = last - first.
-            const size_t num_distinct_abscissa = last - first + 1;
-            // In the edge case where all possible abscissa will be displayed,
-            // the plot abscissa display will feature the list first, first,
-            // first + 1, first + 2, ..., last. The repetition of "first" comes
-            // from the fact that the first histogram abscissa is special as it
-            // is left-inclusive, unlike subsequent ones which will be
-            // left-exclusive. And to build a left-inclusive interval of 1
-            // element we need a [first; first] repetition.
-            const size_t max_displayed_abscissa = num_distinct_abscissa + 1;
-            if (len->abscissa > max_displayed_abscissa) {
-                const size_t excess_len = len->abscissa - max_displayed_abscissa;
-                len->abscissa -= excess_len;
-                len->ordinate -= excess_len;
+        LOGGED_FUNCTION_START(
+            "%d, %p, (range_t), &{ .abscissa = %zu, .ordinate = %zu }",
+            type, abscissa, len->abscissa, len->ordinate
+        )
+            ensure_ge(len->abscissa, (size_t)2);
+            switch (type) {
+            case HISTOGRAM: {
+                const int64_t first = range.first.value;
+                const int64_t last = range.last.value;
+                // The list of distinct abscissa first, first + 1, first + 2, ...,
+                // first + N = last has N + 1 elements where N = last - first.
+                const size_t num_distinct_abscissa = last - first + 1;
+                // In the edge case where all possible abscissa will be displayed,
+                // the plot abscissa display will feature the list first, first,
+                // first + 1, first + 2, ..., last. The repetition of "first" comes
+                // from the fact that the first histogram abscissa is special as it
+                // is left-inclusive, unlike subsequent ones which will be
+                // left-exclusive. And to build a left-inclusive interval of 1
+                // element we need a [first; first] repetition.
+                const size_t max_displayed_abscissa = num_distinct_abscissa + 1;
+                if (len->abscissa > max_displayed_abscissa) {
+                    const size_t excess_len = len->abscissa - max_displayed_abscissa;
+                    len->abscissa -= excess_len;
+                    len->ordinate -= excess_len;
+                }
+                abscissa[0] = (coord_t){ .value = first };
+                const size_t last_a = len->abscissa - 1;
+                for (size_t a = 1; a <= last_a; ++a) {
+                    // Only the first interval is left-inclusive, all subsequent
+                    // intervals are left-exclusive and therefore follow the easy
+                    // len = right bound - left bound property. Thus, by reasoning
+                    // on the number of abscissa covered by subsequent histogram
+                    // bins, we can get an easy boundary position formula.
+                    const size_t num_abscissa_after =
+                        num_distinct_abscissa * (last_a - a) / last_a;
+                    const int64_t value = last - num_abscissa_after;
+                    abscissa[a] = (coord_t){ .value = value };
+                }
+                return;
             }
-            abscissa[0] = (coord_t){ .value = first };
-            const size_t last_a = len->abscissa - 1;
-            for (size_t a = 1; a <= last_a; ++a) {
-                // Only the first interval is left-inclusive, all subsequent
-                // intervals are left-exclusive and therefore follow the easy
-                // len = right bound - left bound property. Thus, by reasoning
-                // on the number of abscissa covered by subsequent histogram
-                // bins, we can get an easy boundary position formula.
-                const size_t num_abscissa_after =
-                    num_distinct_abscissa * (last_a - a) / last_a;
-                const int64_t value = last - num_abscissa_after;
-                abscissa[a] = (coord_t){ .value = value };
+            case QUANTILE_FUNCTION: {
+                const double first = range.first.percentile;
+                const double last = range.last.percentile;
+                for (size_t a = 0; a < len->abscissa; ++a) {
+                    const double percentile = first + (last - first) * a / (len->abscissa - 1);
+                    abscissa[a] = (coord_t){ .percentile = percentile };
+                }
+                return;
             }
-            break;
-        }
-        case QUANTILE_FUNCTION: {
-            const double first = range.first.percentile;
-            const double last = range.last.percentile;
-            for (size_t a = 0; a < len->abscissa; ++a) {
-                const double percentile = first + (last - first) * a / (len->abscissa - 1);
-                abscissa[a] = (coord_t){ .percentile = percentile };
+            default:
+                exit_with_error("Encountered an unsupported plot type!");
             }
-            break;
-        }}
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NON_NULL_ARGS
@@ -222,37 +239,49 @@
                                const coord_t abscissa[],
                                coord_t ordinate[],
                                axis_len_t len) {
-        switch (type) {
-        case HISTOGRAM:
-            ensure_eq(len.abscissa, len.ordinate + 1);
-            size_t start_rank = distribution_count_below(dist,
-                                                         abscissa[0].value,
-                                                         false);
-            for (size_t o = 0; o < len.ordinate; ++o) {
-                const size_t end_rank =
-                    distribution_count_below(dist,
-                                             abscissa[o+1].value,
-                                             true);
-                if (abscissa[o+1].value > abscissa[o].value || o == 0) {
-                    const size_t count = end_rank - start_rank;
-                    ordinate[o] = (coord_t){ .count = count };
-                } else {
-                    assert(abscissa[o+1].value == abscissa[o].value);
-                    ordinate[o] = ordinate[o-1];
+        LOGGED_FUNCTION_START(
+            "%p, %d, %p, %p, { .abscissa = %zu, .ordinate = %zu }",
+            dist,
+            type,
+            abscissa,
+            ordinate,
+            len.abscissa,
+            len.ordinate
+        )
+            switch (type) {
+            case HISTOGRAM:
+                ensure_eq(len.abscissa, len.ordinate + 1);
+                size_t start_rank = distribution_count_below(dist,
+                                                             abscissa[0].value,
+                                                             false);
+                for (size_t o = 0; o < len.ordinate; ++o) {
+                    const size_t end_rank =
+                        distribution_count_below(dist,
+                                                 abscissa[o+1].value,
+                                                 true);
+                    if (abscissa[o+1].value > abscissa[o].value || o == 0) {
+                        const size_t count = end_rank - start_rank;
+                        ordinate[o] = (coord_t){ .count = count };
+                    } else {
+                        assert(abscissa[o+1].value == abscissa[o].value);
+                        ordinate[o] = ordinate[o-1];
+                    }
+                    start_rank = end_rank;
                 }
-                start_rank = end_rank;
+                return;
+            case QUANTILE_FUNCTION:
+                ensure_eq(len.abscissa, len.ordinate);
+                for (size_t o = 0; o < len.ordinate; ++o) {
+                    const double probability = abscissa[o].percentile / 100.0;
+                    assert(probability >= 0.0 && probability <= 1.0);
+                    const int64_t quantile = distribution_quantile(dist, probability);
+                    ordinate[o] = (coord_t){ .value = quantile };
+                }
+                return;
+            default:
+                exit_with_error("Encountered an unsupported plot type!");
             }
-            break;
-        case QUANTILE_FUNCTION:
-            ensure_eq(len.abscissa, len.ordinate);
-            for (size_t o = 0; o < len.ordinate; ++o) {
-                const double probability = abscissa[o].percentile / 100.0;
-                assert(probability >= 0.0 && probability <= 1.0);
-                const int64_t quantile = distribution_quantile(dist, probability);
-                ordinate[o] = (coord_t){ .value = quantile };
-            }
-            break;
-        }
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NODISCARD
@@ -260,25 +289,34 @@
     range_t plot_autoscale_ordinate(plot_type_t type,
                                     const coord_t ordinate[],
                                     axis_len_t len) {
-        ensure_ge(len.ordinate, (size_t)1);
-        switch (type) {
-        case HISTOGRAM:
-            size_t max_count = 0;
-            for (size_t o = 0; o < len.ordinate; ++o) {
-                const size_t count = ordinate[o].count;
-                if (count > max_count) max_count = count;
+        LOGGED_FUNCTION_START("%d, %p, { .abscissa = %zu, .ordinate = %zu }",
+                              type,
+                              ordinate,
+                              len.abscissa,
+                              len.ordinate)
+            ensure_ge(len.ordinate, (size_t)1);
+            switch (type) {
+            case HISTOGRAM:
+                size_t max_count = 0;
+                for (size_t o = 0; o < len.ordinate; ++o) {
+                    const size_t count = ordinate[o].count;
+                    if (count > max_count) max_count = count;
+                }
+                return (range_t){
+                    .first = (coord_t){ .count = 0 },
+                    .last = (coord_t){ .count = max_count }
+                };
+            case QUANTILE_FUNCTION:
+                return (range_t){
+                    .first = (coord_t){ .value = ordinate[0].value },
+                    .last = (coord_t){
+                        .count = ordinate[len.ordinate - 1].value
+                    }
+                };
+            default:
+                exit_with_error("Encountered an unsupported plot type!");
             }
-            return (range_t){
-                .first = (coord_t){ .count = 0 },
-                .last = (coord_t){ .count = max_count }
-            };
-        case QUANTILE_FUNCTION:
-            return (range_t){
-                .first = (coord_t){ .value = ordinate[0].value },
-                .last = (coord_t){ .count = ordinate[len.ordinate - 1].value }
-            };
-        }
-        exit_with_error("Control should never reach this point!");
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NODISCARD
@@ -287,72 +325,84 @@
                               const coord_t abscissa[],
                               const coord_t ordinate[],
                               axis_len_t len) {
-        ensure_ge(len.ordinate, (size_t)1);
-        plot_layout_t result = { 0 };
-        size_t legend_width = 0, max_ordinate_width = 0;
-        switch (type) {
-        case HISTOGRAM: {
-            ensure_ge(len.abscissa, (size_t)1);
-            const int min_width = printf_width_i64(abscissa[0].value);
-            const int max_width =
-                printf_width_i64(abscissa[len.abscissa - 1].value);
-            const int value_width = (min_width <= max_width) ? max_width
-                                                             : min_width;
+        LOGGED_FUNCTION_START(
+            "%d, %p, %p, { .abscissa = %zu, .ordinate = %zu }",
+            type,
+            abscissa,
+            ordinate,
+            len.abscissa,
+            len.ordinate
+        )
+            ensure_ge(len.ordinate, (size_t)1);
+            plot_layout_t result = { 0 };
+            size_t legend_width = 0, max_ordinate_width = 0;
+            switch (type) {
+            case HISTOGRAM: {
+                ensure_ge(len.abscissa, (size_t)1);
+                const int min_width = printf_width_i64(abscissa[0].value);
+                const int max_width =
+                    printf_width_i64(abscissa[len.abscissa - 1].value);
+                const int value_width = (min_width <= max_width) ? max_width
+                                                                 : min_width;
 
-            // 4 columns for the leading "to " and trailing ╔/╟ separator
-            legend_width = value_width + 4;
+                // 4 columns for the leading "to " and trailing ╔/╟ separator
+                legend_width = value_width + 4;
 
-            size_t max_count = 0;
-            for (size_t o = 0; o < len.ordinate; ++o) {
-                const size_t count = ordinate[o].count;
-                if (count > max_count) max_count = count;
+                size_t max_count = 0;
+                for (size_t o = 0; o < len.ordinate; ++o) {
+                    const size_t count = ordinate[o].count;
+                    if (count > max_count) max_count = count;
+                }
+                ensure_le(max_count, (size_t)INT64_MAX);
+                max_ordinate_width = printf_width_i64(max_count);
+
+                result = (plot_layout_t){
+                    .histogram = (histogram_layout_t){
+                        .max_count = max_count,
+                        .value_width = value_width
+                    }
+                };
+                break;
             }
-            ensure_le(max_count, (size_t)INT64_MAX);
-            max_ordinate_width = printf_width_i64(max_count);
+            case QUANTILE_FUNCTION: {
+                ensure_ge(len.abscissa, (size_t)2);
+                const double min_percent_delta =
+                    abscissa[1].percentile - abscissa[0].percentile;
+                const int percent_precision = (min_percent_delta >= 1.0)
+                                            ? 1
+                                            : 1 + ceil(-logf(min_percent_delta));
+                // 4 extra columns for the leading "100." of last percentile
+                const int percent_width = percent_precision + 4;
 
-            result = (plot_layout_t){
-                .histogram = (histogram_layout_t){
-                    .max_count = max_count,
-                    .value_width = value_width
-                }
-            };
-            break;
-        }
-        case QUANTILE_FUNCTION: {
-            ensure_ge(len.abscissa, (size_t)2);
-            const double min_percent_delta =
-                abscissa[1].percentile - abscissa[0].percentile;
-            const int percent_precision = (min_percent_delta >= 1.0)
-                                        ? 1
-                                        : 1 + ceil(-logf(min_percent_delta));
-            // 4 extra columns for the largest leading "100." of last percentile
-            const int percent_width = percent_precision + 4;
+                // 1 column for the trailing % and ╔/╟ separator
+                legend_width = percent_width + 2;
 
-            // 1 column for the trailing % and ╔/╟ separator
-            legend_width = percent_width + 2;
+                const int64_t max_value = ordinate[len.ordinate - 1].value;
+                max_ordinate_width = printf_width_i64(max_value);
 
-            const int64_t max_value = ordinate[len.ordinate - 1].value;
-            max_ordinate_width = printf_width_i64(max_value);
+                result = (plot_layout_t){
+                    .quantile_function = (quantile_function_layout_t){
+                        .percent_precision = percent_precision,
+                        .percent_width = percent_width
+                    }
+                };
+                break;
+            }
+            default:
+                exit_with_error("Encountered an unsupported plot type!");
+            }
 
-            result = (plot_layout_t){
-                .quantile_function = (quantile_function_layout_t){
-                    .percent_precision = percent_precision,
-                    .percent_width = percent_width
-                }
-            };
-            break;
-        }}
+            result.data_width  = (DISTRIBUTION_WIDTH > legend_width)
+                               ? DISTRIBUTION_WIDTH - legend_width
+                               : 0;
 
-        result.data_width  = (DISTRIBUTION_WIDTH > legend_width)
-                           ? DISTRIBUTION_WIDTH - legend_width
-                           : 0;
-
-        // Extra columns for the ┤ bar/value separator and value display
-        const size_t non_bar_width = max_ordinate_width + 1;
-        result.max_bar_width = (result.data_width > non_bar_width)
-                             ? result.data_width - non_bar_width
-                             : 0;
-        return result;
+            // Extra columns for the ┤ bar/value separator and value display
+            const size_t non_bar_width = max_ordinate_width + 1;
+            result.max_bar_width = (result.data_width > non_bar_width)
+                                 ? result.data_width - non_bar_width
+                                 : 0;
+            return result;
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NON_NULL_ARGS
@@ -404,77 +454,83 @@
                   const char title[],
                   const distribution_t* dist,
                   plot_type_t type) {
-        axis_len_t len = max_plot_axis_len(type);
+        LOGGED_FUNCTION_START("%d, \"%s\", %p, %d", level, title, dist, type)
+            axis_len_t len = max_plot_axis_len(type);
 
-        coord_t* const abscissa = alloca(len.abscissa * sizeof(coord_t));
-        const range_t abscissa_range = plot_autoscale_abscissa(dist, type);
-        plot_compute_abscissa(type, abscissa, abscissa_range, &len);
+            coord_t* const abscissa = alloca(len.abscissa * sizeof(coord_t));
+            const range_t abscissa_range = plot_autoscale_abscissa(dist, type);
+            plot_compute_abscissa(type, abscissa, abscissa_range, &len);
 
-        coord_t* const ordinate = alloca(len.ordinate * sizeof(coord_t));
-        plot_compute_ordinate(dist, type, abscissa, ordinate, len);
-        const range_t ordinate_range = plot_autoscale_ordinate(type,
-                                                               ordinate,
-                                                               len);
+            coord_t* const ordinate = alloca(len.ordinate * sizeof(coord_t));
+            plot_compute_ordinate(dist, type, abscissa, ordinate, len);
+            const range_t ordinate_range = plot_autoscale_ordinate(type,
+                                                                   ordinate,
+                                                                   len);
 
-        const plot_layout_t layout = plot_layout(type,
-                                                 abscissa,
-                                                 ordinate,
-                                                 len);
+            const plot_layout_t layout = plot_layout(type,
+                                                     abscissa,
+                                                     ordinate,
+                                                     len);
 
-        const size_t line_size = line_buffer_size(layout.data_width);
-        char* const left_line = alloca(line_size);
-        char* const right_line = alloca(line_size);
+            const size_t line_size = line_buffer_size(layout.data_width);
+            char* const left_line = alloca(line_size);
+            char* const right_line = alloca(line_size);
 
-        write_title_borders(left_line,
-                            title,
-                            right_line,
-                            DOUBLE_SEGMENT,
-                            layout.data_width);
-        char* const bar_line = left_line;
-        switch (type) {
-        case HISTOGRAM:
-            const int value_width = layout.histogram.value_width;
-            udipe_logf(level,
-                       "   %*zd╔"
-                       "%s%s%s",
-                       value_width, abscissa[0].value,
-                       left_line, title, right_line);
-            for (size_t o = 0; o < len.ordinate; ++o) {
-                plot_draw_line(type,
-                               &layout,
-                               ordinate_range,
-                               ordinate[o],
-                               bar_line);
+            write_title_borders(left_line,
+                                title,
+                                right_line,
+                                DOUBLE_SEGMENT,
+                                layout.data_width);
+            char* const bar_line = left_line;
+            switch (type) {
+            case HISTOGRAM:
+                const int value_width = layout.histogram.value_width;
                 udipe_logf(level,
-                           "to %*zd╟"
-                           "%s┤%zu",
-                           value_width, abscissa[o+1].value,
-                           bar_line, ordinate[o].count);
-            }
-            break;
-        case QUANTILE_FUNCTION:
-            udipe_logf(level,
-                       "%*s ╔"
-                       "%s%s%s",
-                       layout.quantile_function.percent_width, "",
-                       left_line, title, right_line);
-            for (size_t o = 0; o < len.ordinate; ++o) {
-                plot_draw_line(type,
-                               &layout,
-                               ordinate_range,
-                               ordinate[o],
-                               bar_line);
-                const int percent_width = layout.quantile_function.percent_width;
-                const int percent_precision = layout.quantile_function.percent_precision;
-                const double percentile = abscissa[o].percentile;
+                           "   %*zd╔"
+                           "%s%s%s",
+                           value_width, abscissa[0].value,
+                           left_line, title, right_line);
+                for (size_t o = 0; o < len.ordinate; ++o) {
+                    plot_draw_line(type,
+                                   &layout,
+                                   ordinate_range,
+                                   ordinate[o],
+                                   bar_line);
+                    udipe_logf(level,
+                               "to %*zd╟"
+                               "%s┤%zu",
+                               value_width, abscissa[o+1].value,
+                               bar_line, ordinate[o].count);
+                }
+                return;
+            case QUANTILE_FUNCTION:
                 udipe_logf(level,
-                           "%*.*f%%"
-                           "╟%s┤%zd",
-                           percent_width, percent_precision, percentile,
-                           bar_line, ordinate[o].value);
+                           "%*s ╔"
+                           "%s%s%s",
+                           layout.quantile_function.percent_width, "",
+                           left_line, title, right_line);
+                for (size_t o = 0; o < len.ordinate; ++o) {
+                    plot_draw_line(type,
+                                   &layout,
+                                   ordinate_range,
+                                   ordinate[o],
+                                   bar_line);
+                    const int percent_width =
+                        layout.quantile_function.percent_width;
+                    const int percent_precision =
+                        layout.quantile_function.percent_precision;
+                    const double percentile = abscissa[o].percentile;
+                    udipe_logf(level,
+                               "%*.*f%%"
+                               "╟%s┤%zd",
+                               percent_width, percent_precision, percentile,
+                               bar_line, ordinate[o].value);
+                }
+                return;
+            default:
+                exit_with_error("Encountered an unsupported plot type!");
             }
-            break;
-        }
+        LOGGED_FUNCTION_END
     }
 
 #endif  // UDIPE_BUILD_BENCHMARKS

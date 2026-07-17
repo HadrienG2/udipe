@@ -39,6 +39,7 @@
     #include "distribution.h"
 
     #include "../error.h"
+    #include "../log.h"
 
     #include <math.h>
     #include <stddef.h>
@@ -193,8 +194,10 @@
     static inline
     const distribution_t*
     outlier_filter_last_scores(const outlier_filter_t* filter) {
-        ensure(filter->last_scores.is_built);
-        return &filter->last_scores.distribution;
+        LOGGED_FUNCTION_START("%p", filter)
+            ensure(filter->last_scores.is_built);
+            return &filter->last_scores.distribution;
+        LOGGED_FUNCTION_END
     }
 
     /// Distribution of values that were classified as outliers and removed from

@@ -65,56 +65,65 @@
 
     UDIPE_NODISCARD
     outlier_filter_t outlier_filter_initialize() {
-        const size_t bin_capacity = get_page_size() / sizeof(double);
-        double* const bin_weights = malloc(bin_capacity * sizeof(double));
-        debugf("Allocated bin weight storage @ %p...", bin_weights);
+        LOGGED_FUNCTION_START_NO_PARAMS
+            const size_t bin_capacity = get_page_size() / sizeof(double);
+            double* const bin_weights = malloc(bin_capacity * sizeof(double));
+            debugf("Allocated bin weight storage @ %p...", bin_weights);
 
-        const recyclable_distribution_t last_scores = (recyclable_distribution_t){
-            .empty_builder = distribution_initialize(),
-            .is_built = false
-        };
-        const recyclable_distribution_t last_rejections = (recyclable_distribution_t){
-            .empty_builder = distribution_initialize(),
-            .is_built = false
-        };
+            const recyclable_distribution_t last_scores =
+                (recyclable_distribution_t){
+                    .empty_builder = distribution_initialize(),
+                    .is_built = false
+                };
+            const recyclable_distribution_t last_rejections =
+                (recyclable_distribution_t){
+                    .empty_builder = distribution_initialize(),
+                    .is_built = false
+                };
 
-        return (outlier_filter_t) {
-            .bin_weights = bin_weights,
-            .bin_capacity = bin_capacity,
-            .last_scores = last_scores,
-            .last_rejections = last_rejections,
-        };
+            return (outlier_filter_t) {
+                .bin_weights = bin_weights,
+                .bin_capacity = bin_capacity,
+                .last_scores = last_scores,
+                .last_rejections = last_rejections,
+            };
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NON_NULL_ARGS
     void outlier_filter_apply(outlier_filter_t* filter,
                               distribution_builder_t* target) {
-        ensure(!distribution_empty(target));
-        compute_rel_weights(filter, target);
-        compute_scores(filter, target);
-        const double threshold = compute_weight_threshold(filter);
-        reject_bins(filter, target, threshold);
+        LOGGED_FUNCTION_START("%p, %p", filter, target)
+            ensure(!distribution_empty(target));
+            compute_rel_weights(filter, target);
+            compute_scores(filter, target);
+            const double threshold = compute_weight_threshold(filter);
+            reject_bins(filter, target, threshold);
+        LOGGED_FUNCTION_END
     }
 
 
     UDIPE_NON_NULL_ARGS
     void outlier_filter_finalize(outlier_filter_t* filter) {
-        debugf("Liberating bin weight storage @ %p...", filter->bin_weights);
-        free(filter->bin_weights);
-        filter->bin_weights = NULL;
-        filter->bin_capacity = 0;
+        LOGGED_FUNCTION_START("%p", filter)
+            debugf("Liberating bin weight storage @ %p...",
+                   filter->bin_weights);
+            free(filter->bin_weights);
+            filter->bin_weights = NULL;
+            filter->bin_capacity = 0;
 
-        debug("Liberating inner distributions...");
-        if (filter->last_scores.is_built) {
-            distribution_finalize(&filter->last_scores.distribution);
-        } else {
-            distribution_discard(&filter->last_scores.empty_builder);
-        }
-        if (filter->last_rejections.is_built) {
-            distribution_finalize(&filter->last_rejections.distribution);
-        } else {
-            distribution_discard(&filter->last_rejections.empty_builder);
-        }
+            debug("Liberating inner distributions...");
+            if (filter->last_scores.is_built) {
+                distribution_finalize(&filter->last_scores.distribution);
+            } else {
+                distribution_discard(&filter->last_scores.empty_builder);
+            }
+            if (filter->last_rejections.is_built) {
+                distribution_finalize(&filter->last_rejections.distribution);
+            } else {
+                distribution_discard(&filter->last_rejections.empty_builder);
+            }
+        LOGGED_FUNCTION_END
     }
 
 
@@ -123,279 +132,304 @@
     UDIPE_NON_NULL_ARGS
     void compute_rel_weights(outlier_filter_t* filter,
                              const distribution_builder_t* target) {
-        const size_t num_bins = target->inner.num_bins;
-        if (filter->bin_capacity < num_bins) {
-            debugf("Reallocating weights storage @ %p "
-                   "to make room for %zu bins...",
-                   filter->bin_weights,
-                   num_bins);
-            free(filter->bin_weights);
-            filter->bin_weights = (double*)malloc(num_bins * sizeof(double));
-            debugf("Bin weights storage is now located @ %p",
-                   filter->bin_weights);
-            filter->bin_capacity = num_bins;
-        }
-
-        ensure_ge(num_bins, (size_t)1);
-        if (num_bins == 1) {
-            debug("Encountered 1-bin special case: "
-                  "Single value must have max relative weight 1.0.");
-            ensure_ge(filter->bin_capacity, (size_t)1);
-            filter->bin_weights[0] = 1.0;
-            return;
-        }
-
-        ensure_ge(num_bins, (size_t)2);
-        const distribution_layout_t target_layout =
-            distribution_layout(&target->inner);
-        debug("Calibrating score metric...");
-        const uint64_t min_distance =
-            distribution_min_difference(&target->inner);
-        const size_t max_count = distribution_max_count(target);
-        const double count_norm = 1.0 / max_count;
-        const double distance_norm = 1.0 / min_distance;
-        debugf("Distribution has max count %zu (count norm %.3g) "
-               "and min distance %zu (distance norm %g)",
-               max_count, count_norm,
-               min_distance, distance_norm);
-
-        debug("Weighting distribution bins...");
-        const double neighbor_share = NEIGHBOR_CONTRIBUTION / 2;
-        const double self_share = 1.0 - NEIGHBOR_CONTRIBUTION;
-        int64_t current_value = target_layout.sorted_values[0];
-        size_t current_count = target_layout.counts[0];
-        double rel_current_count = count_norm * current_count;
-        double rel_prev_count = 0.0;
-        uint64_t distance_to_prev = UINT64_MAX;
-        double rel_prev_distance = distance_norm * distance_to_prev;
-        double max_weight = -INFINITY;
-        for (size_t bin = 1; bin < num_bins; ++bin) {
-            tracef("- Processing bin #%zu with value %zd "
-                   "and count %zu (%.3g%%).",
-                   bin - 1, current_value,
-                   current_count, rel_current_count * 100.0);
-
-            if (rel_prev_count) {
-                tracef("  * Previous bin had value %zd (%.1fx min distance) "
-                       "and relative count %.3g%%.",
-                       current_value - distance_to_prev, rel_prev_distance,
-                       rel_prev_count * 100.0);
+        LOGGED_FUNCTION_START("%p, %p", filter, target)
+            const size_t num_bins = target->inner.num_bins;
+            if (filter->bin_capacity < num_bins) {
+                debugf("Reallocating weights storage @ %p "
+                       "to make room for %zu bins...",
+                       filter->bin_weights,
+                       num_bins);
+                free(filter->bin_weights);
+                filter->bin_weights =
+                    (double*)malloc(num_bins * sizeof(double));
+                debugf("Bin weights storage is now located @ %p",
+                       filter->bin_weights);
+                filter->bin_capacity = num_bins;
             }
 
-            const int64_t next_value = target_layout.sorted_values[bin];
-            assert(next_value > current_value);
-            const uint64_t distance_to_next = (uint64_t)(next_value - current_value);
-            const double rel_next_distance = distance_norm * distance_to_next;
-            const size_t next_count = target_layout.counts[bin];
-            const double rel_next_count = count_norm * next_count;
-            tracef("  * Next bin #%zu has value %zd (%.1fx min distance) "
-                   "and count %zu (%.3g%%).",
-                   bin, next_value, rel_next_distance,
-                   next_count, rel_next_count * 100.0);
+            ensure_ge(num_bins, (size_t)1);
+            if (num_bins == 1) {
+                debug("Encountered 1-bin special case: "
+                      "Single value must have max relative weight 1.0.");
+                ensure_ge(filter->bin_capacity, (size_t)1);
+                filter->bin_weights[0] = 1.0;
+                return;
+            }
 
+            ensure_ge(num_bins, (size_t)2);
+            const distribution_layout_t target_layout =
+                distribution_layout(&target->inner);
+            debug("Calibrating score metric...");
+            const uint64_t min_distance =
+                distribution_min_difference(&target->inner);
+            const size_t max_count = distribution_max_count(target);
+            const double count_norm = 1.0 / max_count;
+            const double distance_norm = 1.0 / min_distance;
+            debugf("Distribution has max count %zu (count norm %.3g) "
+                   "and min distance %zu (distance norm %g)",
+                   max_count, count_norm,
+                   min_distance, distance_norm);
+
+            debug("Weighting distribution bins...");
+            const double neighbor_share = NEIGHBOR_CONTRIBUTION / 2;
+            const double self_share = 1.0 - NEIGHBOR_CONTRIBUTION;
+            int64_t current_value = target_layout.sorted_values[0];
+            size_t current_count = target_layout.counts[0];
+            double rel_current_count = count_norm * current_count;
+            double rel_prev_count = 0.0;
+            uint64_t distance_to_prev = UINT64_MAX;
+            double rel_prev_distance = distance_norm * distance_to_prev;
+            double max_weight = -INFINITY;
+            for (size_t bin = 1; bin < num_bins; ++bin) {
+                tracef("- Processing bin #%zu with value %zd "
+                       "and count %zu (%.3g%%).",
+                       bin - 1, current_value,
+                       current_count, rel_current_count * 100.0);
+
+                if (rel_prev_count) {
+                    tracef("  * Previous bin had value %zd (%.1fx min distance) "
+                           "and relative count %.3g%%.",
+                           current_value - distance_to_prev, rel_prev_distance,
+                           rel_prev_count * 100.0);
+                }
+
+                const int64_t next_value = target_layout.sorted_values[bin];
+                assert(next_value > current_value);
+                const uint64_t distance_to_next =
+                    (uint64_t)(next_value - current_value);
+                const double rel_next_distance =
+                    distance_norm * distance_to_next;
+                const size_t next_count = target_layout.counts[bin];
+                const double rel_next_count = count_norm * next_count;
+                tracef("  * Next bin #%zu has value %zd (%.1fx min distance) "
+                       "and count %zu (%.3g%%).",
+                       bin, next_value, rel_next_distance,
+                       next_count, rel_next_count * 100.0);
+
+                const double prev_weight =
+                    rel_prev_count * pow(rel_prev_distance, -NEIGHBOR_DECAY);
+                const double next_weight =
+                    rel_next_count * pow(rel_next_distance, -NEIGHBOR_DECAY);
+                const double current_weight =
+                    neighbor_share * prev_weight
+                    + self_share * rel_current_count
+                    + neighbor_share * next_weight;
+                tracef("  * Current bin weight is therefore %.3g.",
+                       current_weight);
+                filter->bin_weights[bin-1] = current_weight;
+                if (current_weight > max_weight) max_weight = current_weight;
+
+                trace("  * Preparing for next bin...");
+                current_value = next_value;
+                current_count = next_count;
+                rel_prev_count = rel_current_count;
+                rel_current_count = rel_next_count;
+                distance_to_prev = distance_to_next;
+                rel_prev_distance = rel_next_distance;
+            }
             const double prev_weight =
                 rel_prev_count * pow(rel_prev_distance, -NEIGHBOR_DECAY);
-            const double next_weight =
-                rel_next_count * pow(rel_next_distance, -NEIGHBOR_DECAY);
-            const double current_weight =
+            const double last_weight =
                 neighbor_share * prev_weight
-                + self_share * rel_current_count
-                + neighbor_share * next_weight;
-            tracef("  * Current bin weight is therefore %.3g.", current_weight);
-            filter->bin_weights[bin-1] = current_weight;
-            if (current_weight > max_weight) max_weight = current_weight;
+                + self_share * rel_current_count;
+            tracef("- No bin remaining: last bin weight is %.3g.", last_weight);
+            filter->bin_weights[num_bins - 1] = last_weight;
+            if (last_weight > max_weight) max_weight = last_weight;
 
-            trace("  * Preparing for next bin...");
-            current_value = next_value;
-            current_count = next_count;
-            rel_prev_count = rel_current_count;
-            rel_current_count = rel_next_count;
-            distance_to_prev = distance_to_next;
-            rel_prev_distance = rel_next_distance;
-        }
-        const double prev_weight =
-            rel_prev_count * pow(rel_prev_distance, -NEIGHBOR_DECAY);
-        const double last_weight =
-            neighbor_share * prev_weight
-            + self_share * rel_current_count;
-        tracef("- No bin remaining: last bin weight is %.3g.", last_weight);
-        filter->bin_weights[num_bins - 1] = last_weight;
-        if (last_weight > max_weight) max_weight = last_weight;
-
-        const double weight_norm = 1.0 / max_weight;
-        debugf("Maximum weight is %.3g: "
-               "will now apply norm %.3g to get relative weight...",
-               max_weight, weight_norm);
-        for (size_t bin = 0; bin < num_bins; ++bin) {
-            filter->bin_weights[bin] *= weight_norm;
-        }
+            const double weight_norm = 1.0 / max_weight;
+            debugf("Maximum weight is %.3g: "
+                   "will now apply norm %.3g to get relative weight...",
+                   max_weight, weight_norm);
+            for (size_t bin = 0; bin < num_bins; ++bin) {
+                filter->bin_weights[bin] *= weight_norm;
+            }
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NON_NULL_ARGS
     void compute_scores(outlier_filter_t* filter,
                         const distribution_builder_t* target) {
-        if (filter->last_scores.is_built) {
-            debug("Resetting last scores distribution...");
-            filter->last_scores.empty_builder =
-                distribution_reset(&filter->last_scores.distribution);
-        }
-        distribution_builder_t* score_builder =
-            &filter->last_scores.empty_builder;
+        LOGGED_FUNCTION_START("%p, %p", filter, target)
+            if (filter->last_scores.is_built) {
+                debug("Resetting last scores distribution...");
+                filter->last_scores.empty_builder =
+                    distribution_reset(&filter->last_scores.distribution);
+            }
+            distribution_builder_t* score_builder =
+                &filter->last_scores.empty_builder;
 
-        const size_t num_bins = target->inner.num_bins;
-        ensure_le(num_bins, filter->bin_capacity);
-        const distribution_layout_t target_layout =
-            distribution_layout(&target->inner);
-        for (size_t bin = 0; bin < num_bins; ++bin) {
-            const double rel_weight = filter->bin_weights[bin];
-            assert(rel_weight >= 0.0 && rel_weight <= 1.0);
-            tracef("- Processing bin #%zu with relative weight %.3g... ",
-                   bin, rel_weight);
+            const size_t num_bins = target->inner.num_bins;
+            ensure_le(num_bins, filter->bin_capacity);
+            const distribution_layout_t target_layout =
+                distribution_layout(&target->inner);
+            for (size_t bin = 0; bin < num_bins; ++bin) {
+                const double rel_weight = filter->bin_weights[bin];
+                assert(rel_weight >= 0.0 && rel_weight <= 1.0);
+                tracef("- Processing bin #%zu with relative weight %.3g... ",
+                       bin, rel_weight);
 
-            const int64_t score = rel_weight_to_score(rel_weight);
-            tracef("  * ...which corresponds to a score of %zd.", score);
+                const int64_t score = rel_weight_to_score(rel_weight);
+                tracef("  * ...which corresponds to a score of %zd.", score);
 
-            const size_t count = target_layout.counts[bin];
-            tracef("  * Recording it with occurence count %zu...", count);
-            distribution_insert_copies(score_builder,
-                                       score,
-                                       count);
-        }
-        filter->last_scores.distribution = distribution_build(score_builder);
-        filter->last_scores.is_built = true;
+                const size_t count = target_layout.counts[bin];
+                tracef("  * Recording it with occurence count %zu...", count);
+                distribution_insert_copies(score_builder,
+                                           score,
+                                           count);
+            }
+            filter->last_scores.distribution =
+                distribution_build(score_builder);
+            filter->last_scores.is_built = true;
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NODISCARD
     UDIPE_NON_NULL_ARGS
     double compute_weight_threshold(const outlier_filter_t* filter) {
-        ensure_gt(OUTLIER_THRESHOLD, 0.0);
-        ensure_lt(OUTLIER_THRESHOLD, 1.0);
-        const int64_t outlier_score = rel_weight_to_score(OUTLIER_THRESHOLD);
-        debugf("Looking for outlier bins with rel weight <= %.2g "
-               "(score <= %zd).",
-               OUTLIER_THRESHOLD, outlier_score);
+        LOGGED_FUNCTION_START("%p", filter)
+            ensure_gt(OUTLIER_THRESHOLD, 0.0);
+            ensure_lt(OUTLIER_THRESHOLD, 1.0);
+            const int64_t outlier_score =
+                rel_weight_to_score(OUTLIER_THRESHOLD);
+            debugf("Looking for outlier bins with rel weight <= %.2g "
+                   "(score <= %zd).",
+                   OUTLIER_THRESHOLD, outlier_score);
 
-        ensure(filter->last_scores.is_built);
-        const distribution_t* scores = &filter->last_scores.distribution;
-        const distribution_layout_t scores_layout = distribution_layout(scores);
-        const ptrdiff_t last_outlier_pos =
-            distribution_bin_by_value(scores, outlier_score, BIN_BELOW);
-        if (last_outlier_pos == PTRDIFF_MIN) {
-            debug("All bins are above score threshold: "
-                  "will not cut any data point.");
-            return 0.0;
-        }
-
-        ensure_ge(last_outlier_pos, 0);
-        const size_t last_outlier_bin = (size_t)last_outlier_pos;
-        const size_t num_outliers = scores_layout.end_ranks[last_outlier_bin];
-        const size_t num_inputs = distribution_len(scores);
-        const double outlier_fraction = num_outliers / (double)num_inputs;
-        debugf("That's %zu/%zu outlier values (%.3g%%), "
-               "corresponding to score bins up to #%zu.",
-               num_outliers, num_inputs, outlier_fraction * 100.0,
-               last_outlier_bin);
-
-        ensure_gt(MAX_OUTLIER_FRACTION, 0.0);
-        ensure_lt(MAX_OUTLIER_FRACTION, 1.0);
-        const size_t max_outliers = floor(MAX_OUTLIER_FRACTION * num_inputs);
-        if (num_outliers <= max_outliers) {
-            const int64_t max_score = scores_layout.sorted_values[last_outlier_bin];
-            const double max_rel_weight = score_to_rel_weight(max_score);
-            debugf("Those values have rel weight <= %.2g (score <= %zd).",
-                   max_rel_weight, max_score);
-            return OUTLIER_THRESHOLD;
-        }
-
-        warnf("There are %zu/%zu values below the outlier threshold, "
-              "but we can only cut %.3g%% of the dataset (%zu values). "
-              "Adjusting outlier threshold to stay in tolerance...",
-              num_outliers, num_inputs,
-              MAX_OUTLIER_FRACTION * 100.0, max_outliers);
-        size_t max_bin = distribution_bin_by_rank(scores, max_outliers);
-        if (scores_layout.end_ranks[max_bin] > max_outliers) {
-            if (max_bin == 0) {
-                debug("Even the first score has too many associated values: "
-                      "won't cut any data point.");
+            ensure(filter->last_scores.is_built);
+            const distribution_t* scores = &filter->last_scores.distribution;
+            const distribution_layout_t scores_layout =
+                distribution_layout(scores);
+            const ptrdiff_t last_outlier_pos =
+                distribution_bin_by_value(scores, outlier_score, BIN_BELOW);
+            if (last_outlier_pos == PTRDIFF_MIN) {
+                debug("All bins are above score threshold: "
+                      "will not cut any data point.");
                 return 0.0;
             }
-            --max_bin;
-        }
 
-        const int64_t max_score = scores_layout.sorted_values[max_bin];
-        ensure_le(max_score, 0);
-        const double max_rel_weight = score_to_rel_weight(max_score);
-        ensure_ge(max_rel_weight, 0.0);
-        ensure_le(max_rel_weight, 1.0);
-        warnf("Will only drop the first %zu score bins, corresponding to "
-              "%zu data points with rel weight <= %.3g (score <= %zd).",
-              max_bin + 1,
-              scores_layout.end_ranks[max_bin],
-              max_rel_weight,
-              max_score);
-        return max_rel_weight;
+            ensure_ge(last_outlier_pos, 0);
+            const size_t last_outlier_bin = (size_t)last_outlier_pos;
+            const size_t num_outliers =
+                scores_layout.end_ranks[last_outlier_bin];
+            const size_t num_inputs = distribution_len(scores);
+            const double outlier_fraction = num_outliers / (double)num_inputs;
+            debugf("That's %zu/%zu outlier values (%.3g%%), "
+                   "corresponding to score bins up to #%zu.",
+                   num_outliers, num_inputs, outlier_fraction * 100.0,
+                   last_outlier_bin);
+
+            ensure_gt(MAX_OUTLIER_FRACTION, 0.0);
+            ensure_lt(MAX_OUTLIER_FRACTION, 1.0);
+            const size_t max_outliers =
+                floor(MAX_OUTLIER_FRACTION * num_inputs);
+            if (num_outliers <= max_outliers) {
+                const int64_t max_score =
+                    scores_layout.sorted_values[last_outlier_bin];
+                const double max_rel_weight = score_to_rel_weight(max_score);
+                debugf("Those values have rel weight <= %.2g (score <= %zd).",
+                       max_rel_weight, max_score);
+                return OUTLIER_THRESHOLD;
+            }
+
+            warnf("There are %zu/%zu values below the outlier threshold, "
+                  "but we can only cut %.3g%% of the dataset (%zu values). "
+                  "Adjusting outlier threshold to stay in tolerance...",
+                  num_outliers, num_inputs,
+                  MAX_OUTLIER_FRACTION * 100.0, max_outliers);
+            size_t max_bin = distribution_bin_by_rank(scores, max_outliers);
+            if (scores_layout.end_ranks[max_bin] > max_outliers) {
+                if (max_bin == 0) {
+                    debug("Even the first score matches too many values: "
+                          "won't cut any data point.");
+                    return 0.0;
+                }
+                --max_bin;
+            }
+
+            const int64_t max_score = scores_layout.sorted_values[max_bin];
+            ensure_le(max_score, 0);
+            const double max_rel_weight = score_to_rel_weight(max_score);
+            ensure_ge(max_rel_weight, 0.0);
+            ensure_le(max_rel_weight, 1.0);
+            warnf("Will only drop the first %zu score bins, corresponding to "
+                  "%zu data points with rel weight <= %.3g (score <= %zd).",
+                  max_bin + 1,
+                  scores_layout.end_ranks[max_bin],
+                  max_rel_weight,
+                  max_score);
+            return max_rel_weight;
+        LOGGED_FUNCTION_END
     }
 
     UDIPE_NON_NULL_ARGS
     void reject_bins(outlier_filter_t* filter,
                      distribution_builder_t* target,
                      double threshold) {
-        if (filter->last_rejections.is_built) {
-            debug("Resetting rejections distribution...");
-            filter->last_rejections.empty_builder =
-                distribution_reset(&filter->last_rejections.distribution);
-        }
-        distribution_builder_t* rejections_builder =
-            &filter->last_rejections.empty_builder;
-
-        const size_t num_input_bins = target->inner.num_bins;
-        ensure_le(num_input_bins, filter->bin_capacity);
-        debugf("Rejecting bins with relative weight <= %.3g "
-               "from our %zu-bins dataset.",
-               threshold,
-               num_input_bins);
-
-        const distribution_layout_t target_layout =
-            distribution_layout(&target->inner);
-        int64_t* sorted_values = target_layout.sorted_values;
-        size_t* counts = target_layout.counts;
-        size_t num_deleted_bins = 0;
-        for (size_t input_bin = 0; input_bin < num_input_bins; ++input_bin) {
-            const int64_t value = sorted_values[input_bin];
-            const size_t count = counts[input_bin];
-            const double rel_weight = filter->bin_weights[input_bin];
-            tracef("- Processing bin #%zu "
-                   "containing %zu occurences of value %zd "
-                   "with relative weight %.3g.",
-                   input_bin, count, value, rel_weight);
-
-            if (rel_weight > threshold) {
-                if (num_deleted_bins > 0) {
-                    const size_t output_bin = input_bin - num_deleted_bins;
-                    tracef("  * Packed to new bin position #%zu.", output_bin);
-                    sorted_values[output_bin] = value;
-                    counts[output_bin] = count;
-                } else {
-                    trace("  * Nothing to do.");
-                }
-            } else {
-                trace("  * Moving bin to rejected value distribution...");
-                distribution_insert_copies(rejections_builder,
-                                           value,
-                                           count);
-                ++num_deleted_bins;
+        LOGGED_FUNCTION_START("%p, %p, %f", filter, target, threshold)
+            if (filter->last_rejections.is_built) {
+                debug("Resetting rejections distribution...");
+                filter->last_rejections.empty_builder =
+                    distribution_reset(&filter->last_rejections.distribution);
             }
-        }
-        target->inner.num_bins -= num_deleted_bins;
+            distribution_builder_t* rejections_builder =
+                &filter->last_rejections.empty_builder;
 
-        if (num_deleted_bins > 0) {
-            debug("Finalizing rejected value distribution...");
-            filter->last_rejections.distribution =
-                distribution_build(rejections_builder);
-            filter->last_rejections.is_built = true;
-        } else {
-            debug("No value was rejected: last_rejections will remain unbuilt.");
-        }
+            const size_t num_input_bins = target->inner.num_bins;
+            ensure_le(num_input_bins, filter->bin_capacity);
+            debugf("Rejecting bins with relative weight <= %.3g "
+                   "from our %zu-bins dataset.",
+                   threshold,
+                   num_input_bins);
+
+            const distribution_layout_t target_layout =
+                distribution_layout(&target->inner);
+            int64_t* sorted_values = target_layout.sorted_values;
+            size_t* counts = target_layout.counts;
+            size_t num_deleted_bins = 0;
+            for (
+                size_t input_bin = 0;
+                input_bin < num_input_bins;
+                ++input_bin
+            ) {
+                const int64_t value = sorted_values[input_bin];
+                const size_t count = counts[input_bin];
+                const double rel_weight = filter->bin_weights[input_bin];
+                tracef("- Processing bin #%zu "
+                       "containing %zu occurences of value %zd "
+                       "with relative weight %.3g.",
+                       input_bin, count, value, rel_weight);
+
+                if (rel_weight > threshold) {
+                    if (num_deleted_bins > 0) {
+                        const size_t output_bin =
+                            input_bin - num_deleted_bins;
+                        tracef("  * Packed to new bin position #%zu.",
+                               output_bin);
+                        sorted_values[output_bin] = value;
+                        counts[output_bin] = count;
+                    } else {
+                        trace("  * Nothing to do.");
+                    }
+                } else {
+                    trace("  * Moving bin to rejected value distribution...");
+                    distribution_insert_copies(rejections_builder,
+                                               value,
+                                               count);
+                    ++num_deleted_bins;
+                }
+            }
+            target->inner.num_bins -= num_deleted_bins;
+
+            if (num_deleted_bins > 0) {
+                debug("Finalizing rejected value distribution...");
+                filter->last_rejections.distribution =
+                    distribution_build(rejections_builder);
+                filter->last_rejections.is_built = true;
+            } else {
+                debug("No value was rejected: "
+                      "last_rejections will remain unbuilt.");
+            }
+        LOGGED_FUNCTION_END
     }
 
 #endif  // UDIPE_BUILD_BENCHMARKS
