@@ -117,14 +117,12 @@ void scope_guard_finalize(const scope_guard_t* guard) {
     udipe_scope_tracker.top_scope = guard->next_scope;
 }
 
-/// Implementation of `SCOPE_START` macros
+/// Implementation of `SCOPE_START_WITH_DESTRUCTOR_AND_ID`
 ///
-/// This works just like \ref SCOPE_START_WITH_DESTRUCTOR except an extra `id`
-/// must be provided. This `id` should expand into a single C token, which
-/// should be unique across all calls to `SCOPE_START_WITH_DESTRUCTOR_AND_ID`
-/// within the current function.
+/// This indirection layer is needed because otherwise id will not correctly
+/// handle macro expressions like `__LINE__`.
 #ifdef __GNUC__
-    #define SCOPE_START_WITH_DESTRUCTOR_AND_ID(destructor_, context_, id)  \
+    #define SCOPE_START_WITH_DESTRUCTOR_AND_ID_IMPL(destructor_, context_, id)  \
         do {  \
             scope_guard_t const udipe_scope_guard_ ## id  \
                 __attribute__((__cleanup__(scope_guard_finalize)))  \
@@ -137,7 +135,7 @@ void scope_guard_finalize(const scope_guard_t* guard) {
             udipe_scope_tracker.top_scope = &(udipe_scope_guard_ ## id);  \
             ++udipe_scope_tracker.nesting_depth;
 #elif defined(_MSC_VER)
-    #define SCOPE_START_WITH_DESTRUCTOR_AND_ID(destructor_, context_, id)  \
+    #define SCOPE_START_WITH_DESTRUCTOR_AND_ID_IMPL(destructor_, context_, id)  \
         scope_guard_t const udipe_scope_guard_ ## id  \
             = (scope_guard_t){  \
                 .next_scope = udipe_scope_tracker.top_scope,  \
@@ -151,6 +149,15 @@ void scope_guard_finalize(const scope_guard_t* guard) {
 #else
     #error "Sorry, we don't support your compiler yet. Please file a bug report about it!"
 #endif
+
+/// Implementation of `SCOPE_START` macros
+///
+/// This works just like \ref SCOPE_START_WITH_DESTRUCTOR except an extra `id`
+/// must be provided. This `id` should expand into a single C token, which
+/// should be unique across all calls to `SCOPE_START_WITH_DESTRUCTOR_AND_ID`
+/// within the current function.
+#define SCOPE_START_WITH_DESTRUCTOR_AND_ID(destructor_, context_, id)  \
+    SCOPE_START_WITH_DESTRUCTOR_AND_ID_IMPL(destructor_, context_, id)
 
 /// \}
 
