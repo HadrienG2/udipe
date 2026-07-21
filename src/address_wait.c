@@ -375,6 +375,9 @@ void wake_by_address_single(_Atomic uint32_t* atom) {
                         "Got a reply from %u/%u workers, but we expect more...",
                         awoken, NUM_WORKERS
                     );
+                    thrd_sleep(&(struct timespec) { .tv_sec = 0,
+                                                    .tv_nsec = 1 },
+                               NULL);
                 } while(true);
                 global_wake[last] = global_wake[current];
 
