@@ -197,9 +197,9 @@ bool future_custom_check_canceled(future_status_t status);
 
 
 #ifdef UDIPE_BUILD_TESTS
-    /// Unit tests
+    /// Unit tests for custom futures
     ///
-    /// This function runs all the unit tests for this module. It must be called
-    /// within a logging scope.
-    void future_unit_tests();
+    /// This function runs the unit tests for custom future operations. It must
+    /// be called within a logging scope.
+    void future_custom_unit_tests();
 #endif

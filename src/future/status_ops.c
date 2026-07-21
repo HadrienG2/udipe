@@ -481,7 +481,7 @@ void future_status_debug_check(future_status_t status,
 
     void future_status_unit_tests() {
         LOGGED_FUNCTION_START_NO_PARAMS
-            debug("Running future status ops unit tests...");
+            info("Running unit tests for future status word operations...");
             configure_rand();
 
             for (size_t i = 0; i < NUM_TRIALS; ++i) {

@@ -804,7 +804,9 @@ bool future_custom_check_canceled(future_status_t status) {
         LOGGED_FUNCTION_END
     }
 
-    static void custom_test_seq_canceled_ack(udipe_context_t* context) {
+    static void custom_test_seq_canceled_acknowledged(
+        udipe_context_t* context
+    ) {
         LOGGED_FUNCTION_START("%p", context)
             debug("Setting up a custom future...");
             udipe_future_t* const custom = udipe_start_custom(context);
@@ -833,38 +835,25 @@ bool future_custom_check_canceled(future_status_t status) {
 
     /// Unit tests for custom futures
     ///
-    static void custom_unit_tests() {
+    void future_custom_unit_tests() {
         LOGGED_FUNCTION_START_NO_PARAMS
+            info("Running custom future unit tests...");
+            configure_rand();
+
             debug("Setting up a context...");
             udipe_context_t* context = udipe_initialize((udipe_config_t){ 0 });
 
-            debug("Testing basic custom future lifecycle...");
+            debug("Running sequential tests...");
             custom_test_seq_success(context);
             custom_test_seq_failure(context);
             custom_test_seq_canceled_success(context);
             custom_test_seq_canceled_failure(context);
-            custom_test_seq_canceled_ack(context);
+            custom_test_seq_canceled_acknowledged(context);
+
             // TODO: Multi-threaded test
 
             debug("Tearing down the context...");
             udipe_finalize(context);
-        LOGGED_FUNCTION_END
-    }
-
-    void future_unit_tests() {
-        LOGGED_FUNCTION_START_NO_PARAMS
-            info("Running future unit tests...");
-            configure_rand();
-
-            debug("Testing status word manipulations...");
-            future_status_unit_tests();
-
-            debug("Testing custom future manipulations...");
-            custom_unit_tests();
-
-            // TODO: Add more future tests as they come up. In particular, need to
-            //       test all future_wait() variants + new status word
-            //       manipulations.
         LOGGED_FUNCTION_END
     }
 

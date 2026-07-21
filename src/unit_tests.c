@@ -12,6 +12,7 @@
     #include "command.h"
     #include "error.h"
     #include "future.h"
+    #include "future/status_ops.h"
     #include "log.h"
     #include "memory.h"
     #include "name_filter.h"
@@ -65,8 +66,8 @@
             NAME_FILTERED_CALL(filter, buffer_unit_tests);
             NAME_FILTERED_CALL(filter, numeric_unit_tests);
             NAME_FILTERED_CALL(filter, distribution_unit_tests);
-            NAME_FILTERED_CALL(filter, command_unit_tests);
-            NAME_FILTERED_CALL(filter, future_unit_tests);
+            NAME_FILTERED_CALL(filter, future_status_unit_tests);
+            NAME_FILTERED_CALL(filter, future_custom_unit_tests);
 
             name_filter_finalize(&filter);
             info("All executed tests completed successfully!");
