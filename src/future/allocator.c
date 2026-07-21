@@ -225,6 +225,8 @@ void future_sync_initialize(udipe_future_t* future,
         case TYPE_CUSTOM:  // aliases TYPE_NETWORK_END
             debug("Obtaining the output event object...");
             future->status_sync.event = event_cache_allocate(&thread_cache->events);
+
+            // TODO: Review once network futures are fully implemented
             break;
         case TYPE_TIMER_ONCE:
             debug("Allocating the output timer object...");
@@ -386,6 +388,8 @@ void future_sync_finalize(udipe_future_t* future,
             debug("Recycling the output event object...");
             event_cache_liberate(&thread_cache->events,
                                  &future->status_sync.event);
+
+            // TODO: Review once network futures are fully implemented
             break;
         case TYPE_TIMER_ONCE:
             debug("Liberating the output timer object...");
