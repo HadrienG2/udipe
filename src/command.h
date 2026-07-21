@@ -170,10 +170,4 @@ static_assert(sizeof(command_queue_t) <= EXPECTED_MIN_PAGE_SIZE,
 // TODO: Add queue operations
 
 
-#ifdef UDIPE_BUILD_TESTS
-    /// Unit tests
-    ///
-    /// This function runs all the unit tests for this module. It must be called
-    /// within a logging scope.
-    void command_unit_tests();
-#endif
+// TODO: Add unit tests
