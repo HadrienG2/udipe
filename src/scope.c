@@ -19,8 +19,11 @@ thread_local scope_tracker_t udipe_scope_tracker = { 0 };
     void scope_unit_tests() {
         const bool initial_inside_local = IS_INSIDE_LOCAL_SCOPE;
         const size_t initial_depth = global_scope_depth();
+        const void* const initial_top_scope = udipe_scope_tracker.top_scope;
 
         LOGGED_FUNCTION_START_NO_PARAMS
+            const void* const outer_scope = udipe_scope_tracker.top_scope;
+
             info("Running scope unit tests...");
 
             debug("Checking initial scope...");
@@ -29,26 +32,36 @@ thread_local scope_tracker_t udipe_scope_tracker = { 0 };
             debug("Checking new scope...");
             ensure(IS_INSIDE_LOCAL_SCOPE);
             ensure_eq(global_scope_depth(), initial_depth + 1);
+            ensure_ne(outer_scope, initial_top_scope);
 
             debug("Checking nested normal scope...");
             SCOPE_START
+                const void* const inner_scope_1 = udipe_scope_tracker.top_scope;
                 ensure(IS_INSIDE_LOCAL_SCOPE);
                 ensure_eq(global_scope_depth(), initial_depth + 2);
+                ensure_ne(inner_scope_1, outer_scope);
             SCOPE_END
             ensure(IS_INSIDE_LOCAL_SCOPE);
             ensure_eq(global_scope_depth(), initial_depth + 1);
+            ensure_eq((const void*)udipe_scope_tracker.top_scope, outer_scope);
 
             debug("Checking nested scope with destructor...");
             bool destroyed = false;
             SCOPE_START_WITH_DESTRUCTOR(set_to_true, (void*)&destroyed)
+                const void* const inner_scope_2 = udipe_scope_tracker.top_scope;
                 ensure(IS_INSIDE_LOCAL_SCOPE);
                 ensure_eq(global_scope_depth(), initial_depth + 2);
                 ensure(!destroyed);
+                ensure_ne(inner_scope_2, outer_scope);
             SCOPE_END
             ensure(IS_INSIDE_LOCAL_SCOPE);
             ensure_eq(global_scope_depth(), initial_depth + 1);
             ensure(destroyed);
+            ensure_eq((const void*)udipe_scope_tracker.top_scope, outer_scope);
         LOGGED_FUNCTION_END
+
+        assert(udipe_scope_tracker.top_scope == initial_top_scope);
+        assert(global_scope_depth() == initial_depth);
     }
 
 #endif  // UDIPE_BUILD_TESTS
