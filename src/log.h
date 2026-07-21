@@ -173,6 +173,7 @@ static inline bool log_enabled(udipe_log_level_t level);
 #define udipe_logf(level, format, ...)  \
     do {  \
         const udipe_log_level_t udipe_level = (level);  \
+        assert(IS_INSIDE_LOCAL_SCOPE);  \
         if (log_enabled(udipe_level)) {  \
             logf_impl(udipe_level,  \
                       __func__,  \
