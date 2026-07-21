@@ -260,8 +260,8 @@
 /// algorithm on.
 ///
 /// # Alternatives to the asynchronous API
-///
-/// TODO: Put some of this in a toplevel documentation too
+//
+// TODO: Put some of this in a toplevel documentation too
 ///
 /// udipe lets you perform UDP communication using three different API styles,
 /// each catering to different user needs. In the following, we will refer to
