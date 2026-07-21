@@ -219,10 +219,6 @@ bool future_type_uses_worker_thread(future_type_t type) {
         case TYPE_NETWORK_DISCONNECT:
         case TYPE_NETWORK_SEND:
         case TYPE_NETWORK_RECV:
-            // TODO: Answer is backend-specific as inline backend performs
-            //       operations directly on udipe_start_. Use backend
-            //       infrastructure, once available, to answer this.
-            exit_with_error("Not implemented yet!");
         case TYPE_CUSTOM:  // Aliases TYPE_NETWORK_END
             return true;
         #ifdef __linux__
