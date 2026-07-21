@@ -287,7 +287,9 @@ logger_t logger_initialize(udipe_log_config_t config) {
     }
 
     // Configure logging callback
+    const char* callback_kind = "user";
     if (!config.callback) {
+        callback_kind = "default";
         config.callback = default_log_callback;
         if (config.context) {
             // Cannot log before logger is initialized
@@ -313,7 +315,19 @@ logger_t logger_initialize(udipe_log_config_t config) {
             }
         #endif
     }
-    return config;
+
+    // Confirm logger setup with a user-facing summary
+    logger_t logger = config;
+    LOGGER_START(&logger)
+        infof("Set up logger using %s callback %p with context %p, "
+              "min level %s and max debug depth %zu.",
+              callback_kind,
+              logger.callback,
+              logger.context,
+              log_level_name(logger.min_level, false),
+              logger.max_debug_depth);
+    LOGGER_END
+    return logger;
 }
 
 UDIPE_NON_NULL_ARGS

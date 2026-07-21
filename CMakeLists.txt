@@ -28,6 +28,10 @@ if(WIN32)
 else()
     # Rationale for disabling some warnings:
     #
+    # - dangling-pointer is disabled because as of July 2026, it wrongly warns
+    #   about storing references to locals in "escaped" pointers that are
+    #   actually later cleared by a finalizer, and this pattern is heavily used
+    #   in the logger and scope tracking infrastructure.
     # - unused-parameter doesn't work when some function parameters are only
     #   used for debug assertions and unused in Release builds.
     # - unused-value breaks the comma trick for documenting debug assertions.
@@ -36,8 +40,8 @@ else()
     #   function to execute even in Release builds.
     add_compile_options(-Wall -Wextra -Wduplicated-branches -Wduplicated-cond
                         -Wnull-dereference -Wdouble-promotion
-                        -Wno-unused-parameter -Wno-unused-value
-                        -Wno-unused-variable
+                        -Wno-dangling-pointer -Wno-unused-parameter
+                        -Wno-unused-value -Wno-unused-variable
                         -Wno-unused-but-set-variable)
 endif()
 
