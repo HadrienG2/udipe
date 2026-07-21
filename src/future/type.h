@@ -80,7 +80,6 @@ typedef enum future_type_e /* : _BitInt(4) */ {
     ///
     NUM_TYPES,
 
-
     // NOTE: If this enum gets more than 16 variants, excluding NUM_TYPES
     //       which is never assigned to it and TYPE_NETWORK_START/END which only
     //       mark the start/end of a variant range and are aliased with other
