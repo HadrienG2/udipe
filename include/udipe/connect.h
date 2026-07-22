@@ -58,17 +58,6 @@ typedef union ip_address_u {
     struct sockaddr_in6 v6;  ///< IPv6 address
 } ip_address_t;
 
-/// Boolean option with a nontrivial default value
-///
-/// This is needed in circumstances where the default value for an option is not
-/// `false` but e.g. "`true` if supported", "`true` if deemed worthwhile based
-/// on system configuration", etc.
-typedef enum udipe_bool_with_default_e {
-    UDIPE_FALSE = 1,  ///< Set to `false`
-    UDIPE_TRUE = 2,  ///< Set to `true`
-    UDIPE_DEFAULT = 0,  ///< Use default value (depends on context)
-} udipe_bool_with_default_t;
-
 /// udipe_connect() parameters
 ///
 /// This struct controls the parameters that can be tuned when establishing a
@@ -191,6 +180,10 @@ typedef struct udipe_connect_options_s {
     // TODO: Implement by trying SO_SNDBUF then SO_SNDBUFFORCE
     unsigned send_buffer : 31;
 
+    /// Reserved for future use, leave at `false` for now
+    ///
+    bool reserved : 1;
+
     /// Receive buffer size
     ///
     /// This parameter must not be set if `direction` is \ref UDIPE_OUT.
@@ -211,6 +204,18 @@ typedef struct udipe_connect_options_s {
     // TODO: Implement by trying SO_RCVBUF then SO_RCVBUFFORCE
     unsigned recv_buffer : 31;
 
+    /// Enable Generic Receive Offload (GRO)
+    ///
+    /// Setting this to `true` enables GRO, a Linux UDP performance optimization
+    /// that basically does the reverse of GSO : concatenate input packets as
+    /// long as they have the same size and there's room in the buffer passed to
+    /// `recvmsg()`, eventually return and tell how big the input segments were
+    /// in case the user needs to re-split the result into the original datagram
+    /// payloads.
+    //
+    // TODO: Sets UDP_GRO
+    bool enable_gro : 1;
+
     /// Communication direction(s)
     ///
     /// You can use this field to specify that you only intend to send or
@@ -224,66 +229,29 @@ typedef struct udipe_connect_options_s {
     //       and commands.
     udipe_direction_t direction;
 
-    /// Enable Generic Segmentation Offload (GSO)
+    /// GSO segment size (nonzero to enable)
     ///
-    /// This is a Linux UDP performance optimization that lets you send multiple
-    /// UDP datagrams with a single `send` command. It roughly works by
-    /// modifying the semantics of oversized `send` commands whose input buffer
-    /// goes above the MTU, so that instead of failing they split the input
-    /// buffer into multiple datagrams.
+    /// Setting this to a nonzero value enables GSO, a Linux UDP performance
+    /// optimization (now available on some other operating systems) that lets
+    /// you send multiple UDP datagrams with a single `send` command.
     ///
-    /// The granularity at which a `send` operation is split into datagrams is
-    /// controlled by the `gso_segment_size` option.
+    /// It works by splitting an oversized `send` request into smaller segments
+    /// of the specified `gso_segment_size`, until either all input bytes are
+    /// sent or only a remainder of smaller size is left. In the latter case,
+    /// the remainder is sent as a smaller datagram.
     ///
-    /// By default, GSO if enabled if the host operating system supports it and
-    /// disabled otherwise. This differs from the behavior of setting this to
-    /// \ref UDIPE_TRUE, which makes connection setup fail if GSO is not
-    /// supported.
-    //
-    // TODO: Sets UDP_SEGMENT in tandem with gso_segment_size
-    udipe_bool_with_default_t enable_gso;
-
-    /// Enable Generic Receive Offload (GRO)
-    ///
-    /// This is a Linux UDP performance optimization that lets you receive
-    /// multiple UDP datagrams with a single `receive` command. It roughly works
-    /// by modifying the semantics of oversized `receive` commands whose output
-    /// buffer goes above the MTU, so that instead of receiving a single
-    /// datagram they may receive multiple ones and concatenate their payloads.
-    ///
-    /// You cannot control the granularity of GRO, as it is given by the size of
-    /// incoming datagrams (which must be of identical size), but you will be
-    /// able to tell the datagram size at the end of the receive operation.
-    ///
-    /// By default, GRO if enabled if the host operating system supports it and
-    /// left disabled otherwise. This differs from the behavior of intentionally
-    /// setting this to \ref UDIPE_TRUE, which makes connection setup fail if
-    /// GRO is not supported.
-    //
-    // TODO: Sets UDP_GRO
-    udipe_bool_with_default_t enable_gro;
-
-    /// GSO segment size
-    ///
-    /// This is the granularity at which the payload of a `send` command is
-    /// split into separate UDP datagrams when the Generic Segmentation Offload
-    /// feature is enabled.
-    ///
-    /// You must set it such that the resulting packets after adding UDP,
-    /// IPv4/v6 and Ethernet headers remain below the network's path MTU.
+    /// You must set this parameter such that the UDP datagrams that result
+    /// after adding UDP, IPv4/v6 and Ethernet headers to a segment remain below
+    /// the network's path MTU.
     ///
     /// Linux additionally enforces that no more than 64 datagrams may be sent
     /// with a single `send` operation when GSO is enabled.
     ///
-    /// This option can only be set when `enable_gso` is set to \ref UDIPE_TRUE,
-    /// as it makes little sense otherwise and can lead to dangerous judgment
-    /// errors where you will think that your datagrams will have one size when
-    /// they will actually have another payload size.
-    ///
-    /// By default, the GSO segment size is auto-tuned to the network path MTU
-    /// that is estimated by the Linux kernel.
+    /// Setting this to 0 disables GSO, falling back to the standard Unix send
+    /// semantics where the kernel tries to send the whole payload as a single
+    /// datagram (and fails if it ends up being larger than the MTU).
     //
-    // TODO: Sets UDP_SEGMENT in tandem with enable_gso
+    // TODO: Sets UDP_SEGMENT
     uint16_t gso_segment_size;
 
     /// Desired traffic priority
@@ -298,53 +266,16 @@ typedef struct udipe_connect_options_s {
     /// By default, the priority is 0 i.e. lowest priority.
     //
     // TODO: Implement by setting SO_PRIORITY
-    uint8_t priority;
+    unsigned priority : 4;
 
-    /// Allow datagrams to be handled by multiple worker threads
-    ///
-    /// This is only appropriate for higher-level protocols where UDP datagrams
-    /// are independent from each other and the order in which they are sent and
-    /// processed doesn't matter. But when that is the case, it can
-    /// significantly improve performance in situations where the number of live
-    /// network connections is small with respect to the amount of CPU cores.
-    ///
-    /// When this option is set, the callbacks that are passed to streaming
-    /// commands like udipe_stream_send() must be thread-safe.
-    ///
-    /// By default, each connection is assigned to a single worker thread. This
-    /// means that as long as commands associated with the connection only
-    /// originate from a single client thread, packets will be sent and
-    /// processed in a strict FIFO manner with respect to the order in which the
-    /// network provided them. But do remember that UDP as a protocol does not
-    /// provide ordering guarantees to allow e.g. switching between IP routes...
-    //
-    // TODO: This will require SO_REUSEPORT + fancier infrastructure in
-    //       udipe_context as a connexion may now be associated with multiple
-    //       worker threads. In any case, udipe_context will need a way to know
-    //       which worker threads can handle which connexion.
-    bool allow_multithreading;
-
-    /// Request packet timestamps
-    ///
-    /// If enabled, each packet will come with a timestamp that indicates when
-    /// the network interface processed it. This can be combined with
-    /// application-side timestamps to estimate the kernel and application
-    /// processing delay on the receive path.
-    ///
-    /// By default, timestamps are not requested.
-    //
-    // TODO: Implement by setting SO_TIMESTAMPNS and checking the
-    //       `SCM_TIMESTAMPNS` cmsg.
-    bool enable_timestamps;
-
-    // TODO: Activer aussi IP_RECVERR et logger voire gérer les erreurs, cf man
-    //       7 ip pour plus d'infos. C'est aussi utilisé pour le zero-copy.
+    // TODO: Activer aussi IP_RECVERR, et logger voire gérer les erreurs, cf man
+    //       7 ip pour plus d'infos. A utiliser en combinaison avec
+    //       getsockopt(SO_ERROR).
 
     // TODO: Activer périodiquement SO_RXQ_OVFL pour check l'overflow côté
-    //       socket, puis le désactiver après réception du cmsg suivant.
-
-    // TODO: Utiliser IP_MTU après binding pour autotuning de la segment size
-    //       GRO, cf man 7 ip.
+    //       socket, puis le désactiver après réception du cmsg suivant + cf
+    //       ioctls udp et
+    //       <https://www.kernel.org/doc/html/latest/networking/statistics.html>.
 
     // TODO: Dans udipe-config, creuser man 7 netdevice et man 7 rtnetlink pour
     //       la configuration device + check pseudofichiers mentionnés à la fin
