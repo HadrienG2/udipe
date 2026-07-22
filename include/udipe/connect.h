@@ -160,6 +160,10 @@ typedef struct udipe_connect_options_s {
     //       local_address
     ip_address_t remote_address;
 
+    /// Reserved for future use, leave at `false` for now
+    ///
+    bool reserved : 1;
+
     /// Send buffer size
     ///
     /// This parameter must not be set if `direction` is \ref UDIPE_IN.
@@ -180,9 +184,17 @@ typedef struct udipe_connect_options_s {
     // TODO: Implement by trying SO_SNDBUF then SO_SNDBUFFORCE
     unsigned send_buffer : 31;
 
-    /// Reserved for future use, leave at `false` for now
+    /// Enable Generic Receive Offload (GRO)
     ///
-    bool reserved : 1;
+    /// Setting this to `true` enables GRO, a Linux UDP performance optimization
+    /// that basically does the reverse of GSO : concatenate input packets as
+    /// long as they have the same size and there's room in the buffer passed to
+    /// `recvmsg()`, eventually return and tell how big the input segments were
+    /// in case the user needs to re-split the result into the original datagram
+    /// payloads.
+    //
+    // TODO: Sets UDP_GRO
+    bool enable_gro : 1;
 
     /// Receive buffer size
     ///
@@ -203,18 +215,6 @@ typedef struct udipe_connect_options_s {
     //
     // TODO: Implement by trying SO_RCVBUF then SO_RCVBUFFORCE
     unsigned recv_buffer : 31;
-
-    /// Enable Generic Receive Offload (GRO)
-    ///
-    /// Setting this to `true` enables GRO, a Linux UDP performance optimization
-    /// that basically does the reverse of GSO : concatenate input packets as
-    /// long as they have the same size and there's room in the buffer passed to
-    /// `recvmsg()`, eventually return and tell how big the input segments were
-    /// in case the user needs to re-split the result into the original datagram
-    /// payloads.
-    //
-    // TODO: Sets UDP_GRO
-    bool enable_gro : 1;
 
     /// Communication direction(s)
     ///
