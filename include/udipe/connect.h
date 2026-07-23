@@ -260,13 +260,18 @@ typedef struct udipe_connect_options_s {
     /// should attempt to process datagrams associated with this connection
     /// before those associated with other connections.
     ///
-    /// On Linux, setting a priority of 7 and above requires `CAP_NET_ADMIN`
-    /// privileges.
+    /// On Linux, setting a priority of 7 requires `CAP_NET_ADMIN` privileges.
+    /// At the time of writing, this is the only privileged priority level
+    /// supported by udipe as user demand for privileged priority seemed weak to
+    /// nonexistent and having fewer priority levels simplified the udipe
+    /// implementation. However, the udipe project is open to supporting more
+    /// privileged priority levels on user demand, just open an issue on the
+    /// udipe code repo and describe your use case!
     ///
     /// By default, the priority is 0 i.e. lowest priority.
     //
     // TODO: Implement by setting SO_PRIORITY
-    unsigned priority : 4;
+    unsigned priority : 3;
 
     // TODO: Activer aussi IP_RECVERR, et logger voire gérer les erreurs, cf man
     //       7 ip pour plus d'infos. A utiliser en combinaison avec
