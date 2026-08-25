@@ -122,12 +122,14 @@ struct udipe_future_s {
 static_assert(
     alignof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
      "Each future potentially synchronizes different workers and client "
-     "threads, and should therefore reside on its own false sharing granule"
+     "threads, and should therefore reside on its own false sharing atom"
 );
 static_assert(
     sizeof(udipe_future_t) == FALSE_SHARING_GRANULARITY,
-    "Should not need more than one false sharing granule per future"
+    "Should not need more than one false sharing atom per future"
 );
+// Previous one is a hard requirement, this one is a soft requirement that can
+// go if it proves too hard in practice.
 static_assert(
     offsetof(udipe_future_t, status_sync) + sizeof(uint32_t) <= CACHE_LINE_SIZE,
     "Should fit on a single cache line for optimal memory access performance "

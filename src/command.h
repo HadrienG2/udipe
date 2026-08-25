@@ -39,7 +39,7 @@
 ///   submitted by the same client thread in quick successions is not a goal.
 /// - Each command may be submitted by a different client thread and, by the
 ///   above observation, should therefore be written to its own false sharing
-///   granule.
+///   atom.
 /// - To maximize worker thread performance, the control block that multiple
 ///   client threads use to decide which client will send the next command, for
 ///   which there may be arbitrarily high cache contention, should be distinct
@@ -90,9 +90,9 @@ typedef struct command_s {
 } command_t;
 static_assert(alignof(command_t) == FALSE_SHARING_GRANULARITY,
               "Each command may originate from a different client thread and "
-              "should therefore be stored in its own false sharing granule");
+              "should therefore be stored in its own false sharing atom");
 static_assert(sizeof(command_t) == FALSE_SHARING_GRANULARITY,
-              "Shouldn't need more than one false sharing granule per command");
+              "Shouldn't need more than one false sharing atom per command");
 static_assert(
     offsetof(command_t, future) + sizeof(udipe_future_t*) <= CACHE_LINE_SIZE,
     "Should fit on a single cache line for optimal memory access performance "
@@ -149,7 +149,7 @@ typedef struct command_queue_s {
     /// when multiple clients are fighting for this mutex.
     alignas(FALSE_SHARING_GRANULARITY) mtx_t client_mutex;
 
-    // === Remaining false sharing granules: worker/client synchronization ===
+    // === Remaining false sharing atoms: worker/client synchronization ===
 
     /// Ring buffer that holds commands destined for worker thread processing
     ///

@@ -57,8 +57,8 @@ struct future_storage_page_s {
     future_storage_page_t* next;
 
     // NOTE: If needed, there is room for a lot more metadata here. For example,
-    //       on x86_64, where pointers are 8 bytes and false sharing granules
-    //       are 128 bytes, 120 bytes of padding are currently available here.
+    //       on x86_64, where pointers are 8 bytes and false sharing atoms are
+    //       128 bytes, 120 bytes of padding are currently available here.
 
     /// Futures allocated as part of this memory page
     ///
