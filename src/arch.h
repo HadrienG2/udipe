@@ -33,12 +33,15 @@
 
 /// Upper bound on the CPU's memory access granularity in bytes
 ///
-/// This is the alignment that is set on struct members that are shared between
-/// threads in order to avoid false sharing issues.
+/// This is the alignment that should be set set on whole structs or individual
+/// members thereof when they are shared between threads, in order to avoid
+/// false sharing issues.
 ///
 /// The current definition is known to work for x86_64, aarch64 and powerpc64.
-/// It should be extended with ifdefs whenever the need arises as more CPU
-/// architectures become supported.
+/// It should be extended with ifdefs if the need to support more CPU
+/// architectures arises. See the latest version of
+/// https://github.com/crossbeam-rs/crossbeam/blob/7de845aa13ce5d80084ce0889e014ae0aa0d19ce/crossbeam-utils/src/cache_padded.rs#L70
+/// as a possible source of inspiration.
 ///
 /// \internal
 ///
