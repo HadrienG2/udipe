@@ -35,13 +35,16 @@
 
 /// Thread-local buffer for thread name related queries
 ///
-/// This struct manages a buffer that can be used for purposes such as...
+/// This struct manages a buffer that can be used to store a thread name in a
+/// byte-based encoding format such as ASCII or UTF-8.
+///
+/// It can be used for purposes such as...
 ///
 /// - Receiving the thread name from a syscall that writes it to a buffer, like
 ///   `prctl(PR_GET_NAME, buf)` on Linux.
 /// - Holding different versions of the thread name when the charset used by
 ///   syscalls is not the same as that used by the C application, as is the case
-///   on Windows where syscalls use UTF-16.
+///   on Windows where syscalls speak UTF-16.
 /// - Keeping the thread name around on operating systems that don't have a
 ///   standard way to give a persistent name to threads, as is the case on older
 ///   versions of Windows.
@@ -54,10 +57,9 @@ typedef struct thread_name_s {
 
     /// Bytes of storage
     ///
-    /// Aligned enough to store strings in any reasonable format.
-    //
-    // FIXME: Switch back to max_align_t once MSVC supports it
-    alignas(/* max_align_t */ size_t) char bytes[];
+    /// Per C's strict aliasing rule, can only hold a thread name in ASCII or
+    /// UTF-8 format, not UTF-16 or other formats with a non-char code point.
+    char bytes[];
 } thread_name_t;
 
 /// Thread-local storage key used to retrieve a thread's \ref thread_name_t

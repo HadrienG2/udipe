@@ -44,16 +44,24 @@ typedef union udipe_network_payload_u {
 ///
 /// \internal
 ///
-/// The size of `bytes` should be maintained such that it is as large as the
-/// largest variant of \ref udipe_result_t::payload, but in a manual way such
-/// that we will not accidentally shrink it later as the implementation and API
-/// of network operations evolves. Indeed, the number of bytes available here is
-/// part of udipe's public API contract.
+/// The size and alignment of `bytes` should be maintained such that it is as
+/// large/aligned as the largest variant of \ref udipe_result_t::payload, but in
+/// a manual way such that we will not accidentally shrink either later as the
+/// implementation and API of network operations evolves.
 typedef struct udipe_custom_payload_s {
     /// Word-aligned buffer that you can fill with any payload of your choosing
     ///
-    /// The size of this buffer may increase in future releases of udipe, but it
-    /// is guaranteed not to decrease.
+    /// Remember that in standard C (excluding nonportable GNU extensions like
+    /// `-fno-strict-aliasing`), you cannot directly cast a `char*` pointer to
+    /// `bytes` to a `T*` of your choosing. Instead...
+    ///
+    /// - When generating a custom result, you must create a value of the chosen
+    ///   type T (e.g. on the stack), then memcpy() it into `bytes`.
+    /// - When reading from a custom result, you must set up an uninitialized
+    ///   value of type T, then memcpy() from `bytes` to it.
+    ///
+    /// The size and alignment of this buffer may increase in future releases of
+    /// udipe, but it is guaranteed to never decrease.
     alignas(void*) char bytes[2*sizeof(void*)];
 } udipe_custom_payload_t;
 
