@@ -40,9 +40,11 @@ void* refcounted_tss_create_slot(refcounted_tss_t* tss,
     //          signalled on stderr before exiting.
 
     // Increment tss refcount
-    size_t old = atomic_fetch_add_explicit(&tss->refcount_and_reachability,
-                                           1,
-                                           memory_order_acquire);
+    const size_t old = atomic_fetch_add_explicit(
+        &tss->refcount_and_reachability,
+        1,
+        memory_order_acquire
+    );
     assert(("Should not be called on an unreachable refounted_tss_t",
             old & REFCOUNTED_TSS_REACHABLE));
     assert(("Overflow occured while incrementing refounted_tss_t refcount",
@@ -74,9 +76,11 @@ bool refcounted_tss_release(refcounted_tss_t* tss) {
             tss_get(tss->key) == NULL));
 
     // Decrement tss refcount
-    size_t old = atomic_fetch_sub_explicit(&tss->refcount_and_reachability,
-                                           1,
-                                           memory_order_release);
+    const size_t old = atomic_fetch_sub_explicit(
+        &tss->refcount_and_reachability,
+        1,
+        memory_order_release
+    );
     assert(old);
     if (old > 1) return false;  // There are more thread-local slots remaining
 
@@ -92,9 +96,11 @@ bool refcounted_tss_release(refcounted_tss_t* tss) {
 UDIPE_NON_NULL_ARGS
 bool refcounted_tss_discard(refcounted_tss_t* tss) {
     // Mark as unreachable
-    size_t old = atomic_fetch_and_explicit(&tss->refcount_and_reachability,
-                                           ~REFCOUNTED_TSS_REACHABLE,
-                                           memory_order_release);
+    const size_t old = atomic_fetch_and_explicit(
+        &tss->refcount_and_reachability,
+        ~REFCOUNTED_TSS_REACHABLE,
+        memory_order_release
+    );
     assert(("Must not be called twice on the same refounted_tss_t",
             old & REFCOUNTED_TSS_REACHABLE));
 

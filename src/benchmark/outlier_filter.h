@@ -278,7 +278,7 @@
     UDIPE_NODISCARD
     static inline int64_t rel_weight_to_score(double rel_weight) {
         assert(rel_weight >= 0.0 && rel_weight <= 1.0);
-        const double unbounded_score = round(LOG2_SCALE*log2(rel_weight));
+        const double unbounded_score = round(LOG2_SCALE * log2(rel_weight));
         assert(unbounded_score <= 0.0);
         // The conversion from INT64_MIN to double is lossless because INT64_MIN
         // is -2^63 and this power of two is losslessly convertible to double.

@@ -12,7 +12,7 @@ thread_local scope_tracker_t udipe_scope_tracker = { 0 };
 #ifdef UDIPE_BUILD_TESTS
 
     void set_to_true(void* context) {
-        bool* target = (bool*)context;
+        bool* const target = (bool*)context;
         *target = true;
     }
 

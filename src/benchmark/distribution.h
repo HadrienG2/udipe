@@ -459,7 +459,7 @@
                                     int64_t value,
                                     size_t count) {
         LOGGED_FUNCTION_START("%p, %zd, %zu", builder, value, count)
-            distribution_t* dist = &builder->inner;
+            distribution_t* const dist = &builder->inner;
             debugf("Asked to insert %zu copies of value %zd "
                    "into a distribution with %zu bins.",
                    count, value,

@@ -152,7 +152,7 @@
             ensure_le(num_identifiers, (size_t)INT_MAX);
 
             debug("Setting up events storage...");
-            struct epoll_event* events = (struct epoll_event*)alloca(
+            struct epoll_event* const events = (struct epoll_event*)alloca(
                 num_identifiers * sizeof(struct epoll_event)
             );
             assert(events);
@@ -160,7 +160,8 @@
             size_t num_valid_identifiers;
             do {
                 struct timespec delay;
-                struct timespec* pdelay = make_unix_timeout(&delay, timeout);
+                struct timespec* const pdelay = make_unix_timeout(&delay,
+                                                                  timeout);
 
                 debugf("Waiting for upstreams of inpoll %d to be readable...",
                        poll);

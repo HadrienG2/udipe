@@ -186,7 +186,7 @@
                               outlier_filter,
                               empty_builder)
             ensure(distribution_empty(empty_builder));
-            distribution_builder_t* builder = empty_builder;
+            distribution_builder_t* const builder = empty_builder;
             empty_builder = NULL;
 
             debug("Computing durations...");
@@ -201,7 +201,7 @@
                 distribution_log(outlier_filter_last_scores(outlier_filter),
                                  UDIPE_DEBUG,
                                  "Outlier filter scores");
-                const distribution_t* rejections =
+                const distribution_t* const rejections =
                     outlier_filter_last_rejections(outlier_filter);
                 if (rejections) {
                     distribution_log(rejections,
@@ -213,7 +213,7 @@
             }
 
             debug("Finalizing accepted duration distribution");
-            distribution_t result = distribution_build(builder);
+            const distribution_t result = distribution_build(builder);
             distribution_log(&result,
                              UDIPE_DEBUG,
                              "Accepted durations");
@@ -548,7 +548,7 @@
     UDIPE_NODISCARD
     static inline int64_t compute_os_duration(void* context,
                                               size_t run) {
-        const os_clock_t* oclock = (os_clock_t*)context;
+        const os_clock_t* const oclock = (os_clock_t*)context;
         assert(run < oclock->num_durations);
         return os_duration(oclock,
                            oclock->timestamps[2*run],
@@ -586,7 +586,7 @@
             }
 
             debug("Warming up...");
-            os_timestamp_t* timestamps = oclock->timestamps;
+            os_timestamp_t* const timestamps = oclock->timestamps;
             udipe_duration_ns_t elapsed = 0;
             os_timestamp_t start = os_now();
             do {
@@ -794,12 +794,13 @@
         UDIPE_NODISCARD
         static inline int64_t compute_x86_duration(void* context,
                                                    size_t run) {
-            const x86_measure_context_t* measure = (x86_measure_context_t*)context;
-            const x86_clock_t* xclock = measure->xclock;
+            const x86_measure_context_t* const measure =
+                (x86_measure_context_t*)context;
+            const x86_clock_t* const xclock = measure->xclock;
             assert(run < measure->num_runs);
             assert(measure->num_runs < xclock->num_durations);
-            const x86_instant* starts = xclock->instants;
-            const x86_instant* ends = starts + measure->num_runs;
+            const x86_instant* const starts = xclock->instants;
+            const x86_instant* const ends = starts + measure->num_runs;
             return ends[run] - starts[run];
         }
 
@@ -834,15 +835,15 @@
                 }
 
                 debug("Setting up measurement...");
-                x86_instant* starts = xclock->instants;
-                x86_instant* ends = xclock->instants + num_runs;
+                x86_instant* const starts = xclock->instants;
+                x86_instant* const ends = xclock->instants + num_runs;
                 const bool strict = false;
                 x86_timestamp_t timestamp = x86_timer_start(strict);
                 const x86_cpu_id initial_cpu_id = timestamp.cpu_id;
 
                 debug("Warming up...");
                 udipe_duration_ns_t elapsed = 0;
-                clock_t start = clock();
+                const clock_t start = clock();
                 do {
                     size_t num_dither_iters =
                         xclock->dither_iters + rand() % (xclock->dither_iters + 1);

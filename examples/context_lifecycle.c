@@ -6,8 +6,8 @@
 
 int main() {
     // Set up libudipe with the default configuration
-    udipe_config_t config = { 0 };
-    udipe_context_t* context = udipe_initialize(config);
+    const udipe_config_t config = { 0 };
+    udipe_context_t* const context = udipe_initialize(config);
 
     // This is guaranteed to always hold as initialization failure is fatal
     assert(context);

@@ -45,7 +45,7 @@ static inline stopwatch_t stopwatch_initialize() {
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 static inline udipe_duration_ns_t stopwatch_measure(stopwatch_t* stopwatch) {
-    struct timespec start_time = stopwatch->last_time;
+    const struct timespec start_time = stopwatch->last_time;
     struct timespec current_time;
     timespec_get(&current_time, TIME_UTC);
     assert(current_time.tv_sec >= start_time.tv_sec);

@@ -27,13 +27,13 @@
         LOGGED_FUNCTION_START_NO_PARAMS
             const char* const seed_str = getenv("UDIPE_SEED");
             if (seed_str) {
-                int seed = atoi(seed_str);
+                const int seed = atoi(seed_str);
                 ensure_gt(seed, 0);
                 debugf("Reproducing execution enforced via UDIPE_SEED=%u.",
                        seed);
                 srand(seed);
             } else {
-                unsigned seed = time(NULL);
+                const unsigned seed = time(NULL);
                 debugf("To reproduce this execution, set UDIPE_SEED=%u.", seed);
                 srand(seed);
             }

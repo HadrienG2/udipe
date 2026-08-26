@@ -255,7 +255,7 @@
                 filter->last_scores.empty_builder =
                     distribution_reset(&filter->last_scores.distribution);
             }
-            distribution_builder_t* score_builder =
+            distribution_builder_t* const score_builder =
                 &filter->last_scores.empty_builder;
 
             const size_t num_bins = target->inner.num_bins;
@@ -296,7 +296,8 @@
                    OUTLIER_THRESHOLD, outlier_score);
 
             ensure(filter->last_scores.is_built);
-            const distribution_t* scores = &filter->last_scores.distribution;
+            const distribution_t* const scores =
+                &filter->last_scores.distribution;
             const distribution_layout_t scores_layout =
                 distribution_layout(scores);
             const ptrdiff_t last_outlier_pos =
@@ -371,7 +372,7 @@
                 filter->last_rejections.empty_builder =
                     distribution_reset(&filter->last_rejections.distribution);
             }
-            distribution_builder_t* rejections_builder =
+            distribution_builder_t* const rejections_builder =
                 &filter->last_rejections.empty_builder;
 
             const size_t num_input_bins = target->inner.num_bins;
@@ -383,8 +384,8 @@
 
             const distribution_layout_t target_layout =
                 distribution_layout(&target->inner);
-            int64_t* sorted_values = target_layout.sorted_values;
-            size_t* counts = target_layout.counts;
+            int64_t* const sorted_values = target_layout.sorted_values;
+            size_t* const counts = target_layout.counts;
             size_t num_deleted_bins = 0;
             for (
                 size_t input_bin = 0;

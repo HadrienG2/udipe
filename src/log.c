@@ -81,7 +81,7 @@ void record_startup_time(void) {
     //          therefore not perform any logging. Normal events and non-fatal
     //          errors should not be signaled at all, fatal errors should be
     //          signalled on stderr before exiting.
-    int result = timespec_get(&startup, TIME_UTC);
+    const int result = timespec_get(&startup, TIME_UTC);
     if (result != TIME_UTC) {
         // Cannot log before logger is initialized
         fprintf(stderr,
@@ -108,7 +108,7 @@ static void default_log_callback(void* _context,
 
     // Compute log timestamp and its display representation
     struct timespec now;
-    int result = timespec_get(&now, TIME_UTC);
+    const int result = timespec_get(&now, TIME_UTC);
     if (result != TIME_UTC) {
         // Cannot log in the logger implementation
         fprintf(stderr,
@@ -332,7 +332,7 @@ logger_t logger_initialize(udipe_log_config_t config) {
 
 UDIPE_NON_NULL_ARGS
 void logger_finalize(logger_t* logger) {
-    logger_t* curr_logger = udipe_thread_logger;
+    logger_t* const curr_logger = udipe_thread_logger;
     LOGGER_START(logger)
         debug("Poisoning logger...");
         ensure_ne((void*)curr_logger, (void*)logger);

@@ -189,7 +189,7 @@ void future_thread_cache_finalize_from_thread(future_thread_cache_t** pcache) {
 UDIPE_NON_NULL_ARGS
 void future_thread_cache_finalize_from_context(future_thread_cache_t** pcache) {
     LOGGED_FUNCTION_START("&%p", *pcache)
-        future_thread_cache_t* cache = *pcache;
+        future_thread_cache_t* const cache = *pcache;
         assert(cache);
 
         uint32_t previous_flags = atomic_fetch_or_explicit(

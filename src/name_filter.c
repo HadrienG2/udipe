@@ -29,7 +29,7 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 bool name_filter_matches(name_filter_t filter, const char name[]) {
     LOGGED_FUNCTION_START("\"%s\", \"%s\"", filter, name)
-        bool passed = (bool)strstr(name, filter);
+        const bool passed = (bool)strstr(name, filter);
         if (!passed) debugf("Filtered out \"%s\"", name);
         return passed;
     LOGGED_FUNCTION_END

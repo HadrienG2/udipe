@@ -640,7 +640,7 @@ future_status_t future_wait_timer_once(
 
             do {
                 struct timespec delay;
-                struct timespec* pdelay = make_unix_timeout(&delay, timeout);
+                struct timespec* const pdelay = make_unix_timeout(&delay, timeout);
 
                 debug("Waiting for timerfd readiness...");
                 int result = ppoll(&timer,
@@ -705,7 +705,7 @@ future_status_t future_wait_timer_once(
                         case EINTR:
                             errno = 0;
                             debug("Interrupted by signal, updating timeout...");
-                            udipe_duration_ns_t elapsed_time =
+                            const udipe_duration_ns_t elapsed_time =
                                 stopwatch_measure(&stopwatch);
                             if (elapsed_time >= timeout) {
                                 debug(

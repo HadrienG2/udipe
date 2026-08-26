@@ -62,7 +62,7 @@ void event_cache_finalize(event_cache_t* cache) {
     inpoll_with_latch_t
     latched_inpoll_cache_allocate(latched_inpoll_cache_t* cache) {
         LOGGED_FUNCTION_START("%p", cache)
-            sync_cache_index_t const target = cache->event_cache.latest;
+            const sync_cache_index_t target = cache->event_cache.latest;
             debugf("Determining if there's a cached inpoll+eventfd at "
                    "latest index #%zu of cache %p...",
                    (size_t)target, cache);
@@ -103,7 +103,7 @@ void event_cache_finalize(event_cache_t* cache) {
             );
             event_cache_liberate(&cache->event_cache, &latched.latch);
 
-            sync_cache_index_t const target = cache->event_cache.latest;
+            const sync_cache_index_t target = cache->event_cache.latest;
             assert(target < EVENT_CACHE_CAPACITY);
             debugf("Discarding inpoll %d into ring slot inpolls[%zu]...",
                    latched.inpoll, (size_t)target);

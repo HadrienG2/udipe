@@ -46,14 +46,14 @@ bool wait_on_address(_Atomic uint32_t* atom,
         #ifdef __linux__
             // Translate udipe timeout into Linux timeout
             struct timespec delay;
-            struct timespec* pdelay = make_unix_timeout(&delay, timeout);
+            struct timespec* const pdelay = make_unix_timeout(&delay, timeout);
 
             // Call futex and handle results
-            long result = syscall(SYS_futex,
-                                  atom,
-                                  FUTEX_WAIT_PRIVATE,
-                                  expected,
-                                  pdelay);
+            const long result = syscall(SYS_futex,
+                                        atom,
+                                        FUTEX_WAIT_PRIVATE,
+                                        expected,
+                                        pdelay);
             switch (result) {
             case 0:
                 debug("Waiting was interrupted by a true notification "
@@ -99,10 +99,10 @@ bool wait_on_address(_Atomic uint32_t* atom,
                 debugf("...which translates to a Win32 timeout of %u ms.",
                        delay);
             }
-            bool result = WaitOnAddress((volatile VOID*)atom,
-                                        (PVOID)(&expected),
-                                        4,
-                                        delay);
+            const bool result = WaitOnAddress((volatile VOID*)atom,
+                                              (PVOID)(&expected),
+                                              4,
+                                              delay);
             if (result) {
                 debug("Waiting was interrupted by a true notification, "
                       "a value change, or an unrelated spurious wakeup.");
@@ -125,7 +125,10 @@ UDIPE_NON_NULL_ARGS
 void wake_by_address_all(_Atomic uint32_t* atom) {
     LOGGED_FUNCTION_START("%p", atom)
         #ifdef __linux__
-            long result = syscall(SYS_futex, atom, FUTEX_WAKE_PRIVATE, (uint32_t)INT32_MAX);
+            const long result = syscall(SYS_futex,
+                                        atom,
+                                        FUTEX_WAKE_PRIVATE,
+                                        (uint32_t)INT32_MAX);
             assert(result >= -1);
             exit_on_negative((int)result, "No error expected here");
             debugf("Woke %u threads waiting for %p to change.",
@@ -142,7 +145,7 @@ UDIPE_NON_NULL_ARGS
 void wake_by_address_single(_Atomic uint32_t* atom) {
     LOGGED_FUNCTION_START("%p", atom)
         #ifdef __linux__
-            long result = syscall(SYS_futex, atom, FUTEX_WAKE_PRIVATE, 1);
+            const long result = syscall(SYS_futex, atom, FUTEX_WAKE_PRIVATE, 1);
             assert(result >= -1 && result <= 1);
             exit_on_negative((int)result, "No error expected here");
             if (result == 1) {
@@ -246,8 +249,8 @@ void wake_by_address_single(_Atomic uint32_t* atom) {
 
     static int worker_func(void* context) {
         // Grab worker thread state and give it a clear name
-        worker_state_t* state = (worker_state_t*)context;
-        shared_state_t* shared = state->shared;
+        worker_state_t* const state = (worker_state_t*)context;
+        shared_state_t* const shared = state->shared;
         logger_init_child(&shared->logger);
         LOGGED_FUNCTION_START("%p", context)
             debugf("Setting up worker%u...", state->id);

@@ -13,7 +13,7 @@
 /// \param context is a `const udipe_buffer_config_t*` in disguise that
 ///                indicates which parameters should be applied.
 udipe_buffer_config_t apply_shared_configuration(void* context) {
-    const udipe_buffer_config_t* config = (udipe_buffer_config_t*)context;
+    const udipe_buffer_config_t* const config = (udipe_buffer_config_t*)context;
     return *config;
 }
 
@@ -32,7 +32,7 @@ int main() {
     };
 
     // Set up the upipe context
-    udipe_context_t* context = udipe_initialize(config);
+    udipe_context_t* const context = udipe_initialize(config);
     assert(context);
 
     // Finalize the libudipe context

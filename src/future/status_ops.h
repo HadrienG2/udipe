@@ -483,7 +483,7 @@ bool future_downstream_count_try_inc(udipe_future_t* future,
     LOGGED_FUNCTION_START("%p, %p", future, latest_status)
         debug("Incrementing downstream_count...");
         future_status_debug_check(*latest_status, true);
-        future_status_t pre_op_status = (future_status_word_t){
+        const future_status_t pre_op_status = (future_status_word_t){
             // Acquire ordering needed because subsequent operations on the
             // future should not be reordered before downstream_count increment.
             .as_word = atomic_fetch_add_explicit(&future->status_word,

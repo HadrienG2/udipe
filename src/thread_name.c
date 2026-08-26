@@ -205,7 +205,7 @@ static thread_name_t* ensure_thread_name_capacity(size_t capacity) {
     if (capacity < MAX_THREAD_NAME_SIZE) capacity = MAX_THREAD_NAME_SIZE;
 
     // Grab the current buffer, if any
-    refcounted_tss_t* key = thread_name_key();
+    refcounted_tss_t* const key = thread_name_key();
     assert(key);
     thread_name_t* thread_name = (thread_name_t*)refcounted_tss_acquire(
         key,
@@ -215,8 +215,7 @@ static thread_name_t* ensure_thread_name_capacity(size_t capacity) {
     assert(thread_name);
 
     // Check if a buffer needs to be allocated or reallocated
-    bool needs_realloc = false;
-    if (thread_name->capacity < capacity) needs_realloc = true;
+    const bool needs_realloc = (thread_name->capacity < capacity);
 
     // If so, reallocate the buffer...
     if (needs_realloc) {
@@ -290,7 +289,7 @@ void set_thread_name(const char name[]) {
             #warning "Sorry, we don't fully support your operating system yet. Please file a bug report about it!"
 
             debug("- Allocating or reusing a thread name buffer...");
-            thread_name_t* thread_name =
+            thread_name_t* const thread_name =
                 ensure_thread_name_capacity(MAX_THREAD_NAME_SIZE);
             assert(thread_name);
             assert(thread_name->capacity >= MAX_THREAD_NAME_SIZE);
@@ -313,14 +312,14 @@ void set_thread_name(const char name[]) {
         const size_t header_len = strlen(name_header);
         const size_t pthread_hex_size = sizeof(pthread_t) * 2;
         const size_t name_size = header_len + pthread_hex_size + 1;
-        thread_name_t* thread_name = allocate_thread_name(name_size);
+        thread_name_t* const thread_name = allocate_thread_name(name_size);
         assert(thread_name);
 
         // Set the thread name based on a stringified pthread_self()
         char* name = &thread_name->bytes;
         strncpy(name, name_header, header_len);
         name += header_len;
-        pthread_t thread = pthread_self();
+        const pthread_t thread = pthread_self();
         const unsigned char* thread_bytes = &thread;
         for (size_t b = 0; b < sizeof(pthread_t); b += 1) {
             sprintf(name, "%.2hhX", thread_bytes[b]);
@@ -353,7 +352,7 @@ const char* get_thread_name() {
     #elif defined(_WIN32)
         // On Windows, we first get a UTF-16 thread description...
         PWSTR name_utf16 = NULL;
-        HRESULT hr = GetThreadDescription(GetCurrentThread(), &name_utf16);
+        const HRESULT hr = GetThreadDescription(GetCurrentThread(), &name_utf16);
         if (FAILED(hr)) {
             // Can't log, this is used in the logger implementation.
             fprintf(stderr,

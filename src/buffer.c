@@ -445,7 +445,8 @@ void* buffer_allocate(buffer_allocator_t* allocator) {
     /// without thread-specific adjustments
     UDIPE_NODISCARD
     static udipe_buffer_config_t apply_test_configuration(void* context) {
-        const udipe_buffer_config_t* config = (udipe_buffer_config_t*)context;
+        const udipe_buffer_config_t* const config =
+            (udipe_buffer_config_t*)context;
         return *config;
     }
 

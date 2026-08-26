@@ -39,7 +39,7 @@ UDIPE_PUBLIC
 udipe_result_t udipe_finish(udipe_future_t* future) {
     LOGGER_START(&future->context->logger)
         debug("Loading current future status...");
-        future_status_t status = future_status_load(
+        const future_status_t status = future_status_load(
             future,
             // Synchronize-with the initial future state
             memory_order_acquire
@@ -249,9 +249,9 @@ void udipe_join(udipe_context_t* context,
     // TODO: Benchmark on various platforms, use e.g. a udipe_wait() loop if it
     //       is faster on selected platforms. On Windows, consider using a
     //       WaitForMultipleObjects loop... you get the idea.
-    udipe_future_t* future = udipe_start_join(context, futures, num_futures);
+    udipe_future_t* const future = udipe_start_join(context, futures, num_futures);
     assert(future);
-    udipe_result_t result = udipe_finish(future);
+    const udipe_result_t result = udipe_finish(future);
     assert(result.type == UDIPE_JOIN);
 }*/
 

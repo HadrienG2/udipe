@@ -50,9 +50,9 @@
                                  int64_t value,
                                  size_t count) {
         LOGGED_FUNCTION_START("%p, %zu, %zd, %zu", builder, pos, value, count)
-            distribution_t* dist = &builder->inner;
+            distribution_t* const dist = &builder->inner;
             assert(pos <= dist->num_bins);
-            distribution_layout_t layout = distribution_layout(dist);
+            const distribution_layout_t layout = distribution_layout(dist);
             if (pos > 0) assert(layout.sorted_values[pos - 1] < value);
             if (pos < dist->num_bins) assert(layout.sorted_values[pos] > value);
             assert(count > (size_t)0);
@@ -79,8 +79,8 @@
 
                 debug("Shifting previous bins up...");
                 for (size_t dst = pos + 1; dst < dist->num_bins; ++dst) {
-                    int64_t tmp_value = layout.sorted_values[dst];
-                    size_t tmp_count = layout.counts[dst];
+                    const int64_t tmp_value = layout.sorted_values[dst];
+                    const size_t tmp_count = layout.counts[dst];
                     layout.sorted_values[dst] = next_value;
                     layout.counts[dst] = next_count;
                     next_value = tmp_value;
@@ -96,7 +96,7 @@
                 assert(dist->num_bins == dist->capacity);
                 distribution_t new_dist =
                     distribution_allocate(2 * dist->capacity);
-                distribution_layout_t new_layout =
+                const distribution_layout_t new_layout =
                     distribution_layout(&new_dist);
 
                 debug("Transferring old values smaller than the new one...");
@@ -171,7 +171,7 @@
                                          const distribution_t* dist) {
         LOGGED_FUNCTION_START("%p, %p", empty_builder, dist)
             ensure(distribution_empty(empty_builder));
-            distribution_builder_t* builder = empty_builder;
+            distribution_builder_t* const builder = empty_builder;
             empty_builder = NULL;
 
             const size_t len = distribution_len(dist);
@@ -191,13 +191,13 @@
                                       const distribution_t* dist) {
         LOGGED_FUNCTION_START("%p, %zd, %p", empty_builder, factor, dist)
             ensure(distribution_empty(empty_builder));
-            distribution_builder_t* builder = empty_builder;
+            distribution_builder_t* const builder = empty_builder;
             empty_builder = NULL;
 
             if (factor == 0) {
                 debug("Handling zero factor special case...");
                 ensure_ge(builder->inner.capacity, (size_t)1);
-                distribution_layout_t builder_layout =
+                const distribution_layout_t builder_layout =
                     distribution_layout(&builder->inner);
                 builder_layout.sorted_values[0] = 0;
                 builder_layout.counts[0] = distribution_len(dist);
@@ -216,7 +216,7 @@
             ensure_ne(factor, (int64_t)0);
             debug("Handling nonzero factor, flipping bin order if negative...");
             const distribution_layout_t dist_layout = distribution_layout(dist);
-            distribution_layout_t builder_layout =
+            const distribution_layout_t builder_layout =
                 distribution_layout(&builder->inner);
             size_t prev_end_rank = 0;
             for (size_t dist_pos = 0; dist_pos < num_bins; ++dist_pos) {
@@ -250,7 +250,7 @@
                                     const distribution_t* subtrahend) {
         LOGGED_FUNCTION_START("%p, %p, %p", empty_builder, minuend, subtrahend)
             ensure(distribution_empty(empty_builder));
-            distribution_builder_t* builder = empty_builder;
+            distribution_builder_t* const builder = empty_builder;
             empty_builder = NULL;
 
             // To avoid "amplifying" outliers by using multiple copies, we
@@ -313,7 +313,7 @@
         LOGGED_FUNCTION_START("%p, %p, %zd, %p",
                               empty_builder, num, factor, denom)
             ensure(distribution_empty(empty_builder));
-            distribution_builder_t* builder = empty_builder;
+            distribution_builder_t* const builder = empty_builder;
             empty_builder = NULL;
 
             // To avoid "amplifying" outliers by using multiple copies, we
@@ -403,7 +403,7 @@
                                               const distribution_t* d2) {
         LOGGED_FUNCTION_START("%p, %p", d1, d2)
             typedef const distribution_t* distribution_cptr_t;
-            distribution_cptr_t distributions[2] = { d1, d2 };
+            const distribution_cptr_t distributions[2] = { d1, d2 };
             const size_t num_bins[2] = {
                 distributions[0]->num_bins,
                 distributions[1]->num_bins
@@ -500,7 +500,7 @@
     distribution_builder_t distribution_reset(distribution_t* dist) {
         LOGGED_FUNCTION_START("%p", dist)
             debugf("Resetting storage at location %p...", dist->allocation);
-            distribution_builder_t result = (distribution_builder_t){
+            const distribution_builder_t result = (distribution_builder_t){
                 .inner = (distribution_t){
                     .allocation = dist->allocation,
                     .num_bins = 0,

@@ -16,7 +16,7 @@ void log_to_tempfile(void* context,
                      size_t depth,
                      const char location[],
                      const char message[]) {
-    FILE* tempfile = (FILE*)context;
+    FILE* const tempfile = (FILE*)context;
     int result = fprintf(tempfile,
                          "%s at depth %zu from %s: %s\n",
                          udipe_log_level_name(level), depth, location, message);
@@ -29,13 +29,13 @@ void log_to_tempfile(void* context,
 int main() {
     // Set up a temporary file
     char tempname[] = "/tmp/udipe-log_to_tempfile.XXXXXX";
-    int tempfd = mkstemp(tempname);
+    const int tempfd = mkstemp(tempname);
     if (tempfd < 0) {
         perror("Failed to create temporary file");
         exit(EXIT_FAILURE);
     }
     fprintf(stderr, "Logs will be written to %s", tempname);
-    FILE* tempfile = fdopen(tempfd, "w+");
+    FILE* const tempfile = fdopen(tempfd, "w+");
     if (!tempfile) {
         perror("Failed to open temporary file");
         exit(EXIT_FAILURE);
@@ -53,7 +53,7 @@ int main() {
     };
 
     // Set up the upipe context
-    udipe_context_t* context = udipe_initialize(config);
+    udipe_context_t* const context = udipe_initialize(config);
     assert(context);
 
     // Finalize the libudipe context

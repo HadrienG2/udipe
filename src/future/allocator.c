@@ -354,7 +354,8 @@ void future_upstream_detach(udipe_future_t* future) {
 
             debug("Detaching futures from the collective upstream...");
             for (size_t i = 0; i < (size_t)collective_upstream->length; ++i) {
-                udipe_future_t* upstream_future = collective_upstream->array[i];
+                udipe_future_t* const upstream_future =
+                    collective_upstream->array[i];
                 tracef("- Detaching future #%zu (%p)...", i, upstream_future);
                 future_downstream_count_dec(upstream_future,
                                             memory_order_relaxed);
