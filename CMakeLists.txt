@@ -26,6 +26,7 @@ if(WIN32)
     # ...because MSVC C11 support ships in a broken state by default, as of 2026
     add_compile_options(/experimental:c11atomics)
 else()
+    # For now, we assume that all non-MSVC compilers are GNU compilers.
     # Rationale for disabling some warnings:
     #
     # - dangling-pointer is disabled because as of July 2026, it wrongly warns
