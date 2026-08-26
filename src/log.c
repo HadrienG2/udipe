@@ -127,7 +127,7 @@ static void default_log_callback(void* _context,
     }
 
     // Translate log level into a textual representation
-    const char* level_name = log_level_name(level, false);
+    const char* const level_name = log_level_name(level, false);
 
     // Give each log a color on Unix systems only
     bool use_colors = false;
@@ -177,7 +177,7 @@ static void default_log_callback(void* _context,
     #endif
 
     // Query the current thread's name
-    const char* thread_name = get_thread_name();
+    const char* const thread_name = get_thread_name();
     assert(thread_name);
 
     // Display the log on stderr
@@ -224,7 +224,7 @@ logger_t logger_initialize(udipe_log_config_t config) {
     case UDIPE_ERROR:
         break;
     case UDIPE_DEFAULT_LOG_LEVEL:
-        const char* level_str = getenv("UDIPE_LOG_LEVEL");
+        const char* const level_str = getenv("UDIPE_LOG_LEVEL");
         if (level_str) {
             if ((strcmp(level_str, "ERROR") & strcmp(level_str, "error")) == 0) {
                 config.min_level = UDIPE_ERROR;
@@ -263,7 +263,7 @@ logger_t logger_initialize(udipe_log_config_t config) {
 
     // Select and configure log depth
     if (config.max_debug_depth == 0) {
-        const char* depth_str = getenv("UDIPE_LOG_DEPTH");
+        const char* const depth_str = getenv("UDIPE_LOG_DEPTH");
         if (depth_str) {
             const size_t expected_len = strlen(depth_str);
             char* end;
@@ -345,8 +345,8 @@ void logger_finalize(logger_t* logger) {
 
 LOGF_IMPL_ATTRIBUTES
 void logf_impl(udipe_log_level_t level,
-               const char* location,
-               const char* format,
+               const char location[],
+               const char format[],
                ...) {
     // WARNING: This function is part of the formated logging implementation and
     //          must therefore not perform any formated logging (directly or
@@ -367,7 +367,7 @@ void logf_impl(udipe_log_level_t level,
     size_t message_size = 1 + (size_t)result;
 
     // Allocate the message buffer
-    char* message = alloca(message_size);
+    char* const message = alloca(message_size);
     exit_on_null(message, "Failed to allocate message buffer!");
 
     // Generate the log string
@@ -425,8 +425,8 @@ thread_local logger_t* udipe_thread_logger = NULL;
 #endif  // NDEBUG
 
 UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2)
-void debug_expr_impl(const char* format_template,
-                     const char* expr_format,
+void debug_expr_impl(const char format_template[],
+                     const char expr_format[],
                      ...) {
     // As this is the implementation of a logging macro, we can't afford to do
     // much logging or we will drown the intended user logs in user noise.
@@ -439,7 +439,7 @@ void debug_expr_impl(const char* format_template,
         size_t format_size = 1 + (size_t)result;
 
         // Allocate the format string buffer
-        char* format = alloca(format_size);
+        char* const format = alloca(format_size);
         exit_on_null(format, "Failed to allocate format string!");
 
         // Generate the format string
@@ -458,7 +458,7 @@ void debug_expr_impl(const char* format_template,
         size_t debug_message_size = 1 + (size_t)result;
 
         // Allocate the debug message buffer
-        char* debug_message = alloca(debug_message_size);
+        char* const debug_message = alloca(debug_message_size);
         exit_on_null(debug_message, "Failed to allocate debug message buffer!");
 
         // Generate the debug message

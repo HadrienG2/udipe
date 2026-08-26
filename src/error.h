@@ -66,7 +66,7 @@ void warn_on_errno();
     do {  \
         int udipe_result = (result);  \
         if (udipe_result == thrd_success) break;  \
-        char* message;  \
+        const char* message;  \
         switch (udipe_result) {  \
         case thrd_success:  \
             exit_with_error("This code path cannot be taken due to the break above!");  \
@@ -96,7 +96,7 @@ void warn_on_errno();
 /// - exit_after_c_error() preconditions are fulfilled
 #define exit_on_null(result, error_message)  \
     do {  \
-        const void* udipe_result = (result);  \
+        const void* udipe_result = (const void*)(result);  \
         if (!udipe_result) exit_after_c_error(error_message);  \
     } while(false)
 
@@ -241,9 +241,9 @@ void warn_on_errno();
 ///
 /// See the internal section of the ensure_comparison() documentation for more
 /// information about what it does.
-void ensure_comparison_failure(const char* format_template,
-                               const char* x_format,
-                               const char* y_format,
+void ensure_comparison_failure(const char format_template[],
+                               const char x_format[],
+                               const char y_format[],
                                ...);
 
 /// Make sure that `x op y` returns `true`, otherwise exit wich an error

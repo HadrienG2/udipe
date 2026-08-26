@@ -25,7 +25,7 @@
 
     void configure_rand() {
         LOGGED_FUNCTION_START_NO_PARAMS
-            const char* seed_str = getenv("UDIPE_SEED");
+            const char* const seed_str = getenv("UDIPE_SEED");
             if (seed_str) {
                 int seed = atoi(seed_str);
                 ensure_gt(seed, 0);
@@ -52,7 +52,7 @@
 
             // Set up name-based test filtering
             ensure_le(argc, 2);
-            const char* filter_key = (argc == 2) ? argv[1] : "";
+            const char* const filter_key = (argc == 2) ? argv[1] : "";
             name_filter_t filter = name_filter_initialize(filter_key, true);
 
             // Tests are ordered such that a piece of code is tested before

@@ -247,7 +247,7 @@ static thread_name_t* ensure_thread_name_capacity(size_t capacity) {
 #define LAST_PRINTABLE_ASCII ((char)0x7e)
 
 UDIPE_NON_NULL_ARGS
-void set_thread_name(const char* name) {
+void set_thread_name(const char name[]) {
     LOGGED_FUNCTION_START("\"%s\"", name)
         debugf("Validating that requested name \"%s\" is printable ASCII and "
                "under the implementation's length limit...",
@@ -307,7 +307,7 @@ void set_thread_name(const char* name) {
     /// mechanism for naming threads.
     static void* generate_default_thread_name(void* /* context */) {
         // Allocate storage
-        const char* const name_header = "pthread_";
+        const char name_header[] = "pthread_";
         const size_t header_len = strlen(name_header);
         const size_t pthread_hex_size = sizeof(pthread_t) * 2;
         const size_t name_size = header_len + pthread_hex_size + 1;

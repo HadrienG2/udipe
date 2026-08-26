@@ -422,8 +422,8 @@ void logger_init_child(const logger_parent_state_t* parent_state);
 /// detail of the udipe_logf() macro.
 LOGF_IMPL_ATTRIBUTES
 void logf_impl(udipe_log_level_t level,
-               const char* location,
-               const char* format,
+               const char location[],
+               const char format[],
                ...);
 
 /// Thread-local logger (implementation detail of LOGGER_START)
@@ -477,8 +477,8 @@ static inline void restore_thread_logger(void* context) {
 /// See the internal section of the debug_expr() documentation for more
 /// information about what it does.
 UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2)
-void debug_expr_impl(const char* format_template,
-                     const char* expr_format,
+void debug_expr_impl(const char format_template[],
+                     const char expr_format[],
                      ...);
 
 /// @}

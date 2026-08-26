@@ -11,7 +11,7 @@
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
-name_filter_t name_filter_initialize(const char* key, bool log_info) {
+name_filter_t name_filter_initialize(const char key[], bool log_info) {
     LOGGED_FUNCTION_START("\"%s\"", key)
         if (strcmp(key, "") != 0 && log_info) {
             infof(
@@ -19,7 +19,7 @@ name_filter_t name_filter_initialize(const char* key, bool log_info) {
                 key
             );
         }
-        char* filter = strdup(key);
+        char* const filter = strdup(key);
         exit_on_null(filter, "Failed to allocate name filter");
         return filter;
     LOGGED_FUNCTION_END
@@ -27,7 +27,7 @@ name_filter_t name_filter_initialize(const char* key, bool log_info) {
 
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
-bool name_filter_matches(name_filter_t filter, const char* name) {
+bool name_filter_matches(name_filter_t filter, const char name[]) {
     LOGGED_FUNCTION_START("\"%s\", \"%s\"", filter, name)
         bool passed = (bool)strstr(name, filter);
         if (!passed) debugf("Filtered out \"%s\"", name);

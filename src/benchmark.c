@@ -1032,7 +1032,7 @@
 
             debug("Setting up the benchmark name filter...");
             ensure_le(argc, 2);
-            const char* filter_key = (argc == 2) ? argv[1] : "";
+            const char* const filter_key = (argc == 2) ? argv[1] : "";
             benchmark->filter = name_filter_initialize(filter_key, true);
 
             debug("Setting up the hwloc topology...");

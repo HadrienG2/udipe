@@ -251,7 +251,7 @@ void wake_by_address_single(_Atomic uint32_t* atom) {
         logger_init_child(&shared->logger);
         LOGGED_FUNCTION_START("%p", context)
             debugf("Setting up worker%u...", state->id);
-            char name[8] = "workerN";
+            char name[] = "workerN";
             ensure_le(state->id, (uint8_t)9);
             name[6] = '0' + (char)(state->id);
             set_thread_name(name);

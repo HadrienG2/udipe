@@ -110,7 +110,7 @@
     UDIPE_PUBLIC
     UDIPE_NON_NULL_SPECIFIC_ARGS(1, 2, 3)
     bool udipe_benchmark_run(udipe_benchmark_t* benchmark,
-                             const char* name,
+                             const char name[],
                              udipe_benchmark_runnable_t runnable,
                              void* context);
 

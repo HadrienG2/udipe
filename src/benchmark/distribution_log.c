@@ -41,12 +41,12 @@
     /// These ancient box drawing code points were already supported by the
     /// original IBM PC, and should therefore be available in any
     /// self-respecting modern terminal font.
-    static const char* const SINGLE_SEGMENT = "─";
+    static const char SINGLE_SEGMENT[] = "─";
 
     /// Segment from a double Unicode bow-drawing line
     ///
     /// See \ref SINGLE_LINE_SEGMENT for terminal font compatibility notes.
-    static const char* const DOUBLE_SEGMENT = "═";
+    static const char DOUBLE_SEGMENT[] = "═";
 
 
     UDIPE_NON_NULL_ARGS
@@ -95,8 +95,8 @@
 
     UDIPE_NON_NULL_ARGS
     void write_horizontal_line(char buffer[],
-                                      const char segment[],
-                                      size_t width) {
+                               const char segment[],
+                               size_t width) {
         const size_t segment_size = strlen(segment);
         for (size_t x = 0; x < width; ++x) {
             memcpy(buffer + x*segment_size, segment, segment_size);

@@ -47,7 +47,7 @@ void warn_on_errno() {
         int result;
         #if defined(_GNU_SOURCE) && !defined(_WIN32)
             // Get the symbolic name of this errno value i.e. "EPERM" if it's EPERM.
-            const char* name = strerrorname_np(initial_errno);
+            const char* const name = strerrorname_np(initial_errno);
             if (!name) {
                 // If this fails, just use the integer value + highlight the failure
                 int out_chars = snprintf(output,
@@ -66,7 +66,7 @@ void warn_on_errno() {
 
             // Full description that includes the human-readable description too
             const char separator[] = ": ";
-            const char* description = strerrordesc_np(initial_errno);
+            const char* const description = strerrordesc_np(initial_errno);
             assert(("strerrorname_np() and strerrordesc_np() "
                     "should agree on errno validation",
                     description));
@@ -91,7 +91,7 @@ void warn_on_errno() {
                                   header, name, trailer);
             }
         #else
-            const char* name = strerror(initial_errno);
+            const char* const name = strerror(initial_errno);
             const size_t min_output_size = strlen(header) + strlen(name) + strlen(trailer) + 1;
             assert(("Buffer should be large enough to hold an errorname",
                     sizeof(output) >= min_output_size));
@@ -125,9 +125,9 @@ void warn_on_errno() {
     }
 #endif
 
-void ensure_comparison_failure(const char* format_template,
-                               const char* x_format,
-                               const char* y_format,
+void ensure_comparison_failure(const char format_template[],
+                               const char x_format[],
+                               const char y_format[],
                                ...) {
     LOGGED_FUNCTION_START("%s, %s, %s, ...",
                           format_template,
@@ -139,7 +139,7 @@ void ensure_comparison_failure(const char* format_template,
         size_t format_size = 1 + (size_t)result;
 
         // Allocate the format string buffer
-        char* format = alloca(format_size);
+        char* const format = alloca(format_size);
         exit_on_null(format, "Failed to allocate format string!");
 
         // Generate the format string
@@ -158,7 +158,7 @@ void ensure_comparison_failure(const char* format_template,
         size_t error_message_size = 1 + (size_t)result;
 
         // Allocate the error message buffer
-        char* error_message = alloca(error_message_size);
+        char* const error_message = alloca(error_message_size);
         exit_on_null(error_message, "Failed to allocate error message buffer!");
 
         // Generate the error message

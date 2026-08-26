@@ -54,7 +54,7 @@
 ///
 /// \param name is a thread name that must follow the constraints listed above.
 UDIPE_NON_NULL_ARGS
-void set_thread_name(const char* name);
+void set_thread_name(const char name[]);
 
 /// Get the name of the calling thread
 ///

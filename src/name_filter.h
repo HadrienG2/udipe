@@ -35,7 +35,7 @@ typedef char* name_filter_t;
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
-name_filter_t name_filter_initialize(const char* key, bool log_info);
+name_filter_t name_filter_initialize(const char key[], bool log_info);
 
 /// Check if a test/benchmark name passes the name filter
 ///
@@ -50,7 +50,7 @@ name_filter_t name_filter_initialize(const char* key, bool log_info);
 /// \returns the truth that `name` passes `filter` and should execute
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
-bool name_filter_matches(name_filter_t filter, const char* name);
+bool name_filter_matches(name_filter_t filter, const char name[]);
 
 /// Shortcut for calling a parameterless function if its name passes the filter
 ///

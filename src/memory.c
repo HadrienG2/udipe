@@ -299,7 +299,7 @@ void* realtime_allocate(size_t size) {
         assert(size % page_size == 0);
 
         void* result = NULL;
-        const char* mlock_failure_msg =
+        const char mlock_failure_msg[] =
             "Failed to lock memory in an unrecoverable manner. "
             "This isn't fatal but creates a new realtime performance hazard, "
             "namely the OS kernel taking bad swapping decisions.";
@@ -479,7 +479,8 @@ void realtime_liberate(void* buffer, size_t size) {
             debugf("Allocation should be at least %zu bytes large.", min_size);
 
             debug("Writing and checking each of the expected bytes...");
-            volatile unsigned char* alloc = (volatile unsigned char*)raw_alloc;
+            volatile unsigned char* const alloc =
+                (volatile unsigned char*)raw_alloc;
             for (size_t byte = 0; byte < min_size; ++byte) {
                 unsigned char value = (unsigned char)(byte % 255 + 1);
                 alloc[byte] = value;
