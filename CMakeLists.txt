@@ -205,6 +205,7 @@ target_sources(udipe
                        src/refcounted_tss.h
                        src/scope.c
                        src/scope.h
+                       src/sharing_atom.h
                        src/stopwatch.h
                        src/thread_name.c
                        src/thread_name.h
