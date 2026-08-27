@@ -8,10 +8,14 @@
 //! given by \ref FALSE_SHARING_GRANULARITY. This code module simplifies the
 //! management of such atoms in simple message-passing cases.
 
+#include <udipe/nodiscard.h>
+#include <udipe/pointer.h>
+
 #include "arch.h"
 
 #include <stdalign.h>
 #include <stdatomic.h>
+#include <stddef.h>
 #include <stdint.h>
 
 
@@ -68,7 +72,7 @@ typedef struct messaging_atom_s {
 /// `messaging_block_t*` in the allocator API with a raw `messaging_atom_t[]`
 /// array pointer, provide a way to set up an allocator where not all 32 entries
 /// are initially available, and document the resulting new safety requirements.
-#define MESSAGING_BLOCK_LEN ((size_t)32)
+#define MESSAGING_BLOCK_LEN 32
 
 /// Set of messaging atoms managed by a \ref messaging_allocator_t
 ///
@@ -111,12 +115,6 @@ typedef struct messaging_block_s {
 ///   expense of requiring more care on the user's side (need to always pair an
 ///   allocator with its designated \ref messaging_block_t on each API call).
 typedef struct messaging_allocator_s {
-    #ifndef NDEBUG
-        /// Tracking the messaging block associated with this allocator to
-        /// enforce correct usage of messaging allocator functions.
-        const messaging_block_t* block;
-    #endif
-
     /// Futex-sized atomic word that tracks which of the managed messaging atoms
     /// is available
     ///
@@ -141,24 +139,20 @@ typedef struct messaging_allocator_s {
 
 /// Initialize a \ref messaging_allocator_t
 ///
-/// As the C11 atomics specification disallows zero initialization of atomics,
-/// you **must** call this function in order to initialize a \ref
-/// messaging_allocator_t, even when you intend it to be in a fully busy state.
+/// In order to use this allocator, you must separately set up a \ref
+/// messaging_block_t for it. This messaging block must only ever be used along
+/// with its associated allocator, it is only stored separately in order to
+/// improve the layout of complex structs containing multiple allocators.
 ///
-/// \param block must be the \ref messaging_block_t that this allocator is
-///              destined to manage. All subsequent calls to messaging
-///              allocator functions must be given access to the same block.
-//
-// TODO implement, adapt code from connect.[ch] then port said code to use this,
-//      record block in debug builds.
+/// As the ISO C specification disallows zero initialization of atomics, you
+/// must call this function in order to initialize a \ref messaging_allocator_t,
+/// even when you intend it to be in a fully busy state.
 UDIPE_NODISCARD
-messaging_allocator_t messaging_allocator_initialize(messaging_block_t* block);
+messaging_allocator_t messaging_allocator_initialize();
 
 /// Finalize a \ref messaging_allocator_t
 ///
 /// The allocator cannot be used again after this is done.
-//
-// TODO implement, adapt code from connect.[ch] then port said code to use this
 UDIPE_NON_NULL_ARGS
 void messaging_allocator_finalize(messaging_allocator_t* allocator);
 
@@ -171,20 +165,18 @@ void messaging_allocator_finalize(messaging_allocator_t* allocator);
 /// \param allocator must be a \ref messaging_allocator_t that has been
 ///                  initialized using messaging_allocator_initialize() and has
 ///                  not been finalized by messaging_allocator_finalize() yet.
-/// \param block must be the \ref messaging_block_t that this allocator was
-///              destined to managing by messaging_allocator_initialize().
+/// \param block must be the \ref messaging_block_t that this allocator is
+///              managing. Remember that you must always pass the same `block`
+///              to all calls associated with this allocator, and you must never
+///              pass it to calls associated with another allocator.
 ///
 /// \returns a \ref messaging_atom_t that must later be liberated with
 ///          messaging_atom_liberate().
-//
-// TODO implement, adapt code from connect.[ch] then port said code to use this,
-//      check block in debug builds.
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
-messaging_atom_t*
-messaging_atom_allocate(messaging_allocator_t* allocator,
-                        messaging_block_t* block);
+messaging_atom_t* messaging_atom_allocate(messaging_allocator_t* allocator,
+                                          messaging_block_t* block);
 
 /// Liberate a previously allocated \ref messaging_atom_t
 /// so other threads can reuse it.
@@ -192,14 +184,19 @@ messaging_atom_allocate(messaging_allocator_t* allocator,
 /// \param allocator must be a \ref messaging_allocator_t that has been
 ///                  initialized using messaging_allocator_initialize() and has
 ///                  not been finalized by messaging_allocator_finalize() yet.
+/// \param block must be the \ref messaging_block_t that this allocator is
+///              managing. Remember that you must always pass the same `block`
+///              to all calls associated with this allocator, and you must never
+///              pass it to calls associated with another allocator.
 /// \param atom must be a \ref messaging_atom_t that has previously
 ///             been allocated using messaging_atom_allocate() and has not yet
 ///             been liberated. It cannot be used again after this call.
-//
-// TODO implement, adapt code from connect.[ch] then port said code to use this
 UDIPE_NON_NULL_ARGS
 void messaging_atom_liberate(messaging_allocator_t* allocator,
+                             messaging_block_t* block,
                              messaging_atom_t* atom);
+
+// TODO: Port connect options allocator in connect.[ch] to use this
 
 
 // TODO: Tests

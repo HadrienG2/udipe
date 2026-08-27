@@ -199,6 +199,7 @@ target_sources(udipe
                        src/log.h
                        src/memory.c
                        src/memory.h
+                       src/messaging.c
                        src/messaging.h
                        src/name_filter.c
                        src/name_filter.h
