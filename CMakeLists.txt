@@ -199,13 +199,13 @@ target_sources(udipe
                        src/log.h
                        src/memory.c
                        src/memory.h
+                       src/messaging.h
                        src/name_filter.c
                        src/name_filter.h
                        src/refcounted_tss.c
                        src/refcounted_tss.h
                        src/scope.c
                        src/scope.h
-                       src/sharing_atom.h
                        src/stopwatch.h
                        src/thread_name.c
                        src/thread_name.h
