@@ -70,8 +70,13 @@ typedef union ip_address_u {
 /// Because IPv6 addresses are huge, there is no way this struct will ever fit
 /// in a single cache line. Taking into account that establishing a connection
 /// should be rare, and in the interest of not pessimizing the performance of
-/// other command messages which do fit in one cache line, connection options
-/// will therefore be passed to worker threads via a pointer indirection.
+/// other commands which do fit in one cache line, connection options will
+/// therefore be passed to worker threads via a pointer indirection.
+///
+/// We do, however, want to store options in messaging atoms of 128B, and with
+/// this in mind we will not let the base connect options struct grow larger
+/// than 128B. If it threatens to do so, we will instead supplement it with a
+/// linked list of extended options covering more exotic configurations.
 typedef struct udipe_connect_options_s {
     /// Default send timeout in nanoseconds or 0 = no timeout / wait forever
     ///
@@ -223,7 +228,7 @@ typedef struct udipe_connect_options_s {
     ///
     /// By default, the connection is configured to receive traffic only, as
     /// sending traffic requires a remote address and there is no good default
-    /// for a remote address.
+    /// for that.
     //
     // TODO: Used to enforce usage validation by detecting invalid parameters
     //       and commands.
