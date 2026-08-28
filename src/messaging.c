@@ -93,6 +93,9 @@ messaging_atom_t* messaging_atom_allocate(messaging_allocator_t* allocator,
             debugf("Got nonzero availability mask %#x: ready to allocate!",
                    availability);
 
+            // Randomization reduces the odds that when multiple atoms are
+            // available, all threads will race to allocate the same atom and
+            // need multiple retries to succeed.
             const size_t num_available = population_count(availability);
             const size_t available_idx = rand() % num_available;
             debugf("Will now try to allocate available atom #%zu/%zu...",

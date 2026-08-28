@@ -55,6 +55,15 @@
 /// \ref messaging_allocator_t instead of needing to design and implement one
 /// allocator for each message type that you're dealing with.
 typedef struct messaging_atom_s {
+    // TODO: Set a lower bound of at least 64 bytes on the size of these atoms.
+    //       Otherwise they cannot be used to transport an IPv6 inaddr + a
+    //       pointer to something else, which means we cannot store connect
+    //       options into them even if we slice these into maximally small
+    //       chunks arranged in a linked list. This work can reasonably be
+    //       deferred until we need to port to hardware with
+    //       FALSE_SHARING_GRANULARITY < 128, because according to
+    //       https://github.com/crossbeam-rs/crossbeam/blob/983d56b6007ca4c22b56a665a7785f40f55c2a53/crossbeam-utils/src/cache_padded.rs#L63
+    //       such hardware is rather rare in udipe's target audience.
     alignas(FALSE_SHARING_GRANULARITY) char bytes[FALSE_SHARING_GRANULARITY];
 } messaging_atom_t;
 
@@ -177,6 +186,27 @@ UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 messaging_atom_t* messaging_atom_allocate(messaging_allocator_t* allocator,
                                           messaging_block_t* block);
+
+// TODO: Add a variation of allocate that allocates multiple atoms at a time (up
+//       to MESSAGING_BLOCK_LEN), of which the current allocate() will become a
+//       special case. This will be needed to efficiently support extended
+//       connect options, because if we don't allocate storage for all options
+//       at once, we cannot block when not enough storage is available without
+//       1/unnecessarily starving smaller allocation requests that could be
+//       serviced (if previously allocated blocks remain allocated when we
+//       block) or 2/significantly degrading efficiency (if previously allocated
+//       blocks are deallocated before blocking).
+//
+//      The current approach for attempting to avoid unnecessary allocation
+//      races by randomizing the index of the allocated atom will not trivially
+//      scale to this configuration. We can extend it by slicing the list of
+//      free indices into chunks of the requested size. For example, let's
+//      assume that atoms #1, #5, #7, #11, #17 and #23 are free and we need to
+//      allocate two atoms. In this scenario, we would try to allocate one of
+//      the pairs (#1, #5), (#7, #11) or (#17, #23), chosen at random. This
+//      preserves the desired property that concurrent allocations of the same
+//      size are unlikely to overlap as long as enough storage is available that
+//      random choice has a good chance of picking distinct pairs.
 
 /// Liberate a previously allocated \ref messaging_atom_t
 /// so other threads can reuse it.
