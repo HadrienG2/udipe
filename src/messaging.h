@@ -16,17 +16,15 @@
 
 #include <stdalign.h>
 #include <stdatomic.h>
-#include <stddef.h>
 #include <stdint.h>
 
 
-/// Minimal memory allocation that can be used to pass messages across threads,
-/// without encountering false sharing issues.
+/// Minimal memory allocation of at least 64B that can be used to pass messages
+/// across threads, without encountering false sharing issues.
 ///
 /// This is a generic storage location within which you can store any value that
 /// must be aligned on a \ref FALSE_SHARING_GRANULARITY boundary for false
-/// sharing avoidance, but needs not be larger than \ref
-/// FALSE_SHARING_GRANULARITY.
+/// sharing avoidance, but needs not be larger than 64 bytes.
 ///
 /// Unfortunately, to comply with the strict aliasing rule of C, you cannot
 /// access said value directly by casting `bytes` from `char*` to `T*` where `T`
