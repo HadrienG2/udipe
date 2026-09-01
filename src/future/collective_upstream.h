@@ -19,10 +19,17 @@ typedef struct collective_upstream_s {
     /// future_status_t::state is set to \ref STATE_RESULT, as the user is
     /// allowed to liberate the associated futures after this point.
     ///
-    /// Must have been checked to contain no duplicates and no `NULL`s at
+    /// It must have been checked to contain no duplicates and no `NULL`s at
     /// collective future construction time. As long as we do not expose a
     /// `status_sync` accessor that lets users call `dup()`, `inpoll_attach()`
     /// should take care of the former for us on Linux.
+    ///
+    /// It should not be accessed by worker threads is this points to
+    /// user-allocated memory whose access performance can be arbitrarily bad
+    /// (small pages, no protection against swapping...). This is trivially
+    /// ensured by the current lazy future Linux implementation, where all
+    /// accesses are performed by client threads during udipe_wait(). But we may
+    /// need to keep this in mind when implementing the Windows version.
     udipe_future_t* const* array;
 
     /// Number of upstream futures in `array`

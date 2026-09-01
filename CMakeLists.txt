@@ -152,8 +152,6 @@ target_sources(udipe
                        src/buffer.h
                        src/command.c
                        src/command.h
-                       src/connect.h
-                       src/connect.c
                        src/context.c
                        src/context.h
                        src/duration.h

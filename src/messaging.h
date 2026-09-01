@@ -98,6 +98,8 @@ typedef struct messaging_block_s {
 /// enough that neither the limitation to 32 managed atoms nor the need to
 /// always allocate storage for these 32 atoms is a problem.
 ///
+/// It must be initialized using the messaging_allocator_initialize() function.
+///
 /// \internal
 ///
 /// This allocator is based on the following design ideas:

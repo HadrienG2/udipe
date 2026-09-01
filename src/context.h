@@ -12,7 +12,6 @@
 
 #include "future/allocator/context_cache.h"
 
-#include "connect.h"
 #include "log.h"
 #include "refcounted_tss.h"
 
@@ -75,9 +74,4 @@ struct udipe_context_s {
     /// The future allocator will query this cache if `local_future_cache` does
     /// not have some resources that it needs.
     future_context_cache_t future_global_cache;
-
-    /// Allocator of \ref shared_connect_options_t
-    ///
-    /// See \ref connect.h for more info on how this works and how to use it.
-    connect_options_allocator_t connect_options;
 };

@@ -62,6 +62,23 @@ typedef struct udipe_config_s {
 ///
 /// Once you are done with `libudipe`, you can pass this object back to
 /// udipe_finalize() to destroy it.
+///
+/// \internal
+///
+/// Due to unfortunate design shortcomings of POSIX TLS destructors, this struct
+/// must have a lifetime that extends beyond udipe_finalize(), as it is accessed
+/// by the destructor of thread-local future caches and those may run after the
+/// udipe context has been finalized.
+///
+/// As a consequence, its inner storage cannot be allocated out of realtime-safe
+/// memory, beceause the realtime allocator emits logs during liberation and the
+/// logger is only safe to call until udipe_finalize().
+///
+/// This means that pointers to members of this struct should not be sent to
+/// worker threads, as that would breach containment of said threads into
+/// realtime-safe memory. Instead, any storage for structs that can be sent to
+/// worker threads should be separately allocated using realtime_allocate() and
+/// liberated using realtime_liberate() at udipe_finalize() time.
 typedef struct udipe_context_s udipe_context_t;
 
 /// Initialize a \link #udipe_context_t `libudipe` context \endlink

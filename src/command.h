@@ -9,11 +9,11 @@
 //! such a queue, and the \ref udipe_context_t takes care of balancing the
 //! incoming workload between worker threads.
 
+#include <udipe/connect.h>
 #include <udipe/command.h>
 #include <udipe/future.h>
 
 #include "arch.h"
-#include "connect.h"
 
 #include <assert.h>
 #include <stdalign.h>

@@ -67,16 +67,20 @@ typedef union ip_address_u {
 ///
 /// \internal
 ///
-/// Because IPv6 addresses are huge, there is no way this struct will ever fit
-/// in a single cache line. Taking into account that establishing a connection
-/// should be rare, and in the interest of not pessimizing the performance of
-/// other commands which do fit in one cache line, connection options will
-/// therefore be passed to worker threads via a pointer indirection.
+/// Because each IPv6 `sockaddr_in6` already takes 32B, there is no way this
+/// struct will ever fit in a single cache line on common CPU architectures.
+/// Taking into account that establishing a connection should be rare, and in
+/// the interest of not pessimizing the performance of other commands which do
+/// fit in one cache line, connection options will therefore be passed to worker
+/// threads via a pointer indirection, instead of being directly copied into the
+/// command struct as we normally do.
 ///
-/// We do, however, want to store options in messaging atoms of 128B, and with
-/// this in mind we will not let the base connect options struct grow larger
-/// than 128B. If it threatens to do so, we will instead supplement it with a
-/// linked list of extended options covering more exotic configurations.
+/// We will, however, try to keep this struct as reasonably sized, so the
+/// current plan is to bound it to two x86 cache lines (128B), covering the most
+/// common udipe use cases. If it threatens to grow larger, as a result of
+/// adding more exotic features like IPv6 multicast support, we will instead
+/// supplement it with a linked list of extended options covering these use
+/// cases. See Khronos APIs like Vulkan for an example of this pattern at work.
 typedef struct udipe_connect_options_s {
     /// Default send timeout in nanoseconds or 0 = no timeout / wait forever
     ///

@@ -56,19 +56,37 @@
 //       - Inbound UDP packets will get replied an ICMP error that quotes a few
 //         hundred bytes from them, which may kill the ICMP IP used by some DAQ
 //         FPGAs as it doesn't expect such large ICMP packets and just hangs.
+// TODO: Explain that udipe worker threads are not guaranteed to perform
+//       at optimal performance when processing connection requests in parallel
+//       with packet processing requests, and best performance will be achieved
+//       when applications fully set up all their connections and only next
+//       start to process inbound packets. Under the hood, this emerges from the
+//       following bad properties of connection requests:
+//       - Setting up a connection takes a metric ton of syscalls, each of which
+//         may take an arbitrarily long time, and breaking down this process
+//         into multiple steps is difficult in a language like C that doesn't
+//         have first-class coroutines so we do it all at once. This slow setup
+//         interrupts packet processing for an arbitrarily long time, and thus
+//         causes a high risk of inbound packet loss.
+//       - Due to this inherent inefficiency of setting up a connection, we do
+//         not take any particular care to make the process more efficient on
+//         our side by e.g. allocating the large connect options struct in
+//         realtime-safe memory.
+// TODO: Explain that the connect options struct must be kept live and
+//       untouched until the future has been awaited with udipe_finish().
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 UDIPE_PUBLIC
 udipe_future_t* udipe_start_connect(udipe_context_t* context,
-                                    udipe_connect_options_t options);
+                                    udipe_connect_options_t* options);
 
 // TODO: document and implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
 udipe_connect_result_t udipe_connect(udipe_context_t* context,
-                                     udipe_connect_options_t options);
+                                     udipe_connect_options_t* options);
 
 // TODO: document and implement
 UDIPE_NODISCARD
@@ -76,14 +94,14 @@ UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 UDIPE_PUBLIC
 udipe_future_t* udipe_start_disconnect(udipe_context_t* context,
-                                       udipe_disconnect_options_t options);
+                                       udipe_disconnect_options_t* options);
 
 // TODO: document and implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
 udipe_disconnect_result_t udipe_disconnect(udipe_context_t* context,
-                                           udipe_disconnect_options_t options);
+                                           udipe_disconnect_options_t* options);
 
 // TODO: Add and implement
 /* // TODO: document and implement
@@ -96,14 +114,14 @@ UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 UDIPE_PUBLIC
 udipe_future_t* udipe_start_send(udipe_context_t* context,
-                                 udipe_send_options_t options);
+                                 udipe_send_options_t* options);
 
 // TODO: document and implement
 UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
 udipe_send_result_t udipe_send(udipe_context_t* context,
-                               udipe_send_options_t options);
+                               udipe_send_options_t* options);
 
 // TODO: document and implement
 UDIPE_NODISCARD
@@ -111,7 +129,7 @@ UDIPE_NON_NULL_ARGS
 UDIPE_NON_NULL_RESULT
 UDIPE_PUBLIC
 udipe_future_t* udipe_start_recv(udipe_context_t* context,
-                                 udipe_recv_options_t options);
+                                 udipe_recv_options_t* options);
 
 // TODO: document and implement
 //
@@ -123,4 +141,4 @@ UDIPE_NODISCARD
 UDIPE_NON_NULL_ARGS
 UDIPE_PUBLIC
 udipe_recv_result_t udipe_recv(udipe_context_t* context,
-                               udipe_recv_options_t options); */
+                               udipe_recv_options_t* options); */

@@ -48,9 +48,6 @@ udipe_context_t* udipe_initialize(udipe_config_t config) {
         exit_on_negative(hwloc_topology_load(context->topology),
                          "Failed to build the hwloc hopology!");
 
-        debug("Initializing the connection options allocator...");
-        context->connect_options = connect_options_allocator_initialize();
-
         debug("Initializing the context-global future allocator cache...");
         context->future_global_cache = future_context_cache_initialize();
 
@@ -68,9 +65,6 @@ void udipe_finalize(udipe_context_t* context) {
     LOGGER_START(&context->logger)
         debug("Liberating all the future allocator caches...");
         future_context_cache_finalize(&context->future_global_cache);
-
-        debug("Finalizing the connection options allocator...");
-        connect_options_allocator_finalize(&context->connect_options);
 
         debug("Destroying and poisoning the hwloc topology...");
         hwloc_topology_destroy(context->topology);
