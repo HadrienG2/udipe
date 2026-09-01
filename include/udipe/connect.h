@@ -265,9 +265,9 @@ typedef struct udipe_connect_options_s {
 
     /// Desired traffic priority
     ///
-    /// Setting a priority higher than zero indicates that the operating system
-    /// should attempt to process datagrams associated with this connection
-    /// before those associated with other connections.
+    /// Setting a priority higher than zero indicates that udipe and the
+    /// operating system should attempt to process datagrams associated with
+    /// this connection before those associated with other connections.
     ///
     /// On Linux, setting a priority of 7 requires `CAP_NET_ADMIN` privileges.
     /// At the time of writing, this is the only privileged priority level
@@ -278,8 +278,17 @@ typedef struct udipe_connect_options_s {
     /// udipe code repo and describe your use case!
     ///
     /// By default, the priority is 0 i.e. lowest priority.
+    ///
+    /// \internal
+    ///
+    /// If the number of supported priorities becomes greater than 8, the
+    /// implementation of the worker thread command priority queue will need to
+    /// be adjusted. At least the `NUM_PRIORITIES` constant will need to
+    /// increase, and if it grows a lot, the priority queue data structures and
+    /// algorithm will need to change too.
     //
-    // TODO: Implement by setting SO_PRIORITY
+    // TODO: Implement by setting SO_PRIORITY + also affects priority of the
+    //       command in the internal udipe command queue.
     unsigned priority : 3;
 
     // TODO: Activer aussi IP_RECVERR, et logger voire gérer les erreurs, cf man
