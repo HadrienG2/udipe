@@ -3,23 +3,50 @@
 //! \file
 //! \brief Command queue
 //!
-//! This code module implements the FIFO message queue that is used to to submit
-//! commands from client threads that use `libudipe` via a \ref udipe_context_t
-//! to a particuler worker thread managed by `libudipe`. Each worker thread gets
-//! such a queue, and the \ref udipe_context_t takes care of balancing the
-//! incoming workload between worker threads.
+//! This code module implements the priority message queue that is used to to
+//! submit commands from client threads that use `libudipe` via a \ref
+//! udipe_context_t to a particuler worker thread managed by `libudipe`.
+//!
+//! Each worker thread gets such a queue, and the \ref udipe_context_t takes
+//! care of balancing the incoming workload between worker threads.
 
 #include <udipe/connect.h>
-#include <udipe/command.h>
 #include <udipe/future.h>
 
 #include "arch.h"
+#include "messaging.h"
 
 #include <assert.h>
 #include <stdalign.h>
 #include <stdatomic.h>
 #include <stddef.h>
 #include <threads.h>
+
+
+/// Number of supported connection priority levels
+///
+/// This must be kept in sync with the connection priority option of \ref
+/// udipe_connect_options_t.
+///
+/// If the number of priority levels increases a lot, then the data structures
+/// and algorithms within this module will need to be redesigned accordingly.
+#define NUM_PRIORITIES ((size_t)8)
+
+/// Number of commands that can be pending for each priority level
+///
+/// If a client thread attempts to submit a new command to a worker thread that
+/// already has this many pending unprocessed commands of the same priority, the
+/// client thread will block waiting for the worker to make progress.
+///
+/// This is currently enforced by simply having one messaging allocator per
+/// priority level, which provides an ample buffer of 32 incoming commands while
+/// ensuring absence of allocator-originated priority inversion (i.e. no amount
+/// of pending low-priority commands can prevent a client from allocating and
+/// submitting a higher-priority command).
+#define MAX_COMMANDS_PER_PRIORITY ((size_t)MESSAGING_BLOCK_LEN)
+
+
+// TODO: Reworking the stuff below
 
 
 /// Worker thread command queue capacity
