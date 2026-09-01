@@ -70,7 +70,8 @@ void udipe_finalize(udipe_context_t* context) {
         hwloc_topology_destroy(context->topology);
         context->topology = NULL;
 
-        debug("Destroying the logger...");
+        debug("Destroying the logger and discarding the "
+              "thread-local future cache key...");
     LOGGER_END
     logger_finalize(&context->logger);
     // WARNING: No logging or logger-based functionality like ensure_xyz()

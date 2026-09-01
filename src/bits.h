@@ -18,7 +18,21 @@
 #include <stdint.h>
 
 
+/// Pick the maximum of two numbers
+///
+/// This operation can be used in places where a constant expression is
+/// expected, but requires both arguments to be side-effects-free expressions.
+///
+/// \param x must be a side-effects-free expression.
+/// \param y must be a side-effects-free expression of a type that is at least
+///          partially ordered with respect to x.
+#define MAX(x, y)  ((x) < (y) ? (y) : (x))
+
 /// Divide `num` and `denom`, rounding upwards
+///
+/// This operation can be used in places where a constant expression is
+/// expected, and is optimized into a bitshift when `denom` is a power of two,
+/// but it requires both arguments to be side-effects-free expressions.
 ///
 /// \param num must be a side-effects-free integer expression
 /// \param denom must be a side-effects-free integer expresion that does not

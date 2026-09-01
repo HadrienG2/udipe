@@ -75,12 +75,12 @@ typedef union ip_address_u {
 /// threads via a pointer indirection, instead of being directly copied into the
 /// command struct as we normally do.
 ///
-/// We will, however, try to keep this struct as reasonably sized, so the
-/// current plan is to bound it to two x86 cache lines (128B), covering the most
-/// common udipe use cases. If it threatens to grow larger, as a result of
-/// adding more exotic features like IPv6 multicast support, we will instead
-/// supplement it with a linked list of extended options covering these use
-/// cases. See Khronos APIs like Vulkan for an example of this pattern at work.
+/// We will, however, try to keep this struct reasonably sized, so the current
+/// plan is to bound it to two x86 cache lines (128B), covering the most common
+/// udipe use cases. If it threatens to grow larger, as a result of adding more
+/// exotic features like IPv6 multicast support, we will instead supplement it
+/// with a linked list of extended options covering these use cases. See Khronos
+/// APIs like Vulkan for an example of this pattern at work.
 typedef struct udipe_connect_options_s {
     /// Default send timeout in nanoseconds or 0 = no timeout / wait forever
     ///
