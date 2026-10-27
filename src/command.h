@@ -10,27 +10,24 @@
 //! Each worker thread gets such a queue, and the \ref udipe_context_t takes
 //! care of balancing the incoming workload between worker threads.
 
+// TODO: Review include list after implementation rework
 #include <udipe/connect.h>
 #include <udipe/future.h>
 
 #include "arch.h"
+#include "bits.h"
 #include "messaging.h"
 
 #include <assert.h>
 #include <stdalign.h>
 #include <stdatomic.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <threads.h>
 
 
-/// Number of supported connection priority levels
-///
-/// This must be kept in sync with the connection priority option of \ref
-/// udipe_connect_options_t.
-///
-/// If the number of priority levels increases a lot, then the data structures
-/// and algorithms within this module will need to be redesigned accordingly.
-#define NUM_PRIORITIES ((size_t)8)
+/// \name Implementation limits
+/// \{
 
 /// Number of commands that can be pending for each priority level
 ///
@@ -44,6 +41,272 @@
 /// of pending low-priority commands can prevent a client from allocating and
 /// submitting a higher-priority command).
 #define MAX_COMMANDS_PER_PRIORITY ((size_t)MESSAGING_BLOCK_LEN)
+
+/// Sentinel priority level that indicates that no commands are available yet,
+/// but more commands may come and a worker should wait for them using the
+/// command queue's \ref event_t.
+#define PRIORITY_WAIT_FOR_EVENT  SIZE_MAX
+static_assert(PRIORITY_WAIT_FOR_EVENT > PRIORITY_HIGHEST,
+              "PRIORITY_WAIT_FOR_EVENT sentinel must not overlap valid priority range");
+
+/// Sentinel priority level that indicates that no commands are available and no
+/// more commands should be coming because the worker has been requested to shut down.
+#define PRIORITY_SHUTDOWN  (PRIORITY_WAIT_FOR_EVENT - (size_t)1)
+static_assert(PRIORITY_SHUTDOWN > PRIORITY_HIGHEST,
+              "PRIORITY_SHUTDOWN sentinel must not overlap valid priority range");
+
+/// \}
+
+
+/// \name Global status word
+/// \{
+
+/// Global command queue status word
+///
+/// This machine word contains a high-level summary of a worker's command queue
+/// state. It is used to guide and report high-level worker decisions:
+///
+/// - The highest-order bit indicates whether the worker is waiting for commands
+///   and must be notified with an \ref event_t when new work is ready.
+///     * When this bit is set, clients which report incoming work must signal
+///       the \ref event_t to notify the worker about it, after clearing this
+///       bit to prevent other clients from sending unnecessary extra event
+///       object notifications.
+///     * When this bit is unset, the worker is actively processing work, so
+///       clients who publish work do not need to notify the event object as
+///       long as the bit is cleared at the time where the work gets published.
+/// - The next highest-order bit indicate that the worker shutdown process has
+///   started, and no new commands will be incoming.
+/// - The \ref NUM_PRIORITIES lowest-order bits indicate, when set, that a
+///   particular priority class has commands available for processing.
+///     * The low-order bit represents the highest supported command priority,
+///       each higher order bit represents a lower priority. So for 8 supported
+///       priorities, bit 0 represents priority 7, bit 1 represents priority 6,
+///       ..., and bit 7 represents priority 0. This layout makes it possible to
+///       find out the highest priority class that has commands available using
+///       the find-first-set word binary arithmetic operation, which typically
+///       translates to a single CPU instruction.
+/// - Other bits are reserved and must be stay zero.
+///
+/// Lock-free transactions on this word mostly use an Acquire-Release memory
+/// model:
+///
+/// - Any readout that is used to infer the state of a memory location other
+///   than the global status word, typically for the sake of subsequently
+///   accessing this memory location, must have Acquire memory ordering.
+/// - Any operation that tells other threads that the state of other memory
+///   locations has evolved, in a manner that would lead said threads to
+///   subsequently investigate these memory locations, must have Release memory
+///   ordering.
+/// - Any operation that does both of the above (reports world state change and
+///   acquires knowledge of new world state) must have Acquire-Release memory
+///   ordering.
+/// - Any operation that does none of the above (only cares about the state of
+///   this word, typically because it is only used as preparation for another
+///   atomic transaction on the word that has stronger ordering) can have
+///   Relaxed memory ordering.
+typedef _Atomic word_t command_global_status_t;
+
+/// Bit of \ref command_global_status_t tracking the need for \ref event_t
+/// signaling
+///
+/// If this bit is set at the time where a client signals the availability of
+/// new commands, then this client must notify the worker about work
+/// availability by signaling the global event object.
+#define COMMAND_GLOBAL_EVENT_NEEDED  ((word_t)1 << (BITS_PER_WORD - 1))
+
+/// Bit of \ref command_global_status_t tracking the fact that worker shutdown
+/// has started
+///
+/// This bit is set in debug builds at the time where a worker shutdown is
+/// requested by udipe_finalize(). In addition to its basic context lifecycle
+/// support role, it is also used by debug assertions to detect racy command
+/// submission or processing in parallel with udipe_finalize().
+#define COMMAND_GLOBAL_SHUTTING_DOWN  (COMMAND_GLOBAL_EVENT_NEEDED >> 1)
+
+/// Bits of \ref command_global_status_t tracking the availability of new work
+/// and its priority.
+///
+/// See \ref command_global_status_t for more information about how the
+/// availability of work at various priorities is tracked
+#define COMMAND_GLOBAL_PRIORITY_MASK  \
+    (((word_t)1 << NUM_PRIORITIES) - (word_t)1)
+static_assert(
+    (COMMAND_GLOBAL_PRIORITY_MASK & COMMAND_GLOBAL_EVENT_NEEDED) == 0
+    && (COMMAND_GLOBAL_PRIORITY_MASK & COMMAND_GLOBAL_SHUTTING_DOWN) == 0,
+    "Current implementation does not support that many priorities"
+);
+
+/// Bits of \ref command_global_status_t that are reserved and must stay zeroed
+///
+/// Checked in debug builds, ignored in release builds.
+#define COMMAND_GLOBAL_RESERVED_MASK  (  \
+    WORD_MAX  \
+    - COMMAND_GLOBAL_EVENT_NEEDED  \
+    - COMMAND_GLOBAL_SHUTTING_DOWN   \
+    - COMMAND_GLOBAL_PRIORITY_MASK  \
+)
+
+/// Initialize a \ref command_global_status_t
+///
+/// In the initial state, the worker is waiting for an \ref event_t signal
+/// reporting the availability of new commands, and no command is available.
+///
+/// This operation is not thread-safe and must be performed before the worker's
+/// global status word is exposed to client threads.
+///
+/// This function must be called within a logging scope.
+///
+/// \param global_status is meant to target a newly created global status word,
+///                      which may not be initialized yet and must in any case
+///                      not have begun finalization via
+///                      command_global_status_start_finalize() yet. It will be
+///                      initialized to a state that is ready for worker and
+///                      client use.
+// TODO implement
+void command_global_status_initialize(
+    command_global_status_t* global_status
+);
+
+/// Notify the worker that work is available with a certain priority via the
+/// \ref command_global_status_t, tell if \ref event_t signaling is needed
+///
+/// This operation must be performed after the appropriate command list has been
+/// fully filled and the associated local status word has been updated with
+/// Release ordering to publish its final state.
+///
+/// As a lock-free operation, it has Release memory ordering, because it tells
+/// the worker that the state of the associated local status word has changed.
+/// It additionally has Acquire ordering (totaling AcqRel ordering) when it
+/// observes that the worker is waiting for an \ref event_t.
+///
+/// This function must be called within a logging scope.
+///
+/// \param global_status is the global status word of the worker, which must
+///                      have previously been initialized via
+///                      command_global_status_initialize() and must not have
+///                      begun finalization via
+///                      command_global_status_start_finalize() yet.
+/// \param priority is the priority class that has new commands available, which
+///                 must be lower than or equal to \ref HIGHEST_PRIORITY.
+/// \returns the truth that work availability must be additionally signaled via
+///          the \ref event_t of the command queue.
+// TODO implement, check priority range
+bool command_global_status_notify(command_global_status_t* global_status,
+                                  size_t priority);
+
+/// Check the current value of a \ref command_global_status_t as a prelude for a
+/// worker's command-fetching loop
+///
+/// This operation is solely used to initialize the worker's command-fetching
+/// loop after an \ref event_t notification has been received. It performs
+/// its internal state-checking accordingly.
+///
+/// As a lock-free operation, it has Relaxed memory ordering, because it only
+/// serves as a prelude to other command_global_status_fetch_next() operations
+/// that perform any required synchronization with the proper ordering.
+///
+/// This function must be called within a logging scope.
+///
+/// \param global_status is the global status word of the worker, which must
+///                      have previously been initialized via
+///                      command_global_status_initialize(), must not have
+///                      reported finalization via a \ref PRIORITY_SHUTDOWN
+///                      return from command_global_status_fetch_next() yet, and
+///                      must reflect a state in which the worker is not waiting
+///                      for an \ref event_t signal + has work available.
+/// \returns the initial state of the global status word, after debug checks.
+// TODO implement
+word_t command_global_status_fetch_start(
+    const command_global_status_t* global_status
+);
+
+/// Subset of a worker's command-fetching loop iteration that acts on a \ref
+/// command_global_status_t
+///
+/// Starting from a known but possibly stale previous global status word state,
+/// this operation checks out the highest priority level at which availability
+/// of new commands is being reported, if any, then...
+///
+/// * If commands are available, it clears the associated highest-priority
+///   availability bit with Acquire ordering, then returns the observed command
+///   batch priority. The worker must then go to the local status word for that
+///   priority in order to process and acknowledge/recycle the freshly observed
+///   command batch.
+/// * If no commands are available, but more could still be coming, it sets the
+///   \ref COMMAND_GLOBAL_EVENT_NEEDED bit with Release ordering, then returns
+///   \ref PRIORITY_WAIT_FOR_EVENT sentinel value. Upon receiving this sentinel
+///   value, the worker must wait for the command queue's \ref event_t to be
+///   signaled, indicating availability of new work, while processing its
+///   background I/O workload meanwhile.
+/// * If no commands are available and it is known that no more could be coming
+///   because the worker has been requested to shut down, it acknowledges
+///   shutdown and returns \ref PRIORITY_SHUTDOWN. Upon receiving this sentinel
+///   value, the worker must proceed to shut down, not touching this global
+///   status word ever again in the process.
+///
+/// This function must be called within a logging scope.
+///
+/// \param global_status is the global status word of the worker, which must
+///                      have previously been initialized via
+///                      command_global_status_initialize(), must not have
+///                      reported finalization via a \ref PRIORITY_SHUTDOWN
+///                      return from command_global_status_fetch_next() yet, and
+///                      must reflect a state in which the worker is not waiting
+///                      for an \ref event_t signal. It will be updated as
+///                      described above.
+/// \param expected is the expected value of the global status word at the start
+///                 of the transaction. It can be initialized using
+///                 command_global_status_fetch_start(), then each call to this
+///                 function will update it to the final value of the status
+///                 word after the transaction has been committed.
+/// \returns the priority at which commands must be fetched, \ref
+///          PRIORITY_WAIT_FOR_EVENT if no command is available but more could
+///          still come and be signaled via the \ref event_t, or \ref
+///          PRIORITY_SHUTDOWN if no command is available and it is known that
+///          no more command will come.
+// TODO implement
+size_t command_global_status_fetch_next(
+    command_global_status_t* global_status,
+    word_t* expected
+);
+
+/// Start the finalization of a \ref command_global_status_t
+///
+/// This is done by the command queue finalizer, which itself is called by
+/// udipe_finalize(). It tells workers that they should not expect any more
+/// commands, and are asked to shut down.
+///
+/// This function must be called within a logging scope.
+///
+/// \param global_status is the global status word of the worker, which must
+///                      have previously been initialized via
+///                      command_global_status_initialize() and must not have
+///                      begun finalization via
+///                      command_global_status_start_finalize() yet. It will be
+///                      switched to a finalizing state that must not be touched
+///                      by clients, but can be touched by
+///                      command_global_status_fetch_next() one last time before
+///                      full finalization occurs.
+// TODO implement
+void command_global_status_start_finalize(
+    command_global_status_t* global_status
+);
+
+/// \}
+
+// TODO: Local status word
+// TODO: Local command list double buffer
+// TODO: Local state = Local status word + local command list double
+//       buffer + 1 messaging allocator + 1 messaging block, arranged with due
+//       attention paid to alignment and false sharing issues.
+// TODO: Command queue struct = 1 local state per priority class + 1 global
+//       status word + 1 event object which should be externally provided (in
+//       case it's set up together with an inpoll on Linux). Use careful
+//       alignment-aware packing, and put everything into a realtime-safe memory
+//       allocation that is allocated with the NUMA locality of the cpuset of
+//       the worker thread.
+
 
 
 // TODO: Reworking the stuff below

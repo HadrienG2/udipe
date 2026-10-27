@@ -58,6 +58,40 @@ typedef union ip_address_u {
     struct sockaddr_in6 v6;  ///< IPv6 address
 } ip_address_t;
 
+/// Number of supported connection priority levels
+///
+/// This must be kept in sync with the connection priority option of \ref
+/// udipe_connect_options_t.
+///
+/// \internal
+///
+/// If the number of supported priority levels needs to be increased by a large
+/// amount, data structures from src/command.h will need a redesign:
+///
+/// - The first obstacle will be the current choice of using one bit of the
+///   global control word per priority level. This dense bitmap design scales
+///   easily up to 30 priority levels on 32-bit CPUs and 62 priority levels on
+///   64-bit CPUs. Beyond that, we must either make the bitmap hierarchical
+///   (need to check how easy it is to make a hierarchical bitmap lock-free) or
+///   switch to a sparse design. But the latter is likely better because...
+/// - Even if we solve the lock-free data structure issue, beyond a certain
+///   amount of priorities, the fixed memory overhead per supported priority
+///   level will also become problematic. At the time of writing, the data
+///   structures associated with each supported priority level have a RAM
+///   footprint of ~2KiB per priority level on x86_64 and aarch64. So supporting
+///   62 priority levels would amount to a memory footprint of 124KiB per
+///   worker, which is reasonable in a worker-per-core configuration with a
+///   typical 2GiB/core setup. But supporting, say, 1 million priority levels,
+///   would amount to a footprint of 2 GiB per workers, which would be very bad!
+///   Again, since most priority levels will be unused in such a configuration,
+///   moving to a sparse design would probably be the right answer here.
+#define NUM_PRIORITIES  ((size_t)8)
+
+/// Highest supported connection priority level
+///
+/// Convenience helper for a common \ref NUM_PRIORITIES operation.
+#define PRIORITY_HIGHEST  (NUM_PRIORITIES - 1)
+
 /// udipe_connect() parameters
 ///
 /// This struct controls the parameters that can be tuned when establishing a
@@ -265,6 +299,9 @@ typedef struct udipe_connect_options_s {
 
     /// Desired traffic priority
     ///
+    /// This number can range between 0 (lowest priority) and \ref
+    /// PRIORITY_HIGHEST (highest priority).
+    ///
     /// Setting a priority higher than zero indicates that udipe and the
     /// operating system should attempt to process datagrams associated with
     /// this connection before those associated with other connections.
@@ -281,11 +318,11 @@ typedef struct udipe_connect_options_s {
     ///
     /// \internal
     ///
-    /// If the number of supported priorities becomes greater than 8, the
-    /// implementation of the worker thread command priority queue will need to
-    /// be adjusted. At least the `NUM_PRIORITIES` constant will need to
-    /// increase, and if it grows a lot, the priority queue data structures and
-    /// algorithm will need to change too.
+    /// If the number of supported priorities changes, \ref NUM_PRIORITIES and
+    /// the above docs must change as well. And if it grows much greater than
+    /// its current value, the implementation of the worker thread's command
+    /// queue will need to change too, as explained in the internal docs of \ref
+    /// NUM_PRIORITIES.
     //
     // TODO: Implement by setting SO_PRIORITY + also affects priority of the
     //       command in the internal udipe command queue.
