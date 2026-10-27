@@ -69,27 +69,30 @@ static_assert(PRIORITY_SHUTDOWN > PRIORITY_HIGHEST,
 /// - The highest-order bit indicates whether the worker is waiting for commands
 ///   and must be notified with an \ref event_t when new work is ready.
 ///     * When this bit is set, clients which report incoming work must signal
-///       the \ref event_t to notify the worker about it, after clearing this
-///       bit to prevent other clients from sending unnecessary extra event
+///       the queue's \ref event_t to notify the worker about it, after clearing
+///       this bit to prevent other clients from sending unnecessary extra event
 ///       object notifications.
 ///     * When this bit is unset, the worker is actively processing work, so
 ///       clients who publish work do not need to notify the event object as
-///       long as the bit is cleared at the time where the work gets published.
+///       long as the bit is cleared at the time where their publication
+///       transaction is committed.
 /// - The next highest-order bit indicate that the worker shutdown process has
-///   started, and no new commands will be incoming.
+///   started, and no new commands will be incoming. Clients should never
+///   observe this state as it indicate concurrent command submission during
+///   execution of udipe_finalize(). Workers interprete this as the sign that no
+///   more command will be coming and they can shut down.
 /// - The \ref NUM_PRIORITIES lowest-order bits indicate, when set, that a
 ///   particular priority class has commands available for processing.
-///     * The low-order bit represents the highest supported command priority,
-///       each higher order bit represents a lower priority. So for 8 supported
-///       priorities, bit 0 represents priority 7, bit 1 represents priority 6,
-///       ..., and bit 7 represents priority 0. This layout makes it possible to
-///       find out the highest priority class that has commands available using
-///       the find-first-set word binary arithmetic operation, which typically
-///       translates to a single CPU instruction.
+///     * The lowest-order bit represents the highest supported command
+///       priority, each higher order bit represents a lower priority. So for 8
+///       supported priorities, bit 0 represents priority 7, bit 1 represents
+///       priority 6, ..., and bit 7 represents priority 0. This layout makes it
+///       possible to find out the highest priority class that has commands
+///       available using the find-first-set binary arithmetic operation, which
+///       typically translates to a single CPU instruction.
 /// - Other bits are reserved and must be stay zero.
 ///
-/// Lock-free transactions on this word mostly use an Acquire-Release memory
-/// model:
+/// Lock-free transactions on this word use an Acquire-Release memory model:
 ///
 /// - Any readout that is used to infer the state of a memory location other
 ///   than the global status word, typically for the sake of subsequently
@@ -102,9 +105,9 @@ static_assert(PRIORITY_SHUTDOWN > PRIORITY_HIGHEST,
 ///   acquires knowledge of new world state) must have Acquire-Release memory
 ///   ordering.
 /// - Any operation that does none of the above (only cares about the state of
-///   this word, typically because it is only used as preparation for another
-///   atomic transaction on the word that has stronger ordering) can have
-///   Relaxed memory ordering.
+///   this status word, typically because it is only used as preparation for
+///   another atomic transaction on the status word that has stronger ordering)
+///   can have Relaxed memory ordering.
 typedef _Atomic word_t command_global_status_t;
 
 /// Bit of \ref command_global_status_t tracking the need for \ref event_t
@@ -140,12 +143,10 @@ static_assert(
 /// Bits of \ref command_global_status_t that are reserved and must stay zeroed
 ///
 /// Checked in debug builds, ignored in release builds.
-#define COMMAND_GLOBAL_RESERVED_MASK  (  \
-    WORD_MAX  \
-    - COMMAND_GLOBAL_EVENT_NEEDED  \
-    - COMMAND_GLOBAL_SHUTTING_DOWN   \
-    - COMMAND_GLOBAL_PRIORITY_MASK  \
-)
+#define COMMAND_GLOBAL_RESERVED_MASK  (WORD_MAX  \
+                                       - COMMAND_GLOBAL_EVENT_NEEDED  \
+                                       - COMMAND_GLOBAL_SHUTTING_DOWN   \
+                                       - COMMAND_GLOBAL_PRIORITY_MASK)
 
 /// Initialize a \ref command_global_status_t
 ///
@@ -276,6 +277,9 @@ size_t command_global_status_fetch_next(
 /// This is done by the command queue finalizer, which itself is called by
 /// udipe_finalize(). It tells workers that they should not expect any more
 /// commands, and are asked to shut down.
+///
+/// This operation must always be paired with \ref event_t signaling as the
+/// worker must be in an idle state at the time where finalization is started.
 ///
 /// This function must be called within a logging scope.
 ///
